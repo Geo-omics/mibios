@@ -3,9 +3,9 @@
 
 <nav aria-label="breadcrumb">
   <ol class="breadcrumb">
-    <li class="breadcrumb-item"><a href="/">Home</a></li>
-    <li class="breadcrumb-item"><a href="/{{ detail_url }}">Data Set</a></li>
-    <li class="breadcrumb-item"><a href="/{{ detail_url }}samples">Samples</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'frontpage' %}">Home</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'dataset' pk=object.dataset.pk %}">Data Set</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'dataset_sample_list' pk=object.dataset.pk %}">Samples</a></li>
     <li class="breadcrumb-item active" aria-current="page">Sample</li>
   </ol>
 </nav>
