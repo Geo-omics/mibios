@@ -18,13 +18,13 @@
 {% if value %} 
 {# filtering out rows that do not have values to cut down on info on page #}
 <tr>
-    <td>{{ name }}:</td>
+    <td>{{ name|capfirst }}:</td>
     <td>{% if url %}<a href="{{ url }}">{{ value }}</a>{% else %}{{ value|default_if_none:"<missing>" }}{% endif %}</td>
 </tr>
 {% endif %}
 {% endfor %}
 {% for name, model_name, qs, field in relations %}
-<tr><td>{{ name }}:</td>
+<tr><td>{{ name|capfirst }}:</td>
 <td>
     {% for obj in qs %}<a href="{% url 'record' model=model_name pk=obj.pk %}">{{ obj }}</a>{% if not forloop.last %}&nbsp;|&nbsp;{% endif %}
     {% empty %}-{% endfor %}

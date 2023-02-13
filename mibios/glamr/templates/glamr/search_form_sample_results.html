@@ -12,18 +12,44 @@
             <h5 class="card-title"><a href="{% url 'sample' pk=item.pk %}">Sample: {{ item }}</a></h5>
         </div>
         <div class="card-body">
-            Dataset: {% if item.dataset_id %}
-                <a href="{% url 'dataset' pk=item.dataset_id %}">{{item.dataset}}</a><br/>
-            {% else %}
-                <i>No dataset associated with this sample</i><br/>
-            {% endif %}
-            Location: {{item.geo_loc_name}}<br/>
-            Sample Type: {{item.sample_type}}<br/>
-            Collection Timestamp: {{item.collection_timestamp}}<br/>
-            Project ID: {{item.project_id}}<br/>
-            Environment Broad Scale: {{item.env_broad_scale}}<br/>
-            Environment Local Scale: {{item.env_local_scale}}<br/>
-            Environment Medium: {{item.env_medium}}<br/>
+            <table class="table table-hover table-condensed table-sm"><tbody>
+                <tr>
+                    <td>Dataset:</td>
+                    {% if item.dataset_id %}
+                        <td><a href="{% url 'dataset' pk=item.dataset_id %}">{{item.dataset}}</a></td>
+                    {% else %}
+                        <td><i>No dataset associated with this sample</i></td>
+                    {% endif %}
+                </tr>
+                <tr>
+                    <td>Location:</td>
+                    <td>{{item.geo_loc_name}}</td>
+                </tr>
+                <tr>
+                    <td>Sample Type:</td>
+                    <td>{{item.sample_type}}</td>
+                </tr>
+                <tr>
+                    <td>Collection Timestamp:</td>
+                    <td>{{item.collection_timestamp}}</td>
+                </tr>
+                <tr>
+                    <td>Project ID:</td>
+                    <td>{{item.project_id}}</td>
+                </tr>
+                <tr>
+                    <td>Environment Broad Scale:</td>
+                    <td>{{item.env_broad_scale}}</td>
+                </tr>
+                <tr>
+                    <td>Environment Local Scale:</td>
+                    <td>{{item.env_local_scale}}</td>
+                </tr>
+                <tr>
+                    <td>Environment Medium:</td>
+                    <td>{{item.env_medium}}</td>
+                </tr>
+            </tbody></table>
         </div> 
     </li>
 {% endfor %}
