@@ -4,13 +4,13 @@
 <nav aria-label="breadcrumb">
   <ol class="breadcrumb">
     <li class="breadcrumb-item"><a href="{% url 'frontpage' %}">Home</a></li>
-    <li class="breadcrumb-item"><a href="{% url 'dataset' pk=object.dataset.pk %}">Data Set</a></li>
-    <li class="breadcrumb-item"><a href="{% url 'dataset_sample_list' pk=object.dataset.pk %}">Samples</a></li>
+    <li class="breadcrumb-item">{% if object.dataset.pk %}<a href="{% url 'dataset' pk=object.dataset.pk %}">{% else %}<a href="{% url 'dataset' pk=0 %}">{% endif %}Data Set</a></li>
+    <li class="breadcrumb-item">{% if object.dataset.pk %}<a href="{% url 'dataset_sample_list' pk=object.dataset.pk %}">{% else %}<a href="{% url 'dataset_sample_list' pk=0 %}">{% endif %}Samples</a></li>
     <li class="breadcrumb-item active" aria-current="page">Sample</li>
   </ol>
 </nav>
 
-<h3>{{ object_model_verbose_name }}: {{ object }}</h3>
+<h3>{{ object_model_verbose_name|capfirst }}: {{ object }}</h3>
 
 <table class="table table-hover table-condensed table-sm">
 <tbody>
