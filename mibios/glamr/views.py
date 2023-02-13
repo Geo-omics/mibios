@@ -504,6 +504,8 @@ class DatasetView(BaseDetailView):
 
         # this is hacky but want details in particular order
         ordered_details = []
+        # reference, samples, bioproject, gold id, material type, water bodies,
+        # primers, sequencing target, sequencing platform, size fraction, notes
         for detail in details:
             # reference
             if detail[0] == 'reference':
@@ -934,7 +936,7 @@ class SampleSearchHitView(TemplateView):
             Q(dataset__reference__title__icontains=self.query) |
             Q(dataset__reference__authors__icontains=self.query) |
             Q(sample_name__icontains=self.query)
-        ).order_by('sample_name')
+        ).order_by('sample_name').distinct()
 
         self.results = qs
 
@@ -974,8 +976,7 @@ class DatasetSearchHitView(TemplateView):
             Q(dataset_id__icontains=self.query) |
             Q(sample__sample_type__icontains=self.query) |
             Q(sample__geo_loc_name__icontains=self.query)
-        ).order_by('dataset_id')
-
+        ).order_by('dataset_id').distinct()
         self.results = qs
 
 
