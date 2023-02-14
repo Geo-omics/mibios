@@ -222,10 +222,10 @@ class DatasetTable(Table):
 
     def render_samples(self, record):
         if record.sample_count <= 0:
-            return mark_safe(f'<div class="btn btn-primary disabled">No samples</div>')
+            return mark_safe(f'<div class="btn btn-primary disabled mb-1">No samples</div>')
 
         url = record.get_samples_url()
-        return mark_safe(f'<a href="{url}" class="btn btn-primary">{record.sample_count} available samples</a>')
+        return mark_safe(f'<a href="{url}" class="btn btn-primary mb-1">{record.sample_count} available samples</a>')
 
 
 def get_sample_url(sample):
