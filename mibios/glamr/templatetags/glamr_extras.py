@@ -1,5 +1,6 @@
 from django import template
 from django.db.models import Field, Q
+from django.template.defaultfilters import capfirst, stringfilter
 
 
 register = template.Library()
@@ -65,3 +66,15 @@ def qformat(value):
 def is_q(value):
     """ check if object is a Q instance """
     return isinstance(value, Q)
+
+
+@register.filter(name='capfirstkeep')
+@stringfilter
+def capfirstkeep(value):
+    """
+    like capfirst but preserves existing capitalizations
+
+    "pH" -> "pH"
+    "ph" -> "Ph"
+    """
+    return capfirst(value) if value.islower() else value
