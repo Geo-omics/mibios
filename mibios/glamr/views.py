@@ -426,6 +426,11 @@ class BaseDetailView(DetailView):
     template_name = 'glamr/detail.html'
     max_to_many = 16
 
+    field_order = None
+    """ a list of field names, setting the order of display, invalid names are
+    ignored, fields not listed go last, in the order they are declared in the
+    model class """
+
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['object_model_name'] = self.model._meta.model_name
@@ -438,7 +443,15 @@ class BaseDetailView(DetailView):
     def get_details(self):
         details = []
         rel_lists = []
-        for i in self.model._meta.get_fields():
+        fields = self.model._meta.get_fields()
+
+        if self.field_order:
+            ford = dict(zip(self.field_order, range(len(self.field_order))))
+            inf = float('inf')
+            fields = sorted(fields, key=lambda x: ford.get(x.name, inf))
+            del ford, inf
+
+        for i in fields:
             if i.name == 'id':
                 continue
 
