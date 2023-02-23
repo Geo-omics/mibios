@@ -22,6 +22,9 @@ RUN apt-get update && apt-get install --assume-yes --no-install-recommends \
     uwsgi \
     uwsgi-plugin-python3
 
+#Address 'Externally Managed' bug
+RUN rm -rf /usr/lib/python3.11/EXTERNALLY-MANAGED
+
 # this is Debian's pip so this will install under /usr/local
 # just "pip install" will install for python3.10, hence invoke via "python3.11 -m pip"
 RUN python3.11 -m pip install --no-index --no-deps --python /usr/bin/python3.11 git+https://github.com/Geo-omics/mibios.git
