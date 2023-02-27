@@ -370,14 +370,13 @@ class InputFileSpec:
         """
         Setup method to be called once before loading data
 
-        Intended to be called automatically by the loader.
+        Intended to be called automatically by the loader.  Should be
+        idempotent when called repeatedly.
         """
         self.loader = loader
         self.model = loader.model
         if column_specs is None:
             column_specs = self._spec
-        else:
-            self._spec = column_specs
 
         if not column_specs:
             raise ValueError('at least one column needs to be declared')
@@ -498,7 +497,7 @@ class InputFileSpec:
         self.prepfuncs = tuple(prepfuncs)
 
     def __len__(self):
-        return len(self._spec)
+        return len(self.keys)
 
     def iterrows(self):
         """
