@@ -394,11 +394,15 @@ class Model(MibiosModel):
             )
         return names[0]
 
-    def get_accessions(self):
+    def get_accessions(self, ensure_type=False):
         """
         Return instance-identifying value(s)
 
-        For FK fields this returns the pk
+        ensure_type [bool]: If True, then call the fields to_python() method on
+        the attribut value to ensure the correct type is returned.  This may be
+        useful if out instance was not retrieved from the database.
+
+        For FK fields this returns the pk.
         """
         accs = []
         for field in self.get_accession_fields():
@@ -407,7 +411,10 @@ class Model(MibiosModel):
             else:
                 attr_name = field.name
 
-            accs.append(getattr(self, attr_name))
+            value = getattr(self, attr_name)
+            if ensure_type:
+                value = field.to_python(value)
+            accs.append(value)
         return tuple(accs)
 
     def get_accession_single(self):

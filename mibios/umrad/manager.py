@@ -393,8 +393,9 @@ class BaseLoader(DjangoManager):
             obj_pool = self._get_objects_for_update(template)
             print(f'[{len(obj_pool)} OK]')
 
-        # loading FK (acc,...)->pk mappings
-        fkmap = {}
+        # loading info to process FKs
+        fkmap = {}  # the (acc,...)->pk mappings
+        fk2pythons = {}  # any needed Field.to_python() functions
         for i in fields:
             if not i.many_to_one:
                 continue
@@ -410,7 +411,11 @@ class BaseLoader(DjangoManager):
                 # the values will be PKs
                 continue
 
-            print(f'Retrieving {i.related_model._meta.verbose_name} data...',
+            fk2pythons[i.name] = \
+                [i.related_model._meta.get_field(j).to_python for j in lookups]
+
+            print(f'Retrieving {i.related_model._meta.verbose_name} data, '
+                  f'indexing by {lookups} ...',
                   end='', flush=True)
             fkmap[i.name] = {
                 tuple(a): pk for *a, pk
@@ -465,7 +470,9 @@ class BaseLoader(DjangoManager):
                         if value is None:
                             row_skip_count += 1
                             break  # skips line
-                        elif value in obj_pool:
+
+                        value = field.to_python(value)
+                        if value in obj_pool:
                             obj = obj_pool[value]
                             if obj is None:
                                 raise RuntimeError(
@@ -474,7 +481,7 @@ class BaseLoader(DjangoManager):
                                 )
                             obj_pool[value] = None
                             obj_is_new = False
-                            # this value is already set, next field please
+                            # the value is already set, go to next field please
                             continue
                         else:
                             obj = self.model(**template)
@@ -508,7 +515,17 @@ class BaseLoader(DjangoManager):
                 elif field.many_to_one:
                     if field.name in fkmap:
                         if not isinstance(value, tuple):
+
                             value = (value, )  # fkmap keys are tuples
+                        try:
+                            value = tuple((
+                                fn(v) for fn, v
+                                in zip(fk2pythons[field.name], value)
+                            ))
+                        except Exception as e:
+                            print(f'conversion to python values failed: {e}')
+                            raise e
+
                         try:
                             pk = fkmap[field.name][value]
                         except KeyError:
@@ -555,14 +572,14 @@ class BaseLoader(DjangoManager):
                     upd_objs.append(obj)
 
                 if m2m:
-                    m2m_data[obj.get_accessions()] = m2m
+                    m2m_data[obj.get_accessions(ensure_type=True)] = m2m
 
         del fkmap, field, value, pk, obj, m2m
         if update:
             missing_objs = [(j.pk, i) for i, j in obj_pool.items() if j]
             if missing_objs:
                 print(f'WARNING: {len(missing_objs)} existing {model_name} '
-                      f'reords missing from input data')
+                      f'records missing from input data')
             del obj_pool
             if not diff:
                 del missing_objs
