@@ -977,7 +977,7 @@ class BaseLoader(DjangoManager):
         insert_sql = f'INSERT INTO {TEMP_TABLE} ({col_names}) VALUES {values}'
         table = self.model._meta.db_table
         set_expr = ', '.join([
-            f'{i.column} = updates_tmp.{i.column}'
+            f'{i.column} = {TEMP_TABLE}.{i.column}'
             for i in fields
         ])
         cond = f'{table}.{pk_field.column} = {TEMP_TABLE}.{pk_field.column}'
