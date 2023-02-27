@@ -6,6 +6,7 @@ from os import environ
 from mibios.ops.settings import *  # noqa:F403
 
 # hook up the apps
+INSTALLED_APPS.append('ncbi_taxonomy.apps.AppConfig')  # noqa:F405
 INSTALLED_APPS.append('mibios.umrad.apps.AppConfig')  # noqa:F405
 INSTALLED_APPS.append('mibios.omics.apps.AppConfig')  # noqa:F405
 
