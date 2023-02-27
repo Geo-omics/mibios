@@ -1,9 +1,9 @@
-from itertools import groupby
 from logging import getLogger
 
 from django.db import models
 
 from mibios import get_registry
+from mibios.ncbi_taxonomy.models import TaxNode
 
 from .fields import AccessionField
 from . import manager
@@ -211,269 +211,6 @@ class FuncRefDBEntry(Model):
             return url_spec[0].format(url_spec[1](self.accession))
 
 
-class TaxID(Model):
-    taxid = models.PositiveBigIntegerField(
-        unique=True, verbose_name='NCBI taxid',
-    )
-    taxon = models.ForeignKey('Taxon', **fk_req)
-
-    # disable auto-creation as m2m target
-    loader = None
-
-    def __str__(self):
-        return str(self.taxid)
-
-    def get_external_url(self):
-        return (f'https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id='
-                f'{self.taxid}')
-
-
-class Taxon(Model):
-    """
-    A taxonomic tree
-
-    Implementation of a taxonomic tree with 9 ranks.  Each node is a (rank,
-    name) pair.  Except for the root, the ancestor relation is the transitive
-    closure of the parent/child links.  Not all ranks have to be present in a
-    lineage.  For efficiency, relations to the root are implied, that is, the
-    root is not related to any other node.
-    """
-    RANKS = (
-        (0, 'root'),  # implied only, no root object saved in DB
-        (1, 'domain'),
-        (2, 'phylum'),
-        (3, 'class'),
-        (4, 'order'),
-        (5, 'family'),
-        (6, 'genus'),
-        (7, 'species'),
-        (8, 'strain'),
-    )
-    name = models.TextField(max_length=64)
-    rank = models.PositiveSmallIntegerField(choices=RANKS)
-    lineage = models.TextField()
-    ancestors = models.ManyToManyField(
-        'self',
-        symmetrical=False,
-        related_name='descendants',
-    )
-
-    loader = manager.TaxonLoader()
-
-    class Meta(Model.Meta):
-        unique_together = (
-            ('rank', 'name'),
-        )
-        verbose_name_plural = 'taxa'
-
-    def __str__(self):
-        return f'{self.get_rank_display()} {self.name}'
-
-    def get_parent(self):
-        """
-        Get the nearest ancestor, the parent.
-
-        Returns None for the root
-        """
-        parent = self.ancestors.order_by('rank').last()
-        if parent is None:
-            # no ancestors
-            if self.rank == 0:
-                # we're root, no parent
-                return None
-            else:
-                # root is parent
-                return Taxon.objects.get(rank=0)
-        return parent
-
-    def as_lineage(self, to_species=False):
-        """
-        format taxon as lineage
-
-        Start with kingdom ranks, fill in gaps with placeholder names.
-
-        to_species: for higher-level taxa, if needed, auto-fill placeholder
-                    names until species
-        """
-        # last: remembers the stem to be used for unclassified parts
-        last = None
-        nodes = list(self.ancestors.order_by('rank')) + [self]
-        parts = []
-        for i, rank_name in self.RANKS[1:]:
-            if nodes:
-                taxon = nodes[0]
-                if taxon.rank > i:
-                    if i == 7:
-                        parts.append(f'{last}_SP')
-                    else:
-                        parts.append(
-                            f'UNCLASSIFIED_{last}_{rank_name.upper()}'
-                        )
-                else:
-                    parts.append(taxon.name)
-                    last = taxon.name
-                    nodes.pop(0)
-
-            elif to_species and i < 8:
-                if i < 7:
-                    # auto-fill part before species
-                    parts.append(f'UNCLASSIFIED_{last}_{rank_name.upper()}')
-                elif i == 7:
-                    # auto-fill species and be done
-                    parts.append(f'{last}_SP')
-                    break
-                else:
-                    raise RuntimeError('a logic bug')
-            else:
-                # all done
-                break
-
-        return ';'.join(parts)
-
-    @classmethod
-    def get_search_field(cls):
-        return cls._meta.get_field('name')
-
-    @classmethod
-    def get_lineage_rep_lookupper(cls):
-        """
-        helper to build lineage-representation-to-object lookup dictionary
-
-        Expensive to call, about 40s
-        """
-        root = cls.objects.get(rank=0)
-        objs = {obj.pk: obj for obj in cls.objects.iterator()}
-        lin2obj = {}
-
-        # empty lineage maps to root
-        lin2obj[()] = cls.objects.get(rank=0)
-
-        # orphans / phylum-level nodes below root (no ancestors, remember:
-        # unrelated root)
-        for i in cls.objects.filter(ancestors=None, rank__gt=0):
-            lin2obj[((i.rank, i.name), )] = i
-
-        # UNKNOWN_ special cases: suggesting length-2 lineages: [<root>;<org>]
-        # NOTE: these have not shown up in UNIREF_INFO nor _contigs_ files yet
-        for i in root.descendants.all():
-            lin = ((root.rank, root.name), (i.rank, i.name))
-            lin2obj[lin] = i
-
-        # regular inner nodes (not UNKNOWN_[...], which link to root)
-        # for each inner node, collect all ancestors -> lineage
-        thru = cls._meta.get_field('ancestors').remote_field.through
-        qs = thru.objects.exclude(to_taxon=root)
-        qs = qs.values_list('from_taxon_id', 'to_taxon_id')
-        qs = qs.order_by('from_taxon_id')
-        for from_id, grp in groupby(qs.iterator(), key=lambda x: x[0]):
-            lin = [(objs[i].rank, objs[i].name) for _, i in grp]
-            lin.append((objs[from_id].rank, objs[from_id].name))
-            lin2obj[tuple(lin)] = objs[from_id]
-
-        return lin2obj
-
-    @classmethod
-    def get_parse_and_lookup_fun(cls):
-        """
-        Make and return a lineage string to Taxon instance mapper
-        """
-        lin2obj = cls.get_lineage_rep_lookupper()
-
-        def str2instance(lineage):
-            lineage = tuple(cls.parse_string(lineage))
-            try:
-                return lin2obj[lineage], None
-            except KeyError:
-                return None, lineage
-
-        return str2instance
-
-    @classmethod
-    def parse_string(cls, lineage, sep=';'):
-        """
-        Parse a lineage string into list of (rank, name) pairs
-
-        For an empty string an empty list is returned.
-        """
-        if not sep:
-            raise ValueError('separator must not be empty')
-
-        if not lineage:
-            # avoid ''.split(sep) -> ['']
-            return []
-
-        specials = ('MICROBIOME',)
-        lst = []
-        check_species = False
-
-        for rank, name in enumerate(lineage.split(sep), start=1):
-            if rank < 7 and name.startswith('UNCLASSIFIED_'):
-                # skipping these
-                parts = name.split('_')
-                if len(parts) == 2:
-                    # unclass microbiome, others?
-                    if parts[-1] not in specials:
-                        raise RuntimeError(
-                            f'can not handle: {rank=} {name=} in {lineage=}'
-                        )
-                    continue
-                rank_name = parts[-1]
-                if rank_name.casefold() != cls.RANKS[rank][1].casefold():
-                    raise RuntimeError(
-                        f'failed parsing: {rank=} {name=} rank mismatch'
-                    )
-                derivate = '_'.join(parts[1:-1])
-                if derivate != lst[-1][1]:
-                    raise RuntimeError(
-                        f'failed parsing: uncl {rank=} {name=} {lst=} mismatch'
-                    )
-                continue
-
-            if rank == 7 and name.endswith('_SP'):
-                # test if _SP name is derived from higher rank
-                for r, n in lst:
-                    if name[:-3] == n:
-                        skip = True
-                        break
-                else:
-                    # not derived from higher rank
-                    # keep this for now, but check again with strain
-                    check_species = True
-                    skip = False
-                if skip:
-                    continue
-
-            if rank == 8 and check_species:
-                # FIXME: not doing anything here for now
-                pass
-
-            lst.append((rank, name))
-        return lst
-
-    @classmethod
-    def from_string(cls, lineage, obj_cache=None, sep=';'):
-        """
-        Get Taxon instance from a lineage string
-
-        obj_cache: a dict: (rank, name)->Taxon
-
-        ...
-        """
-        # formerly from_name_pks()
-        *ancestry, (rank, name) = cls.parse_string(lineage, sep=sep)
-        obj = cls(name=name, rank=rank, lineage=lineage)
-        if obj_cache is None:
-            q = None
-            for r, n in ancestry:
-                qi = models.Q(rank=r, name=n)
-                q = qi if q is None else q | qi
-            ancestry = Taxon.objects.filter(q)
-        else:
-            ancestry = [obj_cache[(r, n)] for r, n in ancestry]
-
-        return obj
-
-
 class Uniprot(Model):
     accession = AccessionField(verbose_name='uniprot id')
 
@@ -510,7 +247,10 @@ class UniRef100(Model):
     #  7 DNA
     dna_binding = models.TextField(**ch_opt)
     #  8 TaxonId
-    taxids = models.ManyToManyField(TaxID, related_name='classified_uniref100')
+    taxa = models.ManyToManyField(
+        TaxNode,
+        related_name='classified_uniref100',
+    )
     #  9 Binding
     binding = models.ManyToManyField(CompoundRecord)
     # 10 Loc
@@ -548,7 +288,6 @@ def delete_all_uniref100_etc():
 
 def load_umrad():
     """ load all of UMRAD from scratch, assuming an empty DB """
-    Taxon.loader.load()
     CompoundRecord.loader.load(skip_on_error=True)
     ReactionRecord.loader.load(skip_on_error=True)
     UniRef100.loader.load(skip_on_error=True)

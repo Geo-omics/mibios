@@ -30,7 +30,8 @@ from django.db.models import prefetch_related_objects
 from django.utils.module_loading import import_string
 
 from mibios.models import QuerySet
-from mibios.umrad.models import TaxID, Taxon, UniRef100
+from mibios.ncbi_taxonomy.models import TaxNode
+from mibios.umrad.models import UniRef100
 from mibios.umrad.manager import BulkLoader, Manager
 from mibios.umrad.utils import CSV_Spec, atomic_dry
 
@@ -439,7 +440,8 @@ class ContigLikeLoader(SequenceLikeLoader):
 
     @staticmethod
     def get_lca(taxa):
-        """ helper to calculate the LCA Taxon from taxids """
+        """ helper to calculate the LCA of given TaxNodes """
+        # FIXME: needs transition to NCBI taxonomy
         lins = []
         for i in taxa:
             # assume ancestors are prefetched, so sort by python
@@ -529,10 +531,11 @@ class ContigLoader(ContigLikeLoader):
     @atomic_dry
     def assign_contig_lca(self, sample):
         """
-        assign / pre-compute taxids and LCAs to contigs via genes
+        assign / pre-compute taxa and LCAs to contigs via genes
 
-        This populates the Contig.lca/taxid fields
+        This populates the Contig.lca/taxa fields
         """
+        # FIXME: needs transition to NCBI taxonomy
         Gene = import_string('mibios.omics.models.Gene')
         # TODO: make this a Contig manager method?  Or Sample method?
         genes = Gene.objects.filter(sample=sample)
@@ -540,29 +543,29 @@ class ContigLoader(ContigLikeLoader):
         genes = genes.values_list('contig_id', 'pk', 'lca_id')
         genes = genes.order_by('contig_id')  # _id is contig's PK here
         print('Fetching taxonomy... ', end='', flush=True)
-        taxa = Taxon.objects.filter(gene__sample=sample).distinct().in_bulk()
+        taxa = TaxNode.objects.filter(gene__sample=sample).distinct().in_bulk()
         print(f'{len(taxa)} [OK]')
         print('Fetching contigs... ', end='', flush=True)
         contigs = self.model.objects.filter(sample=sample).in_bulk()
         print(f'{len(contigs)} [OK]')
-        print('Fetching Gene -> TaxIDs links... ', end='', flush=True)
-        g2tids_qs = Gene._meta.get_field('taxid').remote_field.through.objects
-        g2tids_qs = g2tids_qs.filter(gene__sample=sample)
-        g2tids_qs = g2tids_qs.values_list('gene_id', 'taxid_id')
-        g2tids_qs = groupby(g2tids_qs.order_by('gene_id'), key=lambda x: x[0])
-        g2tids = {}
-        for gene_pk, grp in g2tids_qs:
-            g2tids[gene_pk] = [i for _, i in grp]
-        print(f'{len(g2tids)} [OK]')
+        print('Fetching Gene -> TaxNode links... ', end='', flush=True)
+        g2tax_qs = Gene._meta.get_field('taxa').remote_field.through.objects
+        g2tax_qs = g2tax_qs.filter(gene__sample=sample)
+        g2tax_qs = g2tax_qs.values_list('gene_id', 'taxnode_id')
+        g2tax_qs = groupby(g2tax_qs.order_by('gene_id'), key=lambda x: x[0])
+        g2taxa = {}
+        for gene_pk, grp in g2tax_qs:
+            g2taxa[gene_pk] = [i for _, i in grp]
+        print(f'{len(g2taxa)} [OK]')
 
-        def contig_taxid_links():
+        def contig_taxnode_links():
             """ generate m2m links with side-effects """
             for contig_pk, grp in groupby(genes, lambda x: x[0]):
-                taxid_pks = set()
+                taxnode_pks = set()
                 lcas = set()
                 for _, gene_pk, lca_pk in grp:
                     try:
-                        taxid_pks.update(g2tids[gene_pk])
+                        taxnode_pks.update(g2taxa[gene_pk])
                         lcas.add(taxa[lca_pk])
                     except KeyError:
                         # gene w/o hits
@@ -571,16 +574,16 @@ class ContigLoader(ContigLikeLoader):
                 # assign contig LCA from gene LCAs (side-effect):
                 contigs[contig_pk].lca = self.get_lca(lcas)
 
-                for i in taxid_pks:
+                for i in taxnode_pks:
                     yield (contig_pk, i)
 
-        Through = self.model._meta.get_field('taxid').remote_field.through
+        Through = self.model._meta.get_field('taxa').remote_field.through
         delcount, _ = Through.objects.filter(contig__sample=sample).delete()
         if delcount:
-            print(f'Deleted {delcount} existing contig-taxid links')
+            print(f'Deleted {delcount} existing contig-taxnode links')
         objs = (
-            Through(contig_id=i, taxid_id=j)
-            for i, j in contig_taxid_links()
+            Through(contig_id=i, taxnode_id=j)
+            for i, j in contig_taxnode_links()
         )
         self.bulk_create_wrapper(Through.objects.bulk_create)(objs)
 
@@ -660,25 +663,27 @@ class GeneLoader(ContigLikeLoader):
     @atomic_dry
     def assign_gene_lca(self, sample):
         """
-        assign / pre-compute taxids and LCAs to genes via uniref100 hits
+        assign / pre-compute taxa and LCAs to genes via uniref100 hits
 
         This also populates Gene.lca / Gene.besthit fields
         """
+        # FIXME: needs transition to NCBI taxonomy
         Alignment = import_string('mibios.omics.models.Alignment')
 
-        # Get UniRef100.taxids m2m links
-        TUT = UniRef100._meta.get_field('taxids').remote_field.through
+        # Get UniRef100.taxa m2m links
+        TUT = UniRef100._meta.get_field('taxa').remote_field.through
         qs = TUT.objects.filter(uniref100__gene_hit__sample=sample).distinct()
-        qs = qs.order_by('uniref100').values_list('uniref100_id', 'taxid_id')
-        print('Fetching uniref100/taxids...', end='', flush=True)
-        u2t = {}  # pk map ur100->taxids
+        qs = qs.order_by('uniref100').values_list('uniref100_id', 'taxnode_id')
+        print('Fetching uniref100/taxa...', end='', flush=True)
+        u2t = {}  # pk map ur100->taxnodes
         for ur100_pk, grp in groupby(qs.iterator(), key=lambda x: x[0]):
             u2t[ur100_pk] = [i for _, i in grp]
         print(f'{len(u2t)} [OK]')
 
         print('Fetching tax info...', end='', flush=True)
+        # FIXME ncbi taxonomy
         qs = (
-            TaxID.objects
+            TaxNode.objects
             .filter(classified_uniref100__gene_hit__sample=sample)
             .select_related('taxon')
         )
@@ -686,45 +691,45 @@ class GeneLoader(ContigLikeLoader):
         print(f'{len(taxmap)} [OK]')
 
         print('Fetching ancestry...', end='', flush=True)
-        taxa = list(taxmap.values())
-        prefetch_related_objects(taxa, 'ancestors')
-        print(f'{len(taxa)} [OK]')
+        taxaX = list(taxmap.values())
+        prefetch_related_objects(taxaX, 'ancestors')
+        print(f'{len(taxaX)} [OK]')
 
         hits = Alignment.objects.filter(gene__sample=sample)
         hits = hits.select_related('gene').order_by('gene')
         genes = []
 
-        def gene_taxid_links():
+        def gene_taxa_links():
             """
-            generate pk pairs (gene, taxid) to make Gene<->TaxID m2m links
+            generate pk pairs (gene, taxnode) to make Gene<->TaxNode m2m links
 
             As a side-effect this also sets besthit and lca for each gene that
             has a hit.
             """
             for gene, grp in groupby(hits.iterator(), key=lambda x: x.gene):
-                # get all TaxIDs for all hits, some UR100 may not have taxids
-                tids = set()
+                # get all taxa for all hits, some UR100 may not have taxa
+                taxa = set()
                 best = None
                 for align in grp:
                     if best is None or align.score > best.score:
                         best = align
-                    for taxid_pk in u2t.get(align.ref_id, []):
-                        if taxid_pk in tids:
+                    for taxnode_pk in u2t.get(align.ref_id, []):
+                        if taxnode_pk in taxa:
                             continue
                         else:
-                            tids.add(taxid_pk)
-                            yield (gene.pk, taxid_pk)
+                            taxa.add(taxnode_pk)
+                            yield (gene.pk, taxnode_pk)
                 gene.besthit_id = best.ref_id
-                gene.lca = self.get_lca([taxmap[i] for i in tids])
-                # some genes here have hits but no taxids, for those lca is set
+                gene.lca = self.get_lca([taxmap[i] for i in taxa])
+                # some genes here have hits but no taxa, for those lca is set
                 # to None here
                 genes.append(gene)
 
-        Through = self.model._meta.get_field('taxid').remote_field.through
+        Through = self.model._meta.get_field('taxa').remote_field.through
         delcount, _ = Through.objects.filter(gene__sample=sample).delete()
         if delcount:
-            print(f'Deleted {delcount} existing gene-taxid links')
-        objs = (Through(gene_id=i, taxid_id=j) for i, j in gene_taxid_links())
+            print(f'Deleted {delcount} existing gene-taxnode links')
+        objs = (Through(gene_id=i, taxnode_id=j) for i, j in gene_taxa_links())
         self.bulk_create_wrapper(Through.objects.bulk_create)(objs)
 
         # update lca field for all genes incl. the unknowns

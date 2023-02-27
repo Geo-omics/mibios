@@ -9,12 +9,12 @@ from django.db import models
 from django.db.transaction import atomic, set_rollback
 
 from mibios.data import TableConfig
+from mibios.ncbi_taxonomy.models import TaxNode
 from mibios.umrad.fields import AccessionField
 from mibios.umrad.model_utils import (
     digits, opt, ch_opt, fk_req, fk_opt, uniq_opt, Model,
 )
-from mibios.umrad.models import (CompoundRecord, FuncRefDBEntry, TaxID, Taxon,
-                                 UniRef100)
+from mibios.umrad.models import CompoundRecord, FuncRefDBEntry, UniRef100
 from mibios.umrad.utils import ProgressPrinter
 
 from . import managers, get_sample_model, sra
@@ -857,7 +857,7 @@ class CheckM(Model):
 
 class TaxonAbundance(Model):
     sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
-    taxon = models.ForeignKey(Taxon, **fk_req, related_name='abundance')
+    taxon = models.ForeignKey(TaxNode, **fk_req, related_name='abundance')
 
     # meta-genomic abundance measures
     # (horizontal aggregations / normalized by total post-QC read-pair count)
@@ -1025,8 +1025,11 @@ class ContigLike(SequenceLike):
     fpkm_bbmap = models.DecimalField(decimal_places=4, max_digits=10, **opt)
     fpkm = models.FloatField(**opt)
     # taxon + lca from contigs file
-    taxid = models.ManyToManyField(TaxID, related_name='classified_%(class)s')
-    lca = models.ForeignKey(Taxon, **fk_opt)
+    taxa = models.ManyToManyField(
+        TaxNode,
+        related_name='classified_%(class)s',
+    )
+    lca = models.ForeignKey(TaxNode, **fk_opt)
 
     class Meta:
         abstract = True
@@ -1310,7 +1313,7 @@ class RNACentral(Model):
                   / 'rnacentral_clean.fasta.gz')
 
     accession = AccessionField()
-    taxon = models.ForeignKey(Taxon, **fk_req)
+    taxon = models.ForeignKey(TaxNode, **fk_req)
     rna_type = models.PositiveSmallIntegerField(choices=RNA_TYPES)
 
     def __str__(self):
@@ -1320,7 +1323,7 @@ class RNACentral(Model):
     @classmethod
     def load(cls, path=INPUT_FILE):
         type_map = dict(((b.casefold(), a) for a, b, in cls.RNA_TYPES))
-        taxa = dict(Taxon.objects.values_list('taxid', 'pk'))
+        taxa = dict(TaxNode.objects.values_list('taxid', 'pk'))
 
         zcat_cmd = ['/usr/bin/unpigz', '-c', str(path)]
         zcat = Popen(zcat_cmd, stdout=PIPE)

@@ -1235,124 +1235,6 @@ class ReactionRecordLoader(BulkLoader):
     )
 
 
-class TaxonLoader(Loader):
-    """ loader for Taxon model """
-
-    def get_file(self):
-        return settings.UMRAD_ROOT / 'TAXONOMY_DB.txt'
-
-    @atomic_dry
-    def load(self, path=None, bulk=True, dry_run=False):
-        if path is None:
-            path = self.get_file()
-
-        if self.model.objects.exists():
-            raise RuntimeError('taxon table not empty')
-
-        objs = {}
-        taxids = {}
-
-        with path.open() as f:
-            print(f'Reading from file {path} ...')
-            f = ProgressPrinter('taxa found')(f)
-            log.info(f'reading taxonomy: {path}')
-
-            for line in f:
-                taxid, _, lineage = line.rstrip('\n').partition('\t')
-                lin_nodes = self.model.parse_string(lineage, sep='\t')
-                for i in range(len(lin_nodes)):
-                    rank, name = lin_nodes[i]
-                    ancestry = lin_nodes[:i]
-                    lineage = ';'.join(lineage[:rank])
-                    if (rank, name) in objs:
-                        obj, ancestry0 = objs[(rank, name)]
-                        if ancestry0 != ancestry:
-                            raise RuntimeError(
-                                f'inconsistent ancestry: {line=} {lineage=}'
-                            )
-                    else:
-                        obj = self.model(name=name, rank=rank, lineage=lineage)
-                        objs[(rank, name)] = (obj, ancestry)
-                # assign taxid to last node of lineage
-                taxids[taxid] = (rank, name)
-
-        # saving Taxon objects
-        taxa = (i for i, _ in objs.values())
-        if bulk:
-            self.bulk_create(taxa)
-        else:
-            for i in taxa:
-                try:
-                    i.save()
-                except Exception as e:
-                    print(f'{e}: Failed saving {i}: {vars(i)}')
-                    raise
-
-        print('Retrieving taxon PKs... ', end='', flush=True)
-        qs = self.model.objects.values_list('pk', 'rank', 'name')
-        obj_pks = {(rank, name): pk for pk, rank, name in qs.iterator()}
-        print(f'{len(obj_pks)} [OK]')
-
-        # setting ancestry relations
-        Through = self.model._meta.get_field('ancestors').remote_field.through
-        through_objs = (
-            Through(
-                from_taxon_id=obj_pks[(obj.rank, obj.name)],
-                to_taxon_id=obj_pks[(rank, name)]
-            )
-            for obj, ancestry in objs.values()
-            for rank, name in ancestry
-        )
-        self.bulk_create_wrapper(Through.objects.bulk_create)(through_objs)
-
-        # saving taxids
-        TaxID = self.model._meta.get_field('taxid').related_model
-        taxids = (
-            TaxID(taxid=tid, taxon_id=obj_pks[(rank, name)])
-            for tid, (rank, name) in taxids.items()
-        )
-        TaxID.objects.bulk_create(taxids)
-
-    def quick_erase(self):
-        quickdel = import_string(
-            'mibios.umrad.model_utils.delete_all_objects_quickly'
-        )
-        quickdel(self.model._meta.get_field('taxid').related_model)
-        quickdel(self.model._meta.get_field('ancestors').remote_field.through)
-        quickdel(self.model)
-
-    @atomic_dry
-    def fix_root_area(self):
-        """
-        Re-arrange some stuff near root
-
-        To be run after load()
-        """
-        # 1. re-name root
-        try:
-            root = self.get(name='QUIDDAM')
-        except self.model.DoesNotExist:
-            print('WARNING: no such taxon: QUIDDAM')
-        else:
-            root.name = 'root'
-            root.rank = 0
-            root.save()
-            print(f'root renamed: {root}')
-
-        # 2. remove superfluous node
-        try:
-            unknown_root = self.get(name='UNKNOWN_ROOT')
-        except self.model.DoesNotExist:
-            print('WARNING: no such taxon: UNKNOWN_ROOT')
-        else:
-            unknown_root.delete()
-            print(f'deleted: {unknown_root}')
-
-        # 3. set the UNKNOWN_ from phylum to species
-        n = root.descendants.filter(name__startswith='UNKNOWN_').update(rank=7)
-        print(f'set {n} UNKNOWN_ descendants of root to species')
-
-
 class UniRef100Loader(BulkLoader):
     """ loader for OUT_UNIREF.txt """
 
@@ -1360,7 +1242,6 @@ class UniRef100Loader(BulkLoader):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._Taxon = import_string('mibios.umrad.models.Taxon')
         FuncRefDBEntry = import_string('mibios.umrad.models.FuncRefDBEntry')
         self.func_dbs = FuncRefDBEntry.DB_CHOICES
 
@@ -1420,7 +1301,7 @@ class UniRef100Loader(BulkLoader):
         ('SigPep', 'signal_peptide'),
         ('TMS', 'tms'),
         ('DNA', 'dna_binding'),
-        ('TaxonId', 'taxids'),
+        ('TaxonId', 'taxa'),
         ('Binding', 'binding'),
         ('Loc', 'subcellular_locations'),
         ('TCDB', 'function_refs', process_func_xrefs),

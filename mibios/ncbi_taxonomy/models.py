@@ -351,6 +351,10 @@ class TaxNode(Model):
             f['taxname__name__icontains'] = query
         return cls.objects.filter(**f)  # FIXME: distinct()?
 
+    def get_external_url(self):
+        return (f'https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id='
+                f'{self.taxid}')
+
 
 class TypeMaterial(Model):
     # It is not clear if this table has unique or unique-together columns.  The
