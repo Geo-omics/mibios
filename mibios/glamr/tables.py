@@ -190,13 +190,6 @@ class DatasetTable(Table):
         # capitalize just the first letter; leave other characters as they are:
         return scheme[0].upper() + scheme[1:] 
 
-    def render_material_type(self, value, record):
-        # special case for eDNA
-        if value.lower() == 'edna':
-            return 'eDNA'
-
-        return value.capitalize()
-
     def render_external_urls(self, value, record):
         # value is a list of tuples (accession, url)
         items = []
