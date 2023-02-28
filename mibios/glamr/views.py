@@ -509,91 +509,27 @@ class DatasetView(BaseDetailView):
         return super().get_object()
 
     def get_details(self):
+        self.field_order = [
+            'reference',
+            'samples',
+            'bioproject',
+            'gold id', 
+            'material type', 
+            'water bodies', 
+            'primers', 
+            'sequencing target', 
+            'sequencing platform', 
+            'size fraction', 
+            'notes',
+        ]
+
         details, rel_lists = super().get_details()
         if self.object.orphan_group:
             pk = 0
         else:
             pk = self.object.pk
 
-        # this is hacky but want details in particular order
-        ordered_details = []
-        # reference, samples, bioproject, gold id, material type, water bodies,
-        # primers, sequencing target, sequencing platform, size fraction, notes
-        for detail in details:
-            # reference
-            if detail[0] == 'reference':
-                if detail[2]:
-                    ordered_details.append((
-                        'Reference',
-                        detail[1],
-                        detail[2]
-                    ))
-                ordered_details.append((
-                    'Samples',
-                    reverse('dataset_sample_list', args=[pk]),
-                    f'{self.object.samples().count()} available samples'
-                ))
-            if detail[0] == 'bioproject' and detail[2]:
-                ordered_details.append((
-                    'Bio Project',
-                    detail[1],
-                    detail[2]
-                ))
-            if detail[0] == 'gold id' and (detail[1] or detail[2]):
-                ordered_details.append((
-                    'Gold ID',
-                    detail[1],
-                    detail[2]
-                ))
-            if detail[0] == 'material type' and detail[2]:
-                value_text = detail[2]
-                if value_text.lower() == 'edna':
-                    value_text = "eDNA"
-                else:
-                    value_text = value_text.capitalize()
-                ordered_details.append((
-                    'Material Type',
-                    detail[1],
-                    value_text
-                ))
-            if detail[0] == 'water bodies' and detail[2]:
-                ordered_details.append((
-                    'Water Bodies',
-                    detail[1],
-                    detail[2]
-                ))
-            if detail[0] == 'primers' and detail[2]:
-                ordered_details.append((
-                    'Primers',
-                    detail[1],
-                    detail[2]
-                ))
-            if detail[0] == 'sequencing target' and detail[2]:
-                ordered_details.append((
-                    'Sequencing Target',
-                    detail[1],
-                    detail[2]
-                ))
-            if detail[0] == 'sequencing platform' and detail[2]:
-                ordered_details.append((
-                    'Sequencing Platform',
-                    detail[1],
-                    detail[2]
-                ))
-            if detail[0] == 'size fraction' and detail[2]:
-                ordered_details.append((
-                    'Size Fraction',
-                    detail[1],
-                    detail[2]
-                ))
-            if detail[0] == 'note' and detail[2]:
-                ordered_details.append((
-                    'Notes',
-                    detail[1],
-                    detail[2]
-                ))
-
-        return ordered_details, rel_lists
+        return details, rel_lists
 
 class DemoFrontPageView(SingleTableView):
     model = models.Dataset
