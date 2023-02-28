@@ -8,9 +8,11 @@
 {% include "glamr/frontpage_summary.html"%}
 <hr/>
 <h3>Available Data Sets</h3>
+<div class="mb-2">
+	{% include "glamr/map.html"%}
+</div>
 
 {# Table template adapted from https://stackoverflow.com/questions/47871550/is-it-possible-to-custom-django-tables2-template-for-a-specific-page-in-this-cas#}
 {% render_table table 'glamr/table_cards.html'%}
-
 
 {% endblock %}

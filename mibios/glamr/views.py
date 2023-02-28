@@ -8,7 +8,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models import Count, Field, URLField
-from django.http import Http404, HttpResponse, HttpResponseRedirect
+from django.http import Http404, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.urls import reverse
 from django.utils.html import mark_safe
 from django.views.generic import DetailView
@@ -608,6 +608,23 @@ class DemoFrontPageView(SingleTableView):
         ctx['mc_abund'] = TaxonAbundance.objects \
             .filter(taxon__name='MICROCYSTIS') \
             .select_related('sample')[:5]
+
+        # lat/long, additional info for the map
+        map_data = Sample.objects.values('id','sample_name','dataset','latitude','longitude')
+        
+        for item in map_data:
+            # add in sample url
+            item.update({"sample_url": reverse('sample', args=[item.get("id")])})
+            
+            # add in dataset info
+            dataset_id = item.get("dataset")
+            if dataset_id is None:
+                dataset_id = 0
+            dataset_shortname = str(Dataset.objects.filter(id=dataset_id).first())
+            
+            item.update({"dataset_url": reverse('dataset', args=[dataset_id]), "dataset_name": dataset_shortname})
+        
+        ctx['map_points'] = list(map_data)
 
         # Get context for dataset summary
         dataset_counts_df = Dataset.objects.basic_counts()
