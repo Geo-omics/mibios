@@ -3,8 +3,14 @@
 {% load render_table from django_tables2 %}
 {% block content %}
 
-{% include "glamr/search_form_simple.html" %}
-<h3>Available data sets</h3>
-{% render_table table %}
+{% include "glamr/search_form_sample.html" %}
+<hr/>
+{% include "glamr/frontpage_summary.html"%}
+<hr/>
+<h3>Available Data Sets</h3>
+
+{# Table template adapted from https://stackoverflow.com/questions/47871550/is-it-possible-to-custom-django-tables2-template-for-a-specific-page-in-this-cas#}
+{% render_table table 'glamr/table_cards.html'%}
+
 
 {% endblock %}

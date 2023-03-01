@@ -1,0 +1,59 @@
+{% extends "glamr/base.html" %}
+{% load static %}
+{% load render_table from django_tables2 %}
+{% block content %}
+{% include "glamr/search_form_sample.html" %}
+<br/>
+<h3>Searching samples for <small>"{{ query }}"</small> returned {{ search_results | length }} results:</h3>
+<ul>
+{% for item in search_results %}
+    <li class="card mb-2">
+        <div style="display: flex; flex-direction: row" class="card-header">
+            <h5 class="card-title m-2"><a href="{% url 'sample' pk=item.pk %}">Sample: {{ item }}</a></h5>
+        </div>
+        <div class="card-body">
+            <table class="table table-hover table-condensed table-sm"><tbody>
+                <tr>
+                    <td>Dataset:</td>
+                    {% if item.dataset_id %}
+                        <td><a href="{% url 'dataset' pk=item.dataset_id %}">{{item.dataset}}</a></td>
+                    {% else %}
+                        <td><i>No dataset associated with this sample</i></td>
+                    {% endif %}
+                </tr>
+                <tr>
+                    <td>Location:</td>
+                    <td>{{item.geo_loc_name}}</td>
+                </tr>
+                <tr>
+                    <td>Sample Type:</td>
+                    <td>{{item.sample_type}}</td>
+                </tr>
+                <tr>
+                    <td>Collection Timestamp:</td>
+                    <td>{{item.collection_timestamp}}</td>
+                </tr>
+                <tr>
+                    <td>Project ID:</td>
+                    <td>{{item.project_id}}</td>
+                </tr>
+                <tr>
+                    <td>Environment Broad Scale:</td>
+                    <td>{{item.env_broad_scale}}</td>
+                </tr>
+                <tr>
+                    <td>Environment Local Scale:</td>
+                    <td>{{item.env_local_scale}}</td>
+                </tr>
+                <tr>
+                    <td>Environment Medium:</td>
+                    <td>{{item.env_medium}}</td>
+                </tr>
+            </tbody></table>
+        </div> 
+    </li>
+{% endfor %}
+</ul>
+
+{% endblock %}
+

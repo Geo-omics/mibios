@@ -1,0 +1,36 @@
+{% extends "glamr/base.html" %}
+{% block content %}
+
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{% url 'frontpage' %}">Home</a></li>
+    <li class="breadcrumb-item">{% if object.dataset.pk %}<a href="{% url 'dataset' pk=object.dataset.pk %}">{% else %}<a href="{% url 'dataset' pk=0 %}">{% endif %}Data Set</a></li>
+    <li class="breadcrumb-item">{% if object.dataset.pk %}<a href="{% url 'dataset_sample_list' pk=object.dataset.pk %}">{% else %}<a href="{% url 'dataset_sample_list' pk=0 %}">{% endif %}Samples</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Sample</li>
+  </ol>
+</nav>
+
+<h3>{{ object_model_verbose_name|capfirst }}: {{ object }}</h3>
+
+<table class="table table-hover table-condensed table-sm">
+<tbody>
+{% for name, url, value in details %}
+{% if value %} 
+{# filtering out rows that do not have values to cut down on info on page #}
+<tr>
+    <td>{{ name|capfirst }}:</td>
+    <td>{% if url %}<a href="{{ url }}">{{ value }}</a>{% else %}{{ value|default_if_none:"<missing>" }}{% endif %}</td>
+</tr>
+{% endif %}
+{% endfor %}
+{% for name, model_name, qs, field in relations %}
+<tr><td>{{ name|capfirst }}:</td>
+<td>
+    {% for obj in qs %}<a href="{% url 'record' model=model_name pk=obj.pk %}">{{ obj }}</a>{% if not forloop.last %}&nbsp;|&nbsp;{% endif %}
+    {% empty %}-{% endfor %}
+    {% if qs|length == view.max_to_many %}[...]<br><a href="{% url 'relations' model=object_model_name pk=object.pk field=field.name %}">[view all]</a>{% endif %}
+</td>
+</tr>
+{% endfor %}
+</tbody></table>
+{% endblock %}

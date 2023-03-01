@@ -10,9 +10,14 @@ from django.core.exceptions import FieldDoesNotExist
 from django.db.models import Count, Field, URLField
 from django.http import Http404, HttpResponse, HttpResponseRedirect
 from django.urls import reverse
+from django.utils.html import mark_safe
 from django.views.generic import DetailView
 from django.views.generic.base import TemplateView
+from django.views.generic.list import ListView
 
+from mibios.glamr.models import (
+    Sample, Dataset
+)
 from mibios import get_registry
 from mibios.data import TableConfig
 from mibios.models import Q
@@ -28,6 +33,8 @@ from .forms import (
     AdvancedSearchForm, QBuilderForm, QLeafEditForm,
 )
 from .search_utils import get_suggestions
+
+import json
 
 
 log = getLogger(__name__)
@@ -494,6 +501,7 @@ class BaseDetailView(DetailView):
 
 class DatasetView(BaseDetailView):
     model = models.Dataset
+    template_name = 'glamr/dataset.html'
 
     def get_object(self):
         if self.kwargs.get(self.pk_url_kwarg) == 0:
@@ -501,19 +509,27 @@ class DatasetView(BaseDetailView):
         return super().get_object()
 
     def get_details(self):
+        self.field_order = [
+            'reference',
+            'samples',
+            'bioproject',
+            'gold id', 
+            'material type', 
+            'water bodies', 
+            'primers', 
+            'sequencing target', 
+            'sequencing platform', 
+            'size fraction', 
+            'notes',
+        ]
+
         details, rel_lists = super().get_details()
         if self.object.orphan_group:
             pk = 0
         else:
             pk = self.object.pk
-        # prepend samples row
-        details = [(
-            'Samples',
-            reverse('dataset_sample_list', args=[pk]),
-            f'List of {self.object.samples().count()} samples'
-        )] + details
-        return details, rel_lists
 
+        return details, rel_lists
 
 class DemoFrontPageView(SingleTableView):
     model = models.Dataset
@@ -541,6 +557,22 @@ class DemoFrontPageView(SingleTableView):
         ctx['mc_abund'] = TaxonAbundance.objects \
             .filter(taxon__name='MICROCYSTIS') \
             .select_related('sample')[:5]
+
+        # Get context for dataset summary
+        dataset_counts_df = Dataset.objects.basic_counts()
+        dataset_counts_json = dataset_counts_df.reset_index().to_json(orient = 'records')
+        dataset_counts_data = json.loads(dataset_counts_json)
+        ctx['dataset_counts'] = dataset_counts_data
+
+        ctx['dataset_totalcount'] = Dataset.objects.count()
+        ctx['sample_totalcount'] = Sample.objects.count()
+
+        # Get context for sample summary
+        sample_counts_df = Sample.objects.basic_counts()
+        sample_counts_json = sample_counts_df.reset_index().to_json(orient = 'records')
+        sample_counts_data = json.loads(sample_counts_json)
+        ctx['sample_counts'] = sample_counts_data
+
         return ctx
 
     def make_ratios_plot(self):
@@ -697,11 +729,18 @@ class SampleListView(SingleTableView):
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['dataset'] = str(self.dataset)
+        ctx['dataset_id'] = str(self.kwargs['pk'])
         return ctx
 
 
 class SampleView(BaseDetailView):
     model = get_sample_model()
+    template_name = 'glamr/sample_detail.html'
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['sample_id'] = str(self.kwargs['pk'])
+        return ctx
 
 
 class SearchView(TemplateView):
@@ -711,10 +750,15 @@ class SearchView(TemplateView):
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['advanced_search'] = True
-        ctx['models'] = [
+
+        # models in alphabetical order
+        model_list = [
             (i._meta.model_name, i._meta.verbose_name)
             for i in get_registry().models.values()
         ]
+        model_list.sort(key=lambda item:item[1].lower())
+        ctx['models'] = model_list
+
         return ctx
 
 
@@ -801,6 +845,92 @@ class SearchHitView(TemplateView):
                 hits,
             ))
 
+class SampleSearchHitView(TemplateView):
+    model=models.Sample
+    template_name = 'glamr/search_form_sample_results.html'
+    table_class = tables.SampleTable
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['search_results'] = self.results
+        ctx['model_name'] = models.Sample._meta.model_name
+        ctx['query'] = self.query
+        return ctx
+
+    def get(self, request, *args, **kwargs):
+        self.form = AdvancedSearchForm(data=self.request.GET)
+        if self.form.is_valid():
+            self.query = self.form.cleaned_data['query']
+            self.search()
+        else:
+            # invalid form, pretend empty search result
+            pass
+
+        return self.render_to_response(self.get_context_data())
+
+    def search(self):
+        self.results = []
+        qs = Sample.objects.filter(
+            Q(geo_loc_name__icontains=self.query) | 
+            Q(sample_type__icontains=self.query) |
+            Q(collection_ts_partial__icontains=self.query) |
+            Q(collection_timestamp__icontains=self.query) |
+            Q(project_id__icontains=self.query) |
+            Q(dataset__scheme__icontains=self.query) |
+            Q(env_broad_scale__icontains=self.query) |
+            Q(env_local_scale__icontains=self.query)|
+            Q(env_medium__icontains=self.query) |
+            Q(sample_id__icontains=self.query) |
+            Q(dataset__water_bodies__icontains=self.query) | 
+            Q(dataset__scheme__icontains=self.query) | 
+            Q(dataset__material_type__icontains=self.query) | 
+            Q(dataset__reference__short_reference__icontains=self.query) |
+            Q(dataset__reference__title__icontains=self.query) |
+            Q(dataset__reference__authors__icontains=self.query) |
+            Q(sample_name__icontains=self.query)
+        ).order_by('sample_name').distinct()
+
+        self.results = qs
+
+class DatasetSearchHitView(TemplateView):
+    model=models.Dataset
+    template_name = 'glamr/search_form_dataset_results.html'
+    table_class = tables.DatasetTable
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['search_results'] = self.results
+        ctx['model_name'] = models.Dataset._meta.model_name
+        ctx['query'] = self.query
+        return ctx
+
+    def get(self, request, *args, **kwargs):
+        self.form = AdvancedSearchForm(data=self.request.GET)
+        if self.form.is_valid():
+            self.query = self.form.cleaned_data['query']
+            self.search()
+        else:
+            # invalid form, pretend empty search result
+            pass
+
+        return self.render_to_response(self.get_context_data())
+
+    def search(self):
+        self.results = []
+        qs = Dataset.objects.filter(
+            Q(water_bodies__icontains=self.query) | 
+            Q(material_type__icontains=self.query) |
+            Q(reference__short_reference__icontains=self.query) |
+            Q(reference__title__icontains=self.query) |
+            Q(reference__authors__icontains=self.query) |
+            Q(scheme__icontains=self.query) |
+            Q(bioproject__icontains=self.query) |
+            Q(dataset_id__icontains=self.query) |
+            Q(sample__sample_type__icontains=self.query) |
+            Q(sample__geo_loc_name__icontains=self.query)
+        ).order_by('dataset_id').distinct()
+        self.results = qs
+
 
 class TableView(BaseFilterMixin, ModelTableMixin, SingleTableView):
     template_name = 'glamr/table.html'
@@ -868,3 +998,5 @@ class ToManyFullListView(ModelTableMixin, ToManyListView):
         super().setup(request, *args, **kwargs)
         # hide the column for the object
         self.exclude.append(self.field.remote_field.name)
+
+

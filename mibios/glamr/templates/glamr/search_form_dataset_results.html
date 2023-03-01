@@ -1,0 +1,48 @@
+{% extends "glamr/base.html" %}
+{% load static %}
+{% load glamr_extras %}
+{% load render_table from django_tables2 %}
+{% block content %}
+{% include "glamr/search_form_sample.html" %}
+<br/>
+<h3>Searching datasets for <small>"{{ query }}"</small> returned {{ search_results | length }} results:</h3>
+<ul>
+{% for item in search_results %}
+    <li class="card mb-2">
+        <div style="display: flex; flex-direction: row" class="card-header">
+            <h5 class="card-title m-2"><a href="{% url 'dataset' pk=item.pk %}">Dataset: {{ item }}</a></h5>
+        </div>
+        <div class="card-body">
+            <table class="table table-hover table-condensed table-sm"><tbody>
+                <tr>
+                    <td>Reference:</td>
+                    {% if item.reference_id %}
+                        <td><a href="{% url 'reference' pk=item.reference_id %}">{{ item.reference }}</a></td>
+                    {% else %}
+                        <td><i>No reference associated with this dataset</i></td>
+                    {% endif %}
+                </tr>
+                <tr>
+                    <td>Description:</td>
+                    <td>{{ item.scheme|capfirst }}</td>
+                </tr>
+                <tr>
+                    <td>Water Bodies:</td>
+                    <td>{{ item.water_bodies }}</td>
+                </tr>
+                <tr>
+                    <td>Material Type:</td>
+                    {% if item.material_type %}
+                        <td>{{ item.material_type|capfirstkeep }}</td>
+                    {% else %}
+                        <td>-</td>
+                    {% endif %}
+                </tr>
+            </tbody></table>
+        </div> 
+    </li>
+{% endfor %}
+</ul>
+
+{% endblock %}
+
