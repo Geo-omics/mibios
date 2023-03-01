@@ -1,0 +1,4 @@
+{% load static %}
+<div id="map" class="map"></div>
+<script src="{% static 'glamr/js/map.js' %}" defer></script>
+{{ map_points|json_script:"" }}

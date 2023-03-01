@@ -574,6 +574,25 @@ class DemoFrontPageView(SingleTableView):
             .filter(taxon__taxname__name='Microcystis') \
             .select_related('sample')[:5]
 
+        # lat/long, additional info for the map
+        map_data = Sample.objects.values('id', 'sample_name', 'dataset',
+                                         'latitude', 'longitude')
+
+        for item in map_data:
+            # add in sample url
+            item['sample_url'] = reverse('sample', args=[item.get('id')])
+
+            # add in dataset info
+            dataset_id = item.get('dataset')
+            if dataset_id is None:
+                dataset_id = 0
+            dataset_shortname = str(Dataset.objects.filter(id=dataset_id).first())
+
+            item['dataset_url'] = reverse('dataset', args=[dataset_id])
+            item['dataset_name'] = dataset_shortname
+
+        ctx['map_points'] = list(map_data)
+
         # Get context for dataset summary
         dataset_counts_df = Dataset.objects.basic_counts()
         dataset_counts_json = dataset_counts_df.reset_index().to_json(orient='records')  # noqa: E501
