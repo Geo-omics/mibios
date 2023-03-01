@@ -555,7 +555,7 @@ class DemoFrontPageView(SingleTableView):
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['mc_abund'] = TaxonAbundance.objects \
-            .filter(taxon__name='MICROCYSTIS') \
+            .filter(taxon__taxname__name='Microcystis') \
             .select_related('sample')[:5]
 
         # Get context for dataset summary
