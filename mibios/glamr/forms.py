@@ -7,6 +7,20 @@ from django.forms.widgets import Select, TextInput
 
 from .templatetags.glamr_extras import human_lookups
 
+from mibios.glamr.models import (
+    Sample, Dataset
+)
+
+from crispy_forms.helper import FormHelper
+from crispy_forms.layout import Layout, ButtonHolder, Submit
+
+class DatasetFilterFormHelper(FormHelper):
+    model = Dataset
+    #form_tag = False
+    # Adding a Filter Button
+    layout = Layout('name', ButtonHolder(
+        Submit('submit', 'Filter', css_class='button white right')
+    ))
 
 class RenderMixin:
     """ extra (experimental) rendering methods for forms """

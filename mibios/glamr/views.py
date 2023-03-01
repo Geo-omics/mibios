@@ -15,9 +15,18 @@ from django.views.generic import DetailView
 from django.views.generic.base import TemplateView
 from django.views.generic.list import ListView
 
+from django_filters.views import FilterView
+
+from mibios.glamr.filters import (
+    DatasetFilter
+)
+from mibios.glamr.forms import (
+    DatasetFilterFormHelper
+)
 from mibios.glamr.models import (
     Sample, Dataset
 )
+
 from mibios import get_registry
 from mibios.data import TableConfig
 from mibios.models import Q
@@ -536,10 +545,18 @@ class DemoFrontPageView(SingleTableView):
     template_name = 'glamr/demo_frontpage.html'
     table_class = tables.DatasetTable
 
+    filter_class = DatasetFilter
+    formhelper_class = DatasetFilterFormHelper
+    context_filter_name = 'filter'
+
     def get_table_data(self):
         data = super().get_table_data()
+
+        self.dataset_ids = data.values_list('id', flat=True)
+
         orphans = models.Dataset.orphans
         orphans.sample_count = orphans.samples().count()
+
         # put orphans into first row (if any exist):
         if orphans.sample_count > 0:
             return chain([orphans], data)
@@ -550,7 +567,11 @@ class DemoFrontPageView(SingleTableView):
         qs = super().get_queryset()
         qs = qs.select_related('reference')
         qs = qs.annotate(sample_count=Count('sample'))
-        return qs
+
+        self.filter = self.filter_class(self.request.GET, queryset=qs)
+        self.filter.form.helper = self.formhelper_class()
+
+        return self.filter.qs
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
@@ -558,8 +579,10 @@ class DemoFrontPageView(SingleTableView):
             .filter(taxon__name='MICROCYSTIS') \
             .select_related('sample')[:5]
 
+        ctx[self.context_filter_name] = self.filter
+
         # lat/long, additional info for the map
-        map_data = Sample.objects.values('id','sample_name','dataset','latitude','longitude')
+        map_data = Sample.objects.filter(Q(dataset__id__in=self.dataset_ids)).values('id','sample_name','dataset','latitude','longitude')
 
         for item in map_data:
             # add in sample url
@@ -581,7 +604,7 @@ class DemoFrontPageView(SingleTableView):
         dataset_counts_data = json.loads(dataset_counts_json)
         ctx['dataset_counts'] = dataset_counts_data
 
-        ctx['dataset_totalcount'] = Dataset.objects.count()
+        ctx['dataset_totalcount'] = Dataset.objects.filter(pk__in=self.dataset_ids).count()
         ctx['sample_totalcount'] = Sample.objects.count()
 
         # Get context for sample summary

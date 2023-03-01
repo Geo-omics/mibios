@@ -10,6 +10,18 @@ LOGGING['loggers']['mibios.glamr'] = LOGGING['loggers']['mibios']  # noqa:F405
 # add our app
 INSTALLED_APPS.append('mibios.glamr.apps.AppConfig')  # noqa:F405
 
+# add django-filters
+INSTALLED_APPS.append('django_filters') 
+
+# add bootstrap 3
+INSTALLED_APPS.append('bootstrap3') 
+
+# add crispy forms
+INSTALLED_APPS.append('crispy_forms')
+INSTALLED_APPS.append('crispy_bootstrap5')
+CRISPY_ALLOWED_TEMPLATE_PACKS = 'bootstrap5'
+CRISPY_TEMPLATE_PACK = 'bootstrap5'
+
 # override mibios' urls since glamr has it's own
 ROOT_URLCONF = 'mibios.glamr.urls0'
 
