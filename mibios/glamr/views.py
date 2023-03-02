@@ -7,6 +7,7 @@ import pandas
 from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
+from django.db import OperationalError
 from django.db.models import Count, Field, URLField
 from django.http import Http404, HttpResponse, HttpResponseRedirect
 from django.urls import reverse
@@ -553,6 +554,34 @@ class DemoFrontPageView(SingleTableView):
         return qs
 
     def get_context_data(self, **ctx):
+        # Make the frontpage resilient to database connection issues: Any DB
+        # access should be inside a try block catching the first
+        # OperationError.  We think covering get_context_data() covers all DB
+        # access except those triggered by template rendering.  The template
+        # should check for the db_is_good context variable and skip parts of
+        # the template that depend on now missing context or parts that trigger
+        # further DB access.
+        try:
+            ctx = self._get_context_data(**ctx)
+        except OperationalError as e:
+            log.error(f'DB errors on Frontpage: {e.__class__.__name__}: {e}')
+            if settings.DEBUG:
+                raise
+            # In production we expect this to be a DB connection problem, so
+            # this is what site visitors are told so they can understand why no
+            # data is displayed.
+            messages.add_message(
+                self.request,
+                messages.WARNING,
+                'Database connection failure',
+            )
+            ctx['db_is_good'] = False
+        else:
+            ctx['db_is_good'] = True
+
+        return ctx
+
+    def _get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['mc_abund'] = TaxonAbundance.objects \
             .filter(taxon__taxname__name='Microcystis') \

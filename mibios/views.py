@@ -5,6 +5,7 @@ from math import isnan
 from zipfile import ZipFile, ZIP_DEFLATED
 
 from django.apps import apps
+from django.db import OperationalError
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
@@ -162,7 +163,12 @@ class BaseMixin(BasicBaseMixin):
             if data_names:
                 ctx['data_names'][app_conf.verbose_name] = data_names
 
-        ctx['snapshots_exist'] = Snapshot.objects.exists()
+        try:
+            ctx['snapshots_exist'] = Snapshot.objects.exists()
+        except OperationalError as e:
+            log.error(f'BaseMixin.get_context_data: {type(e)}: {e}')
+            ctx['snapshots_exist'] = False
+
         ctx['site_name'] = reg.verbose_name
         return ctx
 
