@@ -11,14 +11,10 @@ from django.db import OperationalError
 from django.db.models import Count, Field, URLField
 from django.http import Http404, HttpResponse, HttpResponseRedirect
 from django.urls import reverse
-from django.utils.html import mark_safe
 from django.views.generic import DetailView
 from django.views.generic.base import TemplateView
-from django.views.generic.list import ListView
 
-from mibios.glamr.models import (
-    Sample, Dataset
-)
+from mibios.glamr.models import Sample, Dataset
 from mibios import get_registry
 from mibios.data import TableConfig
 from mibios.models import Q
@@ -525,10 +521,6 @@ class DatasetView(BaseDetailView):
         ]
 
         details, rel_lists = super().get_details()
-        if self.object.orphan_group:
-            pk = 0
-        else:
-            pk = self.object.pk
 
         return details, rel_lists
 
@@ -589,7 +581,7 @@ class DemoFrontPageView(SingleTableView):
 
         # Get context for dataset summary
         dataset_counts_df = Dataset.objects.basic_counts()
-        dataset_counts_json = dataset_counts_df.reset_index().to_json(orient = 'records')
+        dataset_counts_json = dataset_counts_df.reset_index().to_json(orient='records')  # noqa: E501
         dataset_counts_data = json.loads(dataset_counts_json)
         ctx['dataset_counts'] = dataset_counts_data
 
@@ -598,7 +590,7 @@ class DemoFrontPageView(SingleTableView):
 
         # Get context for sample summary
         sample_counts_df = Sample.objects.basic_counts()
-        sample_counts_json = sample_counts_df.reset_index().to_json(orient = 'records')
+        sample_counts_json = sample_counts_df.reset_index().to_json(orient='records')  # noqa: E501
         sample_counts_data = json.loads(sample_counts_json)
         ctx['sample_counts'] = sample_counts_data
 
@@ -785,7 +777,7 @@ class SearchView(TemplateView):
             (i._meta.model_name, i._meta.verbose_name)
             for i in get_registry().models.values()
         ]
-        model_list.sort(key=lambda item:item[1].lower())
+        model_list.sort(key=lambda item: item[1].lower())
         ctx['models'] = model_list
 
         return ctx
@@ -874,8 +866,9 @@ class SearchHitView(TemplateView):
                 hits,
             ))
 
+
 class SampleSearchHitView(TemplateView):
-    model=models.Sample
+    model = models.Sample
     template_name = 'glamr/search_form_sample_results.html'
     table_class = tables.SampleTable
 
@@ -900,19 +893,19 @@ class SampleSearchHitView(TemplateView):
     def search(self):
         self.results = []
         qs = Sample.objects.filter(
-            Q(geo_loc_name__icontains=self.query) | 
+            Q(geo_loc_name__icontains=self.query) |
             Q(sample_type__icontains=self.query) |
             Q(collection_ts_partial__icontains=self.query) |
             Q(collection_timestamp__icontains=self.query) |
             Q(project_id__icontains=self.query) |
             Q(dataset__scheme__icontains=self.query) |
             Q(env_broad_scale__icontains=self.query) |
-            Q(env_local_scale__icontains=self.query)|
+            Q(env_local_scale__icontains=self.query) |
             Q(env_medium__icontains=self.query) |
             Q(sample_id__icontains=self.query) |
-            Q(dataset__water_bodies__icontains=self.query) | 
-            Q(dataset__scheme__icontains=self.query) | 
-            Q(dataset__material_type__icontains=self.query) | 
+            Q(dataset__water_bodies__icontains=self.query) |
+            Q(dataset__scheme__icontains=self.query) |
+            Q(dataset__material_type__icontains=self.query) |
             Q(dataset__reference__short_reference__icontains=self.query) |
             Q(dataset__reference__title__icontains=self.query) |
             Q(dataset__reference__authors__icontains=self.query) |
@@ -921,8 +914,9 @@ class SampleSearchHitView(TemplateView):
 
         self.results = qs
 
+
 class DatasetSearchHitView(TemplateView):
-    model=models.Dataset
+    model = models.Dataset
     template_name = 'glamr/search_form_dataset_results.html'
     table_class = tables.DatasetTable
 
@@ -947,7 +941,7 @@ class DatasetSearchHitView(TemplateView):
     def search(self):
         self.results = []
         qs = Dataset.objects.filter(
-            Q(water_bodies__icontains=self.query) | 
+            Q(water_bodies__icontains=self.query) |
             Q(material_type__icontains=self.query) |
             Q(reference__short_reference__icontains=self.query) |
             Q(reference__title__icontains=self.query) |
@@ -1027,5 +1021,3 @@ class ToManyFullListView(ModelTableMixin, ToManyListView):
         super().setup(request, *args, **kwargs)
         # hide the column for the object
         self.exclude.append(self.field.remote_field.name)
-
-
