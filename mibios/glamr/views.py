@@ -499,30 +499,25 @@ class BaseDetailView(DetailView):
 class DatasetView(BaseDetailView):
     model = models.Dataset
     template_name = 'glamr/dataset.html'
+    field_order = [
+        'reference',
+        'sample',
+        'bioproject',
+        'gold_id',
+        'material_type',
+        'water_bodies',
+        'primers',
+        'sequencing_target',
+        'sequencing_platform',
+        'size_fraction',
+        'note',
+    ]
 
     def get_object(self):
         if self.kwargs.get(self.pk_url_kwarg) == 0:
             return models.Dataset.orphans
         return super().get_object()
 
-    def get_details(self):
-        self.field_order = [
-            'reference',
-            'samples',
-            'bioproject',
-            'gold id', 
-            'material type', 
-            'water bodies', 
-            'primers', 
-            'sequencing target', 
-            'sequencing platform', 
-            'size fraction', 
-            'notes',
-        ]
-
-        details, rel_lists = super().get_details()
-
-        return details, rel_lists
 
 class DemoFrontPageView(SingleTableView):
     model = models.Dataset
