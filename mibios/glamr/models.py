@@ -32,9 +32,18 @@ class Dataset(AbstractDataset):
     reference = models.ForeignKey('Reference', **fk_opt)
     # project IDs: usually a single accession, but can be ,-sep lists or even
     # other text
-    bioproject = models.TextField(max_length=32, **ch_opt)
-    jgi_project = models.TextField(max_length=32, **ch_opt)
-    gold_id = models.TextField(max_length=32, **ch_opt)
+    bioproject = models.TextField(
+        max_length=32, **ch_opt,
+        verbose_name='NCBI BioProject',
+    )
+    jgi_project = models.TextField(
+        max_length=32, **ch_opt,
+        verbose_name='JGI Project ID',
+    )
+    gold_id = models.TextField(
+        max_length=32, **ch_opt,
+        verbose_name='GOLD ID',
+    )
     scheme = models.TextField(
         **ch_opt,
         verbose_name='location and sampling scheme',
@@ -61,6 +70,7 @@ class Dataset(AbstractDataset):
     size_fraction = models.TextField(
         max_length=32,
         **ch_opt,
+        verbose_name='size fraction(s)',
         help_text='e.g.: >0.22µm or 0.22-1.6µm',
     )
     note = models.TextField(**ch_opt)
