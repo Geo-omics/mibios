@@ -553,7 +553,7 @@ class DemoFrontPageView(SingleTableView):
         data = super().get_table_data()
 
         self.dataset_ids = data.values_list('id', flat=True)
-
+        
         orphans = models.Dataset.orphans
         orphans.sample_count = orphans.samples().count()
 
@@ -566,12 +566,11 @@ class DemoFrontPageView(SingleTableView):
     def get_queryset(self):
         qs = super().get_queryset()
         qs = qs.select_related('reference')
-        qs = qs.annotate(sample_count=Count('sample'))
 
         self.filter = self.filter_class(self.request.GET, queryset=qs)
         self.filter.form.helper = self.formhelper_class()
 
-        return self.filter.qs
+        return self.filter.qs.annotate(sample_count=Count('sample'))
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
