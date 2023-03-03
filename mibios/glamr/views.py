@@ -581,7 +581,7 @@ class DemoFrontPageView(SingleTableView):
         ctx[self.context_filter_name] = self.filter
 
         # lat/long, additional info for the map
-        map_data = Sample.objects.filter(Q(dataset__id__in=self.dataset_ids)).values('id','sample_name','dataset','latitude','longitude')
+        map_data = Sample.objects.filter(Q(dataset__id__in=self.dataset_ids)).values('id','sample_name','dataset','latitude','longitude','sample_type')
 
         for item in map_data:
             # add in sample url
