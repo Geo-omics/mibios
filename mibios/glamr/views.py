@@ -582,20 +582,7 @@ class DemoFrontPageView(SingleTableView):
 
         # lat/long, additional info for the map
         map_data = Sample.objects.filter(Q(dataset__id__in=self.dataset_ids)).values('id','sample_name','dataset','latitude','longitude','sample_type')
-
-        for item in map_data:
-            # add in sample url
-            item.update({"sample_url": reverse('sample', args=[item.get("id")])})
-
-            # add in dataset info
-            dataset_id = item.get("dataset")
-            if dataset_id is None:
-                dataset_id = 0
-            dataset_shortname = str(Dataset.objects.filter(id=dataset_id).first())
-
-            item.update({"dataset_url": reverse('dataset', args=[dataset_id]), "dataset_name": dataset_shortname})
-
-        ctx['map_points'] = list(map_data)
+        ctx['map_points'] = create_map_metadata(map_data)
 
         # Get context for dataset summary
         dataset_counts_df = Dataset.objects.basic_counts()
@@ -892,6 +879,11 @@ class SampleSearchHitView(TemplateView):
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['search_results'] = self.results
+        
+        # lat/long, additional info for the map
+        map_data = self.results.values('id','sample_name','dataset','latitude','longitude','sample_type')
+        ctx['map_points'] = create_map_metadata(map_data)
+
         ctx['model_name'] = models.Sample._meta.model_name
         ctx['query'] = self.query
         return ctx
@@ -939,6 +931,11 @@ class DatasetSearchHitView(TemplateView):
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['search_results'] = self.results
+
+        # lat/long, additional info for the map
+        map_data = Sample.objects.filter(Q(id__in=self.results.values('sample__id'))).values('id','sample_name','dataset','latitude','longitude','sample_type')
+        ctx['map_points'] = create_map_metadata(map_data)
+
         ctx['model_name'] = models.Dataset._meta.model_name
         ctx['query'] = self.query
         return ctx
@@ -1038,4 +1035,17 @@ class ToManyFullListView(ModelTableMixin, ToManyListView):
         # hide the column for the object
         self.exclude.append(self.field.remote_field.name)
 
+def create_map_metadata(map_data):
+    for item in map_data:
+        # add in sample url
+        item.update({"sample_url": reverse('sample', args=[item.get("id")])})
 
+        # add in dataset info
+        dataset_id = item.get("dataset")
+        if dataset_id is None:
+            dataset_id = 0
+        dataset_shortname = str(Dataset.objects.filter(id=dataset_id).first())
+
+        item.update({"dataset_url": reverse('dataset', args=[dataset_id]), "dataset_name": dataset_shortname})
+
+    return list(map_data)
