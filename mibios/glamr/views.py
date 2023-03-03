@@ -548,12 +548,11 @@ class DemoFrontPageView(SingleTableView):
     def get_queryset(self):
         qs = super().get_queryset()
         qs = qs.select_related('reference')
-        qs = qs.annotate(sample_count=Count('sample'))
 
         self.filter = self.filter_class(self.request.GET, queryset=qs)
         self.filter.form.helper = self.formhelper_class()
 
-        return self.filter.qs
+        return self.filter.qs.annotate(sample_count=Count('sample'))
 
     def get_context_data(self, **ctx):
         # Make the frontpage resilient to database connection issues: Any DB
