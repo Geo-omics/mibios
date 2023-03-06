@@ -18,9 +18,8 @@ INSTALLED_APPS.append('bootstrap3')
 
 # add crispy forms
 INSTALLED_APPS.append('crispy_forms')
-INSTALLED_APPS.append('crispy_bootstrap5')
-CRISPY_ALLOWED_TEMPLATE_PACKS = 'bootstrap5'
-CRISPY_TEMPLATE_PACK = 'bootstrap5'
+CRISPY_ALLOWED_TEMPLATE_PACKS = 'bootstrap4'
+CRISPY_TEMPLATE_PACK = 'bootstrap4'
 
 # override mibios' urls since glamr has it's own
 ROOT_URLCONF = 'mibios.glamr.urls0'
