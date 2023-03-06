@@ -5,6 +5,9 @@
 {% include "glamr/search_form_sample.html" %}
 <br/>
 <h3>Searching samples for <small>"{{ query }}"</small> returned {{ search_results | length }} results:</h3>
+<div class="m-2">
+    {% include "glamr/map.html"%}
+</div>
 <ul>
 {% for item in search_results %}
     <li class="card mb-2">

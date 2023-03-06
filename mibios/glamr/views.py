@@ -2,6 +2,7 @@ from itertools import chain, groupby
 from logging import getLogger
 
 from django_tables2 import Column, SingleTableView, TemplateColumn
+
 import pandas
 
 from django.conf import settings
@@ -14,9 +15,11 @@ from django.urls import reverse
 from django.views.generic import DetailView
 from django.views.generic.base import TemplateView
 
-from mibios.glamr.models import Sample, Dataset
 from mibios import get_registry
 from mibios.data import TableConfig
+from mibios.glamr.filters import DatasetFilter
+from mibios.glamr.forms import DatasetFilterFormHelper
+from mibios.glamr.models import Sample, Dataset
 from mibios.models import Q
 from mibios.views import ExportBaseMixin, TextRendererZipped
 from mibios.omics import get_sample_model
@@ -524,10 +527,18 @@ class DemoFrontPageView(SingleTableView):
     template_name = 'glamr/demo_frontpage.html'
     table_class = tables.DatasetTable
 
+    filter_class = DatasetFilter
+    formhelper_class = DatasetFilterFormHelper
+    context_filter_name = 'filter'
+
     def get_table_data(self):
         data = super().get_table_data()
+
+        self.dataset_ids = data.values_list('id', flat=True)
+
         orphans = models.Dataset.orphans
         orphans.sample_count = orphans.samples().count()
+
         # put orphans into first row (if any exist):
         if orphans.sample_count > 0:
             return chain([orphans], data)
@@ -537,8 +548,11 @@ class DemoFrontPageView(SingleTableView):
     def get_queryset(self):
         qs = super().get_queryset()
         qs = qs.select_related('reference')
-        qs = qs.annotate(sample_count=Count('sample'))
-        return qs
+
+        self.filter = self.filter_class(self.request.GET, queryset=qs)
+        self.filter.form.helper = self.formhelper_class()
+
+        return self.filter.qs.annotate(sample_count=Count('sample'))
 
     def get_context_data(self, **ctx):
         # Make the frontpage resilient to database connection issues: Any DB
@@ -574,13 +588,23 @@ class DemoFrontPageView(SingleTableView):
             .filter(taxon__taxname__name='Microcystis') \
             .select_related('sample')[:5]
 
+        ctx[self.context_filter_name] = self.filter
+
+        # lat/long, additional info for the map
+        map_data = Sample.objects \
+            .filter(dataset__id__in=self.dataset_ids) \
+            .values('id', 'sample_name', 'dataset', 'latitude', 'longitude',
+                    'sample_type')
+        ctx['map_points'] = create_map_metadata(map_data)
+
         # Get context for dataset summary
         dataset_counts_df = Dataset.objects.basic_counts()
         dataset_counts_json = dataset_counts_df.reset_index().to_json(orient='records')  # noqa: E501
         dataset_counts_data = json.loads(dataset_counts_json)
         ctx['dataset_counts'] = dataset_counts_data
 
-        ctx['dataset_totalcount'] = Dataset.objects.count()
+        ctx['dataset_totalcount'] = \
+            Dataset.objects.filter(pk__in=self.dataset_ids).count()
         ctx['sample_totalcount'] = Sample.objects.count()
 
         # Get context for sample summary
@@ -870,6 +894,12 @@ class SampleSearchHitView(TemplateView):
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['search_results'] = self.results
+
+        # lat/long, additional info for the map
+        map_data = self.results.values('id', 'sample_name', 'dataset',
+                                       'latitude', 'longitude', 'sample_type')
+        ctx['map_points'] = create_map_metadata(map_data)
+
         ctx['model_name'] = models.Sample._meta.model_name
         ctx['query'] = self.query
         return ctx
@@ -918,6 +948,14 @@ class DatasetSearchHitView(TemplateView):
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['search_results'] = self.results
+
+        # lat/long, additional info for the map
+        map_data = Sample.objects \
+            .filter(id__in=self.results.values('sample__id')) \
+            .values('id', 'sample_name', 'dataset', 'latitude', 'longitude',
+                    'sample_type')
+        ctx['map_points'] = create_map_metadata(map_data)
+
         ctx['model_name'] = models.Dataset._meta.model_name
         ctx['query'] = self.query
         return ctx
@@ -1016,3 +1054,20 @@ class ToManyFullListView(ModelTableMixin, ToManyListView):
         super().setup(request, *args, **kwargs)
         # hide the column for the object
         self.exclude.append(self.field.remote_field.name)
+
+
+def create_map_metadata(map_data):
+    for item in map_data:
+        # add in sample url
+        item['sample_url'] = reverse('sample', args=[item.get('id')])
+
+        # add in dataset info
+        dataset_id = item.get('dataset')
+        if dataset_id is None:
+            dataset_id = 0
+        dataset_shortname = str(Dataset.objects.filter(id=dataset_id).first())
+
+        item['dataset_url'] = reverse('dataset', args=[dataset_id])
+        item['dataset_name'] = dataset_shortname
+
+    return list(map_data)
