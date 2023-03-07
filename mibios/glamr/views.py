@@ -320,6 +320,48 @@ class ModelTableMixin(ExportMixin):
         return cols
 
 
+class MapMixin():
+    """
+    Mixin for views that display samples on a map
+    """
+    def get_sample_queryset(self):
+        """
+        Return a queryset of the samples to be displayed.
+
+        This must be implemented by inheriting classes
+        """
+        pass
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['map_points'] = self.get_map_points()
+        return ctx
+
+    def get_map_points(self):
+        """
+        Prepare sample data to be passed to the map
+
+        Returns a dict str->str to be turned into json in the template.
+        """
+        qs = self.get_sample_queryset()
+        qs = qs.select_related('dataset')
+        fields = ['id', 'sample_name', 'latitude', 'longitude', 'sample_type']
+
+        map_data = []
+        for i in qs:
+            item = {j: getattr(i, j) for j in fields}
+
+            # add in sample url
+            item['sample_url'] = reverse('sample', args=[i.pk])
+
+            # add in dataset info
+            item['dataset_url'] = reverse('dataset', args=[i.dataset.pk])
+            item['dataset_name'] = str(i.dataset)
+            map_data.append(item)
+
+        return map_data
+
+
 class AbundanceView(ExportMixin, SingleTableView):
     """
     Lists abundance data for a single object of a variable model
@@ -522,7 +564,7 @@ class DatasetView(BaseDetailView):
         return super().get_object()
 
 
-class DemoFrontPageView(SingleTableView):
+class DemoFrontPageView(MapMixin, SingleTableView):
     model = models.Dataset
     template_name = 'glamr/demo_frontpage.html'
     table_class = tables.DatasetTable
@@ -590,13 +632,6 @@ class DemoFrontPageView(SingleTableView):
 
         ctx[self.context_filter_name] = self.filter
 
-        # lat/long, additional info for the map
-        map_data = Sample.objects \
-            .filter(dataset__id__in=self.dataset_ids) \
-            .values('id', 'sample_name', 'dataset', 'latitude', 'longitude',
-                    'sample_type')
-        ctx['map_points'] = create_map_metadata(map_data)
-
         # Get context for dataset summary
         dataset_counts_df = Dataset.objects.basic_counts()
         dataset_counts_json = dataset_counts_df.reset_index().to_json(orient='records')  # noqa: E501
@@ -626,6 +661,10 @@ class DemoFrontPageView(SingleTableView):
         ], columns=['contigs', 'genes'])
         plot = ratios.plot(x='contigs', y='genes', kind='scatter')
         plot.figure.savefig(imgpath)
+
+    def get_sample_queryset(self):
+        qs = Sample.objects.filter(dataset__in=self.get_queryset())
+        return qs
 
 
 class ReferenceView(BaseDetailView):
@@ -884,9 +923,10 @@ class SearchHitView(TemplateView):
                 model._meta.model_name,
                 hits,
             ))
+        '''
 
 
-class SampleSearchHitView(TemplateView):
+class SampleSearchHitView(MapMixin, TemplateView):
     model = models.Sample
     template_name = 'glamr/search_form_sample_results.html'
     table_class = tables.SampleTable
@@ -894,12 +934,6 @@ class SampleSearchHitView(TemplateView):
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['search_results'] = self.results
-
-        # lat/long, additional info for the map
-        map_data = self.results.values('id', 'sample_name', 'dataset',
-                                       'latitude', 'longitude', 'sample_type')
-        ctx['map_points'] = create_map_metadata(map_data)
-
         ctx['model_name'] = models.Sample._meta.model_name
         ctx['query'] = self.query
         return ctx
@@ -939,6 +973,8 @@ class SampleSearchHitView(TemplateView):
 
         self.results = qs
 
+    def get_sample_queryset(self):
+        return self.results
 
 class DatasetSearchHitView(TemplateView):
     model = models.Dataset
@@ -948,19 +984,12 @@ class DatasetSearchHitView(TemplateView):
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['search_results'] = self.results
-
-        # lat/long, additional info for the map
-        map_data = Sample.objects \
-            .filter(id__in=self.results.values('sample__id')) \
-            .values('id', 'sample_name', 'dataset', 'latitude', 'longitude',
-                    'sample_type')
-        ctx['map_points'] = create_map_metadata(map_data)
-
         ctx['model_name'] = models.Dataset._meta.model_name
         ctx['query'] = self.query
         return ctx
 
     def get(self, request, *args, **kwargs):
+        self.results = []
         self.form = AdvancedSearchForm(data=self.request.GET)
         if self.form.is_valid():
             self.query = self.form.cleaned_data['query']
@@ -972,7 +1001,6 @@ class DatasetSearchHitView(TemplateView):
         return self.render_to_response(self.get_context_data())
 
     def search(self):
-        self.results = []
         qs = Dataset.objects.filter(
             Q(water_bodies__icontains=self.query) |
             Q(material_type__icontains=self.query) |
@@ -986,6 +1014,9 @@ class DatasetSearchHitView(TemplateView):
             Q(sample__geo_loc_name__icontains=self.query)
         ).order_by('dataset_id').distinct()
         self.results = qs
+
+    def get_sample_queryset(self):
+        return Sample.objects.filter(dataset__in=self.results)
 
 
 class TableView(BaseFilterMixin, ModelTableMixin, SingleTableView):
@@ -1054,20 +1085,3 @@ class ToManyFullListView(ModelTableMixin, ToManyListView):
         super().setup(request, *args, **kwargs)
         # hide the column for the object
         self.exclude.append(self.field.remote_field.name)
-
-
-def create_map_metadata(map_data):
-    for item in map_data:
-        # add in sample url
-        item['sample_url'] = reverse('sample', args=[item.get('id')])
-
-        # add in dataset info
-        dataset_id = item.get('dataset')
-        if dataset_id is None:
-            dataset_id = 0
-        dataset_shortname = str(Dataset.objects.filter(id=dataset_id).first())
-
-        item['dataset_url'] = reverse('dataset', args=[dataset_id])
-        item['dataset_name'] = dataset_shortname
-
-    return list(map_data)
