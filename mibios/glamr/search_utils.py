@@ -77,6 +77,9 @@ def update_spellfix(spellfix_ext_path=None):
 
     This needs to run once, before get_suggestions() can be called.
     """
+    if not settings.SPELLFIX_EXT_PATH:
+        return
+
     connection = get_connection(for_write=True)
 
     if spellfix_ext_path is not None:

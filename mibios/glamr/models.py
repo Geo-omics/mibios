@@ -16,7 +16,7 @@ from mibios.umrad.model_utils import ch_opt, fk_opt, fk_req, uniq_opt, opt
 from .fields import OptionalURLField
 from .load import \
     DatasetLoader, ReferenceLoader, SampleLoader, SearchTermManager
-from .queryset import DatasetQuerySet, SampleQuerySet
+from .queryset import DatasetQuerySet, SampleQuerySet, SearchTermQuerySet
 
 
 class Dataset(AbstractDataset):
@@ -285,12 +285,13 @@ class Sample(AbstractSample):
 
 class SearchTerm(models.Model):
     term = models.TextField(max_length=32, db_index=True)
-    has_hit = models.BooleanField(default=False)
+    has_hit = models.BooleanField(default=False, db_index=True)
     content_type = models.ForeignKey(ContentType, **fk_req)
+    field = models.CharField(max_length=100, db_index=True)
     object_id = models.PositiveIntegerField()
     content_object = GenericForeignKey('content_type', 'object_id')
 
-    objects = SearchTermManager()
+    objects = SearchTermManager.from_queryset(SearchTermQuerySet)()
 
     def __str__(self):
         return self.term

@@ -1,6 +1,7 @@
 from datetime import datetime
 import re
 
+from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import FieldDoesNotExist
 from django.utils import timezone
@@ -9,6 +10,8 @@ from django.utils.dateparse import parse_date, parse_datetime
 from mibios.umrad.manager import InputFileError, Loader
 from mibios.umrad.model_utils import delete_all_objects_quickly
 from mibios.umrad.utils import CSV_Spec, atomic_dry
+
+from .search_fields import SEARCH_FIELDS
 
 
 class MetaDataLoader(Loader):
@@ -328,12 +331,17 @@ class SampleLoader(MetaDataLoader):
 class SearchTermManager(Loader):
     def reindex(self):
         delete_all_objects_quickly(self.model)
-        from .search_utils import spellfix_models as models, update_spellfix
+        models = [
+            apps.get_app_config(app_label).get_model(model_name)
+            for app_label, app_data in SEARCH_FIELDS.items()
+            for model_name in app_data
+        ]
+        from .search_utils import update_spellfix
         for i in models:
-            self._index_model(i)
+            self.index_model(i)
         update_spellfix()
 
-    def _index_model(self, model):
+    def index_model(self, model):
         """
         update the search index
         """
@@ -359,16 +367,22 @@ class SearchTermManager(Loader):
         else:
             whits = set()
 
-        fname = model.get_search_field().name
         qs = model.objects.all()
         print(f'{qs.count()} [OK]')
-        max_length = self.model._meta.get_field('term').max_length
-        objs = (
-            self.model(
-                term=getattr(i, fname)[:max_length],
-                has_hit=(i.pk in whits),
-                content_object=i,
-            )
-            for i in qs.iterator()
-        )
-        self.bulk_create(objs)
+
+        def search_term_objs():
+            fs = SEARCH_FIELDS[model._meta.app_label][model._meta.model_name]
+            for obj in qs[:10000]:
+                for field_name in fs:
+                    term = getattr(obj, field_name)
+                    if term is None or term == '':
+                        continue
+
+                    yield self.model(
+                        term=term,
+                        has_hit=(obj.pk in whits),
+                        field=field_name,
+                        content_object=obj,
+                    )
+
+        self.bulk_create(search_term_objs())

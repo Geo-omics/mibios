@@ -1,4 +1,6 @@
 from collections import Counter
+from itertools import groupby
+from operator import attrgetter
 
 from django.db.models import Count
 
@@ -84,3 +86,52 @@ class SampleQuerySet(QuerySet):
             ),
         )
         return counts.unstack(fill_value=0)
+
+
+class SearchTermQuerySet(QuerySet):
+    def search(
+        self,
+        query,
+        abundance=False,
+        models=[],
+        fields=[],
+        lookup='iexact',
+    ):
+        """
+        Search search terms
+
+        :param bool abundance:
+            If True, then results are limited to those with abundance / related
+            genes in dataset etc.
+        :param list models:
+            list of str of model names, limit search to given models
+        :param list fields:
+            list of field names, limits results to these fields
+        :param str lookup: Use this lookup to query the search terms
+        """
+        f = {}
+        if abundance:
+            f['has_hit'] = True
+        if models:
+            f['content_type__model__in'] = models
+        if fields:
+            f['field__in'] = fields
+            qs = self
+
+        f['term__' + lookup] = query
+
+        qs = self.filter(**f) \
+            .select_related('content_type') \
+            .order_by('content_type', 'field')
+
+        result = {}
+        for ctype, out_grp in groupby(qs, key=attrgetter('content_type')):
+            model = ctype.model_class()
+            result[model] = {}
+            for field, in_grp in groupby(out_grp, key=attrgetter('field')):
+                result[model][field] = [
+                    (i.term, i.object_id)
+                    for i in in_grp
+                ]
+
+        return result
