@@ -1,4 +1,5 @@
 {% extends "glamr/base.html" %}
+{% load glamr_extras %}
 {% block content %}
 
 <h3>{{ object_model_verbose_name|capfirst }}: {{ object }}</h3>
@@ -9,10 +10,10 @@
     </div>
     <div class="card-body">
         <table class="table table-hover table-condensed"><tbody>
-            {% for name, url, value in details %}
+            {% for name, pseudo_unit, url, value, unit in details %}
                 <tr>
-                    <td>{{ name|capfirst }}:</td>
-                    <td>{% if url %}<a href="{{ url }}">{{ value }}</a>{% else %}{{ value|default_if_none:"<missing>" }}{% endif %}</td>
+                    <td>{{ name|capfirstkeep }}{% if pseudo_unit %} <small>[{{ pseudo_unit }}]</small>{% endif %}:</td>
+                    <td>{% if url %}<a href="{{ url }}">{{ value }}</a>{% else %}{{ value|default_if_none:"<missing>" }}{% endif %} {{ unit|default_if_none:'' }}</td>
                 </tr>
             {% endfor %}
         </tbody></table>

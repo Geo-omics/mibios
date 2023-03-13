@@ -301,22 +301,28 @@ class ModelTableMixin(ExportMixin):
                 extra_context=dict(model_name=self.model._meta.model_name),
             )
             cols.append(('record links', col))
+            del col
 
         for i in self.model._meta.get_fields():
+            if i.name in self.exclude:
+                continue
+
+            kwargs = {}
             if acc_field and i is acc_field:
-                col = Column(
-                    linkify=lambda record: tables.get_record_url(record)
-                )
+                kwargs['linkify'] = \
+                    lambda record: tables.get_record_url(record)
             elif not i.many_to_one:
-                continue
-            elif i.name in self.exclude:
-                continue
+                if hasattr(i, 'unit'):
+                    kwargs['verbose_name'] = f'{i.verbose_name} ({i.unit})'
+                elif hasattr(i, 'pseudo_unit'):
+                    kwargs['verbose_name'] = \
+                        f'{i.verbose_name} ({i.pseudo_unit})'
+                else:
+                    continue
             else:
                 # regular FK field
-                col = Column(
-                    linkify=lambda value: tables.get_record_url(value)
-                )
-            cols.append((i.name, col))
+                kwargs['linkify'] = lambda value: tables.get_record_url(value)
+            cols.append((i.name, Column(**kwargs)))
         return cols
 
 
@@ -533,10 +539,17 @@ class BaseDetailView(DetailView):
             if hasattr(i, 'choices') and i.choices:
                 value = getattr(self.object, f'get_{i.name}_display')()
 
-            details.append((name, url, value))
+            if value:
+                unit = getattr(i, 'unit', None)
+            else:
+                unit = None
+
+            pseudo_unit = getattr(i, 'pseudo_unit', None)
+
+            details.append((name, pseudo_unit, url, value, unit))
 
         if exturl := self.object.get_external_url():
-            details.append(('external URL', exturl, exturl))
+            details.append(('external URL', None, exturl, exturl, None))
 
         return details, rel_lists
 
