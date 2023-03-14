@@ -9,7 +9,7 @@
 {% for item in search_results %}
     <li class="card mb-2">
         <div style="display: flex; flex-direction: row" class="card-header">
-            <h5 class="card-title"><a href="{% url 'sample' pk=item.pk %}">Sample: {{ item }}</a></h5>
+            <h5 class="card-title m-2"><a href="{% url 'sample' pk=item.pk %}">Sample: {{ item }}</a></h5>
         </div>
         <div class="card-body">
             <table class="table table-hover table-condensed table-sm"><tbody>

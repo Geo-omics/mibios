@@ -20,7 +20,7 @@
 	{% for name, url, value in details %}
 		<div>
 		    {% if name == 'Samples' and url %}
-		    	<a href="{{ url }}" class="btn btn-primary mb-2">{{ value }}</a>
+		    	<a href="{{ url }}" class="btn btn-primary mb-2 mt-2">{{ value }}</a>
 		    {% endif %}
 		    {% if name == 'Reference' %}
 		    	<a href="{{ url }}" class="mb-2">{{ value }}</a>
@@ -31,7 +31,7 @@
 {% if object.scheme %}
 	<div class="card mb-2 mt-2">
 		<div style="display: flex; flex-direction: row" class="card-header">
-            <h6 class="card-title">Details</h6>
+            <h6 class="card-title m-1">Details</h6>
         </div>
 		<div class="card-body">
 			<table class="table table-hover table-condensed"><tbody>
@@ -54,7 +54,7 @@
 	</div>
 	<div class="card mb-2">
 		<div style="display: flex; flex-direction: row" class="card-header">
-            <h6 class="card-title">Related Records</h6>
+            <h6 class="card-title m-1">Related Records</h6>
         </div>
 		<div class="card-body">
 	    	{% for name, model_name, qs, field in relations %}
