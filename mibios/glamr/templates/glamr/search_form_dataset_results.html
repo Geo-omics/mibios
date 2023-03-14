@@ -12,14 +12,32 @@
             <h5 class="card-title"><a href="{% url 'dataset' pk=item.pk %}">Dataset: {{ item }}</a></h5>
         </div>
         <div class="card-body">
-            Reference: {% if item.reference_id %}
-                <a href="{% url 'reference' pk=item.reference_id %}">{{item.reference}}</a><br/>
-            {% else %}
-                <i>No reference associated with this dataset</i><br/>
-            {% endif %}
-            Description: {{item.scheme|capfirst}}<br/>
-            Water Bodies: {{item.water_bodies}}<br/>
-            Material Type: {{item.material_type}}<br/>
+            <table class="table table-hover table-condensed table-sm"><tbody>
+                <tr>
+                    <td>Reference:</td>
+                    {% if item.reference_id %}
+                        <td><a href="{% url 'reference' pk=item.reference_id %}">{{ item.reference }}</a></td>
+                    {% else %}
+                        <td><i>No reference associated with this dataset</i></td>
+                    {% endif %}
+                </tr>
+                <tr>
+                    <td>Description:</td>
+                    <td>{{ item.scheme|capfirst }}</td>
+                </tr>
+                <tr>
+                    <td>Water Bodies:</td>
+                    <td>{{ item.water_bodies }}</td>
+                </tr>
+                <tr>
+                    <td>Material Type:</td>
+                    {% if item.material_type %}
+                        <td>{{ item.material_type|capfirst }}</td>
+                    {% else %}
+                        <td>-</td>
+                    {% endif %}
+                </tr>
+            </tbody></table>
         </div> 
     </li>
 {% endfor %}
