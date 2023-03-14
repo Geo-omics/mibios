@@ -628,6 +628,9 @@ class DemoFrontPageView(SingleTableView):
         dataset_counts_data = json.loads(dataset_counts_json)
         ctx['dataset_counts'] = dataset_counts_data
 
+        ctx['dataset_totalcount'] = Dataset.objects.count()
+        ctx['sample_totalcount'] = Sample.objects.count()
+
         # Get context for sample summary
         sample_counts_df = Sample.objects.basic_counts()
         sample_counts_json = sample_counts_df.reset_index().to_json(orient = 'records')
