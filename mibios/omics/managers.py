@@ -866,7 +866,7 @@ class SampleManager(Manager):
 
     def status(self):
         if not self.exists():
-            print('no samples in database yet')
+            print('No samples in database yet')
             return
 
         print(' ' * 10, 'contigs', 'bins', 'checkm', 'genes', sep='\t')
@@ -882,7 +882,7 @@ class SampleManager(Manager):
 
     def status_long(self):
         if not self.exists():
-            print('no samples in database yet')
+            print('No samples in database yet')
             return
 
         print(' ' * 10, 'cont cl', 'MAX', 'MET93', 'MET97', 'MET99', 'genes',
