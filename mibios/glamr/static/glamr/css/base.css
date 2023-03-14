@@ -26,3 +26,13 @@
     max-height: 400px;
     overflow-x: hidden;
 }
+
+.map {
+	min-height: 300px;
+	min-width: 300px;
+}
+
+.flex-container {
+	display: flex;
+	flex-direction: column;
+}
