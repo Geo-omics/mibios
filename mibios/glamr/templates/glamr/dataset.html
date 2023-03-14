@@ -38,7 +38,7 @@
 			{% for name, url, value in details %}
 			    {% if name != 'Samples' and name != 'Reference' %}
 			    	<tr><div class="card-text">
-			    		<td>{{ name }}:</td>
+			    		<td>{{ name|capfirst }}:</td>
 				    	<td>
 				    		{% if url %}
 				    			<a href="{{ url }}">{{ value }}</a>
