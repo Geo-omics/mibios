@@ -811,7 +811,6 @@ class SearchModelView(EditFilterMixin, TemplateView):
         ctx = super().get_context_data(**ctx)
         return ctx
 
-
 class SearchHitView(TemplateView):
     template_name = 'glamr/search_hits.html'
 
@@ -986,6 +985,38 @@ class DatasetSearchHitView(TemplateView):
             Q(sample__geo_loc_name__icontains=self.query)
         ).order_by('dataset_id').distinct()
         self.results = qs
+
+
+class SimpleAdvancedSearchView(TemplateView):
+    template_name = 'glamr/simple_advanced_search.html'
+    
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        self.datasetfilter = DatasetFilter(self.request.GET, queryset=self.get_queryset())
+        self.datasetfilter.form.helper = DatasetFilterFormHelper()
+        table = tables.DatasetTable(self.datasetfilter.qs.annotate(sample_count=Count('sample')))
+        ctx['datasetfilter'] = self.datasetfilter
+        ctx['table'] = table
+        return ctx
+
+    def get_queryset(self):
+        return Dataset.objects.all()
+
+
+class SimpleAdvancedDatasetsView(TemplateView):
+    template_name = 'glamr/simple_advanced_datasets.html'
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        self.datasetfilter = DatasetFilter(self.request.GET, queryset=self.get_queryset())
+        self.datasetfilter.form.helper = DatasetFilterFormHelper()
+        table = tables.DatasetTable(self.datasetfilter.qs)
+        ctx['datasetfilter'] = self.datasetfilter
+
+        return ctx
+
+    def get_queryset(self):
+        return Dataset.objects.all()
 
 
 class TableView(BaseFilterMixin, ModelTableMixin, SingleTableView):

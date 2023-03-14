@@ -35,4 +35,6 @@ urlpatterns = [
     path('search/samples/results/', views.SampleSearchHitView.as_view(), name='search_form_sample_results'),  # noqa: E501
     path('search/datasets/results/', views.DatasetSearchHitView.as_view(), name='search_form_dataset_results'),  # noqa: E501
     path('search/<str:model>/', views.SearchModelView.as_view(), name='search_model'),  # noqa: E501
+    path('simple-advanced-search/', views.SimpleAdvancedSearchView.as_view(), name='simple_advanced_search'),
+    path('simple-advanced-search/dataset/',views.SimpleAdvancedDatasetsView.as_view(), name='simple_advanced_datasets'),
 ]

@@ -14,7 +14,7 @@
     </button>
     <div class="dropdown-menu scrollable" aria-labelledby="dropdownMenuLink">
         {% for name, verbose in models %}
-            <a href="{% url 'search_model' model=name %}" class="dropdown-item">{{ verbose }}</a>
+            <a href="{% url 'search_model' model=name %}" class="dropdown-item">{{ verbose|capfirst }}</a>
         {% endfor %}
     </div>
     

@@ -1,0 +1,21 @@
+{% extends "glamr/base.html" %}
+{% load static %}
+{% block content %}
+
+</div>
+
+
+<h3>Advanced Dataset and Sample Search</h3>
+<div class="btn-group">
+  <input type="radio" class="btn-check" name="options" id="option1" autocomplete="off" onclick="document.getElementById('dataset-search').style.display = 'block'; document.getElementById('sample-search').style.display = 'none';" checked />
+  <label class="btn btn-primary" for="option1">Datasets</label>
+
+  <input type="radio" class="btn-check" name="options" id="option2" autocomplete="off" onclick="document.getElementById('sample-search').style.display = 'block';document.getElementById('dataset-search').style.display = 'none'" />
+  <label class="btn btn-primary" for="option2">Samples</label>
+</div>
+
+<div id="dataset-search">{% include "glamr/simple_advanced_datasets.html" %}</div>
+<div id="sample-search" style="display:none;">{% include "glamr/simple_advanced_samples.html" %}</div>
+
+{% endblock %}
+

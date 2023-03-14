@@ -3,7 +3,7 @@
 {% block content %}
 
 <div class="container-fluid">
-    <h3>Advanced Search: {{ model_verbose_name_plural }}</h3>
+    <h3>Advanced Search: {{ model_verbose_name_plural|capfirst }}</h3>
     <a href="{% url 'search_initial' %}" class="btn btn-outline-primary mb-2" type="button">Change data category</a>
     <hr/>
     {% include "glamr/search_form_simple.html" %}

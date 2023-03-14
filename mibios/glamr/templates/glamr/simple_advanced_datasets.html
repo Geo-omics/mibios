@@ -1,0 +1,12 @@
+{% load django_tables2 crispy_forms_tags %}
+{% load render_table from django_tables2 %}
+
+<div id="dataset_filter" class="dataset_filter">
+	<form action="" method="get" class="form form-inline m-2"> 
+    	{{datasetfilter.form|crispy}}
+    	<input type="submit" class="btn btn-primary mt-3" value="Search">
+	</form>
+</div>
+<hr/>
+<h5>Dataset Results</h5>
+{% render_table table 'glamr/simple_advanced_results_cards.html' %}
