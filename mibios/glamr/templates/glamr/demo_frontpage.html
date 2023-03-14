@@ -1,7 +1,9 @@
 {% extends "glamr/base.html" %}
+{% load bootstrap3 %}
 {% load static %}
 {% load render_table from django_tables2 %}
 {% block content %}
+
 
 {% include "glamr/search_form_sample.html" %}
 {% if db_is_good %}
@@ -9,8 +11,13 @@
 {% include "glamr/frontpage_summary.html"%}
 {% endif %}
 <hr/>
-<h3>Available Data Sets</h3>
-<div class="mb-2">
+<h3>Available Data Sets ({{ dataset_totalcount }})</h3>
+
+<div class="m-1">
+	{% include "glamr/frontpage_filter.html"%}
+</div>
+
+<div class="m-2">
 	{% include "glamr/map.html"%}
 </div>
 

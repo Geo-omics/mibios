@@ -5,7 +5,21 @@ from django.forms import ModelForm
 from django.forms.widgets import Select, TextInput
 # from django.utils.safestring import mark_safe
 
+from crispy_forms.helper import FormHelper
+from crispy_forms.layout import Layout, ButtonHolder, Submit
+
+
+from .models import Dataset
 from .templatetags.glamr_extras import human_lookups
+
+
+class DatasetFilterFormHelper(FormHelper):
+    model = Dataset
+    # form_tag = False
+    # Adding a Filter Button
+    layout = Layout('name', ButtonHolder(
+        Submit('submit', 'Filter', css_class='button white right')
+    ))
 
 
 class RenderMixin:

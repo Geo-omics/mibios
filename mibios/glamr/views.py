@@ -2,6 +2,7 @@ from itertools import chain, groupby
 from logging import getLogger
 
 from django_tables2 import Column, SingleTableView, TemplateColumn
+
 import pandas
 
 from django.conf import settings
@@ -14,9 +15,11 @@ from django.urls import reverse
 from django.views.generic import DetailView
 from django.views.generic.base import TemplateView
 
-from mibios.glamr.models import Sample, Dataset
 from mibios import get_registry
 from mibios.data import TableConfig
+from mibios.glamr.filters import DatasetFilter
+from mibios.glamr.forms import DatasetFilterFormHelper
+from mibios.glamr.models import Sample, Dataset
 from mibios.models import Q
 from mibios.views import ExportBaseMixin, TextRendererZipped
 from mibios.omics import get_sample_model
@@ -524,10 +527,18 @@ class DemoFrontPageView(SingleTableView):
     template_name = 'glamr/demo_frontpage.html'
     table_class = tables.DatasetTable
 
+    filter_class = DatasetFilter
+    formhelper_class = DatasetFilterFormHelper
+    context_filter_name = 'filter'
+
     def get_table_data(self):
         data = super().get_table_data()
+
+        self.dataset_ids = data.values_list('id', flat=True)
+
         orphans = models.Dataset.orphans
         orphans.sample_count = orphans.samples().count()
+
         # put orphans into first row (if any exist):
         if orphans.sample_count > 0:
             return chain([orphans], data)
@@ -538,7 +549,11 @@ class DemoFrontPageView(SingleTableView):
         qs = super().get_queryset()
         qs = qs.select_related('reference')
         qs = qs.annotate(sample_count=Count('sample'))
-        return qs
+
+        self.filter = self.filter_class(self.request.GET, queryset=qs)
+        self.filter.form.helper = self.formhelper_class()
+
+        return self.filter.qs
 
     def get_context_data(self, **ctx):
         # Make the frontpage resilient to database connection issues: Any DB
@@ -574,9 +589,12 @@ class DemoFrontPageView(SingleTableView):
             .filter(taxon__taxname__name='Microcystis') \
             .select_related('sample')[:5]
 
+        ctx[self.context_filter_name] = self.filter
+
         # lat/long, additional info for the map
-        map_data = Sample.objects.values('id', 'sample_name', 'dataset',
-                                         'latitude', 'longitude')
+        map_data = Sample.objects \
+            .filter(dataset__id__in=self.dataset_ids) \
+            .values('id', 'sample_name', 'dataset', 'latitude', 'longitude')
 
         for item in map_data:
             # add in sample url
@@ -586,7 +604,8 @@ class DemoFrontPageView(SingleTableView):
             dataset_id = item.get('dataset')
             if dataset_id is None:
                 dataset_id = 0
-            dataset_shortname = str(Dataset.objects.filter(id=dataset_id).first())
+            dataset_shortname = \
+                str(Dataset.objects.filter(id=dataset_id).first())
 
             item['dataset_url'] = reverse('dataset', args=[dataset_id])
             item['dataset_name'] = dataset_shortname
@@ -599,7 +618,8 @@ class DemoFrontPageView(SingleTableView):
         dataset_counts_data = json.loads(dataset_counts_json)
         ctx['dataset_counts'] = dataset_counts_data
 
-        ctx['dataset_totalcount'] = Dataset.objects.count()
+        ctx['dataset_totalcount'] = \
+            Dataset.objects.filter(pk__in=self.dataset_ids).count()
         ctx['sample_totalcount'] = Sample.objects.count()
 
         # Get context for sample summary
