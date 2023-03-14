@@ -1,4 +1,5 @@
 {% extends "glamr/base.html" %}
+{% load glamr_extras %}
 {% load render_table from django_tables2 %}
 
 {% block content %}
@@ -41,9 +42,9 @@
 			    		<td>{{ name|capfirst }}:</td>
 				    	<td>
 				    		{% if url %}
-				    			<a href="{{ url }}">{{ value }}</a>
+				    			<a href="{{ url }}">{{ value|capfirstkeep }}</a>
 				    		{% else %}
-				    			{{ value|default_if_none:"<missing/>" }}
+				    			{{ value|capfirstkeep|default_if_none:"<missing/>" }}
 				    		{% endif %}
 				    	</td>
 				    </div></tr>
