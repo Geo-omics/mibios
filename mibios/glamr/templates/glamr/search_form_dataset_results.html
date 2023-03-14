@@ -17,7 +17,7 @@
             {% else %}
                 <i>No reference associated with this dataset</i><br/>
             {% endif %}
-            Description: {{item.scheme}}<br/>
+            Description: {{item.scheme|capfirst}}<br/>
             Water Bodies: {{item.water_bodies}}<br/>
             Material Type: {{item.material_type}}<br/>
         </div> 

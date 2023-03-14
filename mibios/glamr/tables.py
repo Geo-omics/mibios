@@ -1,3 +1,5 @@
+import string
+
 from django.urls import reverse
 from django.utils.html import escape, format_html, mark_safe
 
@@ -6,14 +8,11 @@ from django_tables2 import A, Column, Table, TemplateColumn
 from mibios.glamr import models as glamr_models
 from mibios.omics import models as omics_models
 
-import string
-
 def get_record_url(*args):
     """
     Return URL for an object
 
     Arguments: <obj> | <<model|model_name> <pk>>
-no dataset / study information available
     The object can be passed as the only argument.  Or the model/model name and
     PK must be passed.
 
@@ -129,7 +128,7 @@ class DatasetTable(Table):
         attrs={
             'showFieldTitle': False,
             'cardTitle': True,
-            'navID': "scheme-sort"
+            'navID': "scheme-sort",
         }
     )
     samples = Column(
@@ -138,27 +137,27 @@ class DatasetTable(Table):
         attrs={
             'showFieldTitle': False,
             'defaultSort': True,
-            'navID': "samples-sort"
+            'navID': "samples-sort",
         }
     )
     reference = Column(
         linkify=lambda value: getattr(value, 'doi'),
         attrs={
             'showFieldTitle': True,
-            'navID': "reference-sort"
+            'navID': "reference-sort",
         }
     )
     water_bodies = Column(
         verbose_name='Water bodies',
         attrs={
             'showFieldTitle': True,
-            'navID': "water_bodies-sort"
+            'navID': "water_bodies-sort",
         }
     )
     material_type = Column(
         attrs={
             'showFieldTitle': True,
-            'navID': "material_type-sort"
+            'navID': "material_type-sort",
         }
     )
     sample_type = Column(
@@ -166,14 +165,14 @@ class DatasetTable(Table):
         verbose_name='Sample type',
         attrs={
             'showFieldTitle': True,
-            'navID': "sample_type-sort"
+            'navID': "sample_type-sort",
         }
     )
     external_urls = Column(
         verbose_name='External links',
         attrs={
             'showFieldTitle': True,
-            'navID': "external_urls-sort"
+            'navID': "external_urls-sort",
         }
     )
 
@@ -181,14 +180,15 @@ class DatasetTable(Table):
         empty_text = 'No dataset / study information available'
         attrs = {
             "id": "overview-table",
-            "class": "table table-hover"
+            "class": "table table-hover",
         }
 
     def render_scheme(self, value, record):
         r = record
         scheme = r.scheme or r.short_name or r.bioproject \
             or r.jgi_project or r.gold_id or str(record)
-        return string.capwords(scheme)
+        # capitalize just the first letter; leave other characters as they are:
+        return scheme[0].upper() + scheme[1:] 
 
     def render_material_type(self, value, record):
         # special case for eDNA
@@ -271,7 +271,7 @@ class SampleTable(Table):
         sequence = ['sample_name', 'sample_type', '...']
         empty_text = 'There are no samples associated with this dataset'
         attrs = {
-            "class": "table table-hover"
+            "class": "table table-hover",
         }
 
     def render_sample_name(self, record):

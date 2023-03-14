@@ -631,7 +631,7 @@ class DemoFrontPageView(SingleTableView):
         sample_counts_json = sample_counts_df.reset_index().to_json(orient = 'records')
         sample_counts_data = json.loads(sample_counts_json)
         ctx['sample_counts'] = sample_counts_data
-        
+
         return ctx
 
     def make_ratios_plot(self):
@@ -795,40 +795,12 @@ class SampleListView(SingleTableView):
 class SampleView(BaseDetailView):
     model = get_sample_model()
     template_name = 'glamr/sample_detail.html'
-    
+
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['detail_url'] = self.get_detail_url()
         ctx['sample_id'] = str(self.kwargs['pk'])
-        
         return ctx
 
-    def get_detail_url(self):
-        detail_url = ""
-        for i in self.model._meta.get_fields():
-            if i.name != 'dataset':
-                continue
-
-            value = getattr(self.object, i.name, None)
-            
-            if value:
-                if i.many_to_one or i.one_to_one:  # TODO: test 1-1 fields
-                    detail_url = tables.get_record_url(value)
-                elif isinstance(i, URLField):
-                    detail_url = value
-                else:
-                    detail_url = None
-            else:
-                detail_url = None
-
-            if i.name == 'dataset':
-                break;
-
-        if detail_url and detail_url.split("data/"):
-            detail_url = detail_url.split("data/")[1]
-        else:
-            detail_url = "dataset/0/"
-        return detail_url
 
 class SearchView(TemplateView):
     """ offer a form for advanced search, offer model list """
@@ -837,15 +809,15 @@ class SearchView(TemplateView):
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['advanced_search'] = True
-        
+
         # models in alphabetical order
         model_list = [
             (i._meta.model_name, i._meta.verbose_name)
             for i in get_registry().models.values()
         ]
-        model_list.sort(key=lambda model_list:model_list[1].lower())
+        model_list.sort(key=lambda item:item[1].lower())
         ctx['models'] = model_list
-        
+
         return ctx
 
 
@@ -918,19 +890,19 @@ class SearchHitView(TemplateView):
                 if i.has_hit:
                     have_abundance = True
                     break
-                else:
-                    have_abundance = False
-                model = content_type.model_class()
-                hits = [
-                    (i.content_object, str(i.content_object), None)
-                    for i in grp
-                ]
-                self.hits.append((
-                    have_abundance,
-                    model._meta.verbose_name_plural,
-                    model._meta.model_name,
-                    hits,
-                ))
+            else:
+                have_abundance = False
+            model = content_type.model_class()
+            hits = [
+                (i.content_object, str(i.content_object), None)
+                for i in grp
+            ]
+            self.hits.append((
+                have_abundance,
+                model._meta.verbose_name_plural,
+                model._meta.model_name,
+                hits,
+            ))
 
 class SampleSearchHitView(TemplateView):
     model=models.Sample
@@ -976,7 +948,7 @@ class SampleSearchHitView(TemplateView):
             Q(dataset__reference__authors__icontains=self.query) |
             Q(sample_name__icontains=self.query)
         ).order_by('sample_name')
-        
+
         self.results = qs
 
 class DatasetSearchHitView(TemplateView):
@@ -1016,7 +988,7 @@ class DatasetSearchHitView(TemplateView):
             Q(sample__sample_type__icontains=self.query) |
             Q(sample__geo_loc_name__icontains=self.query)
         ).order_by('dataset_id')
-        
+
         self.results = qs
 
 
