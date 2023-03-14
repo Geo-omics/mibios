@@ -9,11 +9,11 @@
 {% for item in search_results %}
     <li class="card mb-2">
         <div style="display: flex; flex-direction: row" class="card-header">
-            <h5 class="card-title"><a href="{% url 'record' model=model_name pk=item.pk %}">Dataset: {{ item }}</a></h5>
+            <h5 class="card-title"><a href="{% url 'dataset' pk=item.pk %}">Dataset: {{ item }}</a></h5>
         </div>
         <div class="card-body">
             Reference: {% if item.reference_id %}
-                <a href="{% url 'record' model='reference' pk=item.reference_id %}">{{item.reference}}</a><br/>
+                <a href="{% url 'reference' pk=item.reference_id %}">{{item.reference}}</a><br/>
             {% else %}
                 <i>No reference associated with this dataset</i><br/>
             {% endif %}
