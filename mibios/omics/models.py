@@ -53,8 +53,7 @@ class AbstractSample(Model):
 
     sample_id = models.CharField(
         max_length=32,
-        # TODO: make required
-        **uniq_opt,
+        unique=True,
         help_text='internal sample accession',
     )
     tracking_id = models.CharField(
@@ -165,9 +164,6 @@ class AbstractSample(Model):
 
     class Meta:
         abstract = True
-        unique_together = (
-            ('dataset', 'sample_id'),
-        )
 
     def __str__(self):
         return self.sample_id or self.tracking_id or super().__str__()
