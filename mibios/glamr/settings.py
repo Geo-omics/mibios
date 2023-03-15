@@ -13,9 +13,6 @@ INSTALLED_APPS.append('mibios.glamr.apps.AppConfig')  # noqa:F405
 # add django-filters
 INSTALLED_APPS.append('django_filters') 
 
-# add bootstrap 3
-INSTALLED_APPS.append('bootstrap3') 
-
 # add crispy forms
 INSTALLED_APPS.append('crispy_forms')
 CRISPY_ALLOWED_TEMPLATE_PACKS = 'bootstrap4'
