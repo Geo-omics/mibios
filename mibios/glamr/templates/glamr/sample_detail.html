@@ -14,12 +14,12 @@
 
 <table class="table table-hover table-condensed table-sm">
 <tbody>
-{% for name, url, value in details %}
+{% for name, _, url, value, unit in details %}
 {% if value %} 
 {# filtering out rows that do not have values to cut down on info on page #}
 <tr>
     <td>{{ name|capfirst }}:</td>
-    <td>{% if url %}<a href="{{ url }}">{{ value }}</a>{% else %}{{ value|default_if_none:"<missing>" }}{% endif %}</td>
+    <td>{% if url %}<a href="{{ url }}">{{ value }}</a>{% else %}{{ value|default_if_none:"<missing>" }}{% endif %} {{ unit|default_if_none:'' }}</td>
 </tr>
 {% endif %}
 {% endfor %}
