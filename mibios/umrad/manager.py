@@ -333,7 +333,7 @@ class BaseLoader(DjangoManager):
                 pass
             raise
 
-        if kwargs.get('diff', False):
+        if diff_info:
             change_set, unchanged_count, new_count, missing_objs = diff_info
             if new_count or change_set or missing_objs:
                 try:
