@@ -99,8 +99,8 @@ setuptools.setup(
         'Django~=3.2.0',
         'django-crispy-forms~=1.14',
         'django-extensions~=3.2.0',
+        'django-filter>=22.1',  # the debian pkg spells python3-django-filters!
         'djangorestframework~=3.14.0',
-        'django-filter>=22.1',
         'django-tables2~=2.4.0',
         'matplotlib~=3.6.0',
         'pandas~=1.5.0',
