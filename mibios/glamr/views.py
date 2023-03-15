@@ -936,7 +936,6 @@ class SearchHitView(TemplateView):
                 model._meta.model_name,
                 hits,
             ))
-        '''
 
 
 class SampleSearchHitView(MapMixin, TemplateView):
