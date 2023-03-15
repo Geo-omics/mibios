@@ -32,6 +32,18 @@ def get_last_timer():
     return thread_data.timer
 
 
+class InputFileError(Exception):
+    """
+    malformed line in input file
+
+    We may expect this error and may tolerate it and skip the offending line
+    """
+    def __init__(self, *args):
+        args = [f'{type(i).__name__}: {i}' if isinstance(i, Exception) else i
+                for i in args]
+        super().__init__(*args)
+
+
 class ReturningGenerator:
     """
     A wrapper to catch return values of generators
@@ -529,7 +541,13 @@ class InputFileSpec:
                     # fn will calculate value
                     value = None
             else:
-                value = row[col_i]
+                try:
+                    value = row[col_i]
+                except IndexError as e:
+                    raise InputFileError(
+                        f'row too short: no element with index {col_i} for '
+                        f'field {field} / column {col_name} {row=}'
+                    ) from e
                 if value in self.empty_values or value in field.empty_values:
                     value = None
             yield (field, fn, value)

@@ -16,23 +16,11 @@ from mibios.models import (
     QuerySet as MibiosQuerySet,
 )
 
-from .utils import (CSV_Spec, ProgressPrinter, atomic_dry,
+from .utils import (CSV_Spec, ProgressPrinter, atomic_dry, InputFileError,
                     get_last_timer, make_int_in_filter, save_import_diff)
 
 
 log = getLogger(__name__)
-
-
-class InputFileError(Exception):
-    """
-    malformed line in input file
-
-    We may expect this error and may tolerate it and skip the offending line
-    """
-    def __init__(self, *args):
-        args = [f'{type(i).__name__}: {i}' if isinstance(i, Exception) else i
-                for i in args]
-        super().__init__(*args)
 
 
 class BulkCreateWrapperMixin:
@@ -853,7 +841,11 @@ class BaseLoader(DjangoManager):
                 raise RuntimeError('iterate_rows() must be called first')
             raise  # something else going on
 
-        raise ValueError(f'no such field in row data: {field_name}')
+        # for debugging:
+        print(f'\n[DEBUG] dumping {self}.current_row_data: ')
+        for n, i in enumerate(self.current_row_data, start=1):
+            print('   ', n, i)
+        raise LookupError(f'no such field in row data: {field_name}')
 
     @atomic_dry
     def fast_bulk_update(self, objs, fields, batch_size=None):
