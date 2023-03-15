@@ -65,6 +65,7 @@ class AbstractSample(Model):
     )
     sample_name = models.TextField(
         max_length=32,
+        **ch_opt,
         help_text='sample ID or name as given by study',
     )
     dataset = models.ForeignKey(
@@ -77,7 +78,7 @@ class AbstractSample(Model):
         **opt,
     )
     has_paired_data = models.BooleanField(**opt)
-    sra_accession = models.TextField(max_length=16, **ch_opt, help_text='SRA accession')  # noqa: E501
+    sra_accession = models.TextField(max_length=16, **ch_opt, verbose_name='SRA accession')  # noqa: E501
     amplicon_target = models.TextField(max_length=16, **ch_opt)
     fwd_primer = models.TextField(max_length=32, **ch_opt)
     rev_primer = models.TextField(max_length=32, **ch_opt)

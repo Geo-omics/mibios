@@ -7,6 +7,7 @@ from django.core.exceptions import FieldDoesNotExist
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
+from mibios.omics.models import AbstractSample
 from mibios.umrad.manager import InputFileError, Loader
 from mibios.umrad.model_utils import delete_all_objects_quickly
 from mibios.umrad.utils import CSV_Spec, atomic_dry
@@ -117,9 +118,63 @@ class ReferenceLoader(MetaDataLoader):
     )
 
 
+class SampleInputSpec(CSV_Spec):
+    UNITS_SHEET = 'Great_Lakes_Omics_Datasets.xlsx - metadata_units_and_notes.tsv'  # noqa: E501
+
+    def setup(self, loader, column_specs=None, path=None):
+        self.has_header = True
+        if column_specs is None:
+            base_spec = list(self._spec)
+        else:
+            base_spec = column_specs
+
+        # base_spec is assumed to be in three-column (col_name, field_name,
+        # function) format
+        base_spec = {i[0]: i for i in base_spec}  # map col name to spec item
+
+        specs = []
+        with (settings.GLAMR_META_ROOT / self.UNITS_SHEET).open() as ifile:
+            ifile.readline()  # ignore header
+            for line in ifile:
+                col_name, *_, field_name, _ = line.rstrip('\n').split('\t')
+                if not field_name:
+                    if col_name in base_spec:
+                        raise RuntimeError('field name missing in meta data')
+                    # row does not related to a existing field
+                    continue
+                if col_name in base_spec:
+                    if base_spec[col_name][1] != field_name:
+                        raise RuntimeError(f'fieldname mismatch at {col_name}')
+                    # merge spec item
+                    spec_item = base_spec.pop(col_name)
+                else:
+                    # take from meta data
+                    spec_item = (col_name, field_name)
+
+                specs.append(spec_item)
+
+        specs = list(base_spec.values()) + specs
+
+        # Check that the spec account for all field we think should get loaded
+        # from the file:
+        fields_accounted_for = set((i[1] for i in specs))
+        required = [  # fields from AbstractSample that we want to check for
+            'sample_id', 'sample_name', 'sample_type', 'has_paired_data',
+            'sra_accession', 'amplicon_target', 'fwd_primer', 'rev_primer',
+        ]
+        for i in AbstractSample._meta.get_fields():
+            if i.name not in required:
+                fields_accounted_for.add(i.name)
+        for i in loader.model._meta.get_fields():
+            if i.concrete and i.name not in fields_accounted_for:
+                print(f'[WARNING] field missing from spec: {i}')
+
+        super().setup(loader, column_specs=specs, path=path)
+
+
 class SampleLoader(MetaDataLoader):
     """ loader for Great_Lakes_Omics_Datasets.xlsx """
-    empty_values = ['NA', 'Not Listed', 'NF', '#N/A', 'ND']
+    empty_values = ['NA', 'Not Listed', 'NF', '#N/A', 'ND', 'not applicable']
 
     def get_file(self):
         return settings.GLAMR_META_ROOT / 'Great_Lakes_Omics_Datasets.xlsx - samples.tsv'  # noqa:E501
@@ -144,16 +199,18 @@ class SampleLoader(MetaDataLoader):
                 )
         return value
 
-    def check_ids(self, value, obj):
-        """ Pre-processor to check that we have at least some ID value """
-        if value:
-            return value
+    def check_empty(self, sample_id_value, obj):
+        """ check to allow skipping essentially empty rows """
+        if not sample_id_value:
+            return self.spec.SKIP_ROW
 
-        # check other ID columns
-        if self.get_current_value('biosample'):
-            return value
-        if self.get_current_value('sra_accession'):
-            return value
+        # check other values in row
+        for f, _, value in self.current_row_data[1:]:
+            if value is None or value is self.spec.IGNORE_COLUMN:
+                continue
+            else:
+                # keep going normally
+                return sample_id_value
 
         # consider row blank
         return self.spec.SKIP_ROW
@@ -163,7 +220,7 @@ class SampleLoader(MetaDataLoader):
 
     def process_timestamp(self, value, obj):
         """
-        Pre-processor for the collection time stamp
+        Pre-processor for the collection timestamp
 
         1. Partial dates: years only get saved as Jan 1st and year-month gets
            the first of month; this is indicated by the collection_ts_partial
@@ -174,6 +231,9 @@ class SampleLoader(MetaDataLoader):
         """
         if value is None:
             return None
+
+        # step 0. temp fix for some input
+        value = value.removesuffix('TNA')
 
         old_value = value
         del value
@@ -235,90 +295,46 @@ class SampleLoader(MetaDataLoader):
         """
         Pre-processor to allow use of commas to separate thousands
         """
+        # TODO: check if this is still needed of if commas were removed
+        # upstream
         if value:
             return value.replace(',', '')
         else:
             return value
 
-    spec = CSV_Spec(
-        ('SampleID', 'sample_id'),  # A
-        # ignore id_fixed / sample_input_complete columns
-        ('SampleName', 'sample_name', check_ids),  # D
+    spec = SampleInputSpec(
+        ('SampleID', 'sample_id', check_empty),  # A
+        # id_fixed B  --> ignore
+        # sample_input_complete C  --> ignore
+        ('SampleName', 'sample_name'),  # D
         ('StudyID', 'dataset.dataset_id'),  # E
         ('ProjectID', 'project_id'),  # F
         ('Biosample', 'biosample'),  # G
         ('Accession_Number', 'sra_accession'),  # H
-        # ignore 4 ref ID columns
-        # ('JGI_study', None),  # TODO
-        # ('JGI_biosample', None),  # TODO
+        ('GOLD_analysis_projectID', 'gold_analysis_id'),  # I
+        ('GOLD_sequencing_projectID', 'gold_seq_id'),  # J
+        ('JGI_study', 'jgi_study'),  # K
+        ('JGI_biosample', 'jgi_biosample'),  # L
         ('sample_type', 'sample_type'),  # M
         ('has_paired_data', 'has_paired_data', parse_bool),  # N
         ('amplicon_target', 'amplicon_target'),  # O
         ('F_primer', 'fwd_primer'),  # P
         ('R_primer', 'rev_primer'),  # Q
-        ('geo_loc_name', 'geo_loc_name'),  # R
-        ('GAZ_id', 'gaz_id'),  # S
-        ('lat', 'latitude'),  # T
-        ('lon', 'longitude'),  # U
+        # columns after Q, mostly defined by units sheet
         ('collection_date', 'collection_timestamp', process_timestamp),  # V
         (CSV_Spec.CALC_VALUE, 'collection_ts_partial', None),
-        ('NOAA_Site', 'noaa_site'),  # W
-        ('env_broad_scale', 'env_broad_scale'),  # X
-        ('env_local_scale', 'env_local_scale'),  # Y
-        ('env_medium', 'env_medium'),  # Z
         ('keywords', 'keywords'),  # AA
-        ('depth', 'depth'),  # AB
-        ('depth_sediment', 'depth_sediment'),  # AC
-        ('size_frac_up', 'size_frac_up'),  # AD
-        ('size_frac_low', 'size_frac_low'),  # AE
-        ('pH', 'ph'),  # AF
-        ('temp', 'temp'),  # AG
-        ('calcium', 'calcium'),  # AH
-        ('potassium', 'potassium'),  # AI
-        ('magnesium', 'magnesium'),  # AJ
-        ('ammonium', 'ammonium'),  # AK
-        ('nitrate', 'nitrate'),  # AL
-        ('tot_phos', 'total_phos'),  # AM
-        ('diss_oxygen', 'diss_oxygen'),  # AN
-        ('conduc', 'conduc'),  # AO
-        ('secci', 'secci'),  # AP
-        ('turbidity', 'turbidity'),  # AQ
-        ('part_microcyst', 'part_microcyst'),  # AR
-        ('diss_microcyst', 'diss_microcyst'),  # AS
-        ('ext_phyco', 'ext_phyco'),  # AT
-        ('ext_microcyst', 'ext_microcyst'),  # AU
-        ('ext_Anatox', 'ext_anatox'),  # AV
-        ('chlorophyl', 'chlorophyl'),  # AW
-        ('diss_phosp', 'diss_phos'),  # AX
-        ('soluble_react_phosp', 'soluble_react_phos'),  # AY
-        ('ammonia', 'ammonia'),  # AZ
-        ('Nitrate_Nitrite', 'nitrate_nitrite'),  # BA
-        ('urea', 'urea'),  # BB
-        ('part_org_carb', 'part_org_carb'),  # BC
-        ('part_org_nitro', 'part_org_nitro'),  # BD
-        ('diss_org_carb', 'diss_org_carb'),  # BE
-        ('Col_DOM', 'col_dom'),  # BF
-        ('suspend_part_matter', 'suspend_part_matter'),  # BG
-        ('suspend_vol_solid', 'suspend_vol_solid'),  # BH
-        ('microcystis_count', 'microcystis_count', parse_human_int),  # BI
-        ('planktothrix_count', 'planktothrix_count', parse_human_int),  # BJ
-        ('anabaena_D_count', 'anabaena_d_count', parse_human_int),  # BK
-        ('cylindrospermopsis_count', 'cylindrospermopsis_count'),  # BL
-        ('ice_cover', 'ice_cover'),  # BM
-        ('chlorophyl_fluoresence', 'chlorophyl_fluoresence'),  # BN
-        ('sampling_device', 'sampling_device'),  # BO
+        ('pH', 'ph'),  # AG
+        ('microcystis_count', 'microcystis_count', parse_human_int),  # BL
+        ('planktothrix_count', 'planktothrix_count', parse_human_int),  # BM
+        ('anabaena_D_count', 'anabaena_d_count', parse_human_int),  # BN
+        ('sampling_device', 'sampling_device'),  # BR
         ('modified_or_experimental', 'modified_or_experimental', parse_bool),
-        ('is_isolate', 'is_isolate', parse_bool),  # BQ
-        ('is_blank_neg_control', 'is_neg_control', parse_bool),  # BR
+        ('is_isolate', 'is_isolate', parse_bool),  # BT
+        ('is_blank_neg_control', 'is_neg_control', parse_bool),  # BU
         ('is_mock_community_or_pos_control', 'is_pos_control', parse_bool),
-        ('filtration_volume', 'filt_volume'),  # BT
-        ('filtration_duration', 'filt_duration'),  # BU
-        ('par', 'par'),  # BV
-        ('qPCR_total', 'qPCR_total'),  # BW
-        ('qPCR_mcyE', 'qPCR_mcyE'),  # BX
-        ('qPCR_sxtA', 'qPCR_sxtA'),  # BY
-        ('Notes', 'notes'),  # BZ
-
+        ('modified_or_experimental', 'modified_or_experimental', parse_bool),
+        ('Notes', 'notes'),  # CQ
     )
 
     @atomic_dry

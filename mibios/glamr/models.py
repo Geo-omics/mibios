@@ -199,9 +199,27 @@ class Sample(AbstractSample):
 
     project_id = models.TextField(
         max_length=32, **ch_opt,
+        verbose_name='NCBI BioProject',
         help_text='Project accession, e.g. NCBI bioproject',
     )
     biosample = models.TextField(max_length=32, **ch_opt)
+    gold_analysis_id = models.TextField(
+        max_length=32, **ch_opt,
+        verbose_name='GOLD analysis ID',
+    )
+    gold_seq_id = models.TextField(
+        max_length=32,
+        **ch_opt,
+        verbose_name='GOLD sequencing project ID',
+    )
+    jgi_study = models.TextField(
+        max_length=32, **ch_opt,
+        verbose_name='JGI study ID',
+    )
+    jgi_biosample = models.TextField(
+        max_length=32, **ch_opt,
+        verbose_name='JGI biosample ID',
+    )
     geo_loc_name = models.TextField(max_length=64, **ch_opt)
     gaz_id = models.TextField(max_length=32, **ch_opt, verbose_name='GAZ id')
     latitude = models.TextField(max_length=16, **ch_opt)
@@ -222,19 +240,20 @@ class Sample(AbstractSample):
     keywords = models.TextField(max_length=32, **ch_opt)
     depth = models.TextField(max_length=16, **ch_opt)
     depth_sediment = models.TextField(max_length=16, **ch_opt)
+    depth_location = models.DecimalField(max_digits=7, decimal_places=2, **opt)
     size_frac_up = models.TextField(max_length=16, **ch_opt)
     size_frac_low = models.TextField(max_length=16, **ch_opt)
     ph = models.TextField(max_length=8, **ch_opt, verbose_name='pH')
     temp = models.TextField(max_length=8, **ch_opt)
     calcium = models.TextField(max_length=8, **ch_opt)
     potassium = models.TextField(max_length=8, **ch_opt)
+    phosphate = models.TextField(max_length=8, **ch_opt)
     magnesium = models.TextField(max_length=8, **ch_opt)
     ammonium = models.TextField(max_length=8, **ch_opt)
     nitrate = models.TextField(max_length=8, **ch_opt)
-    total_phos = models.TextField(max_length=8, **ch_opt)
     diss_oxygen = models.TextField(max_length=8, **ch_opt)
     conduc = models.TextField(max_length=16, **ch_opt)
-    secci = models.TextField(max_length=8, **ch_opt)
+    secchi = models.TextField(max_length=8, **ch_opt)
     turbidity = models.TextField(max_length=8, **ch_opt)
     part_microcyst = models.TextField(max_length=8, **ch_opt)
     diss_microcyst = models.TextField(max_length=8, **ch_opt)
@@ -242,6 +261,7 @@ class Sample(AbstractSample):
     ext_microcyst = models.TextField(max_length=8, **ch_opt)
     ext_anatox = models.TextField(max_length=8, **ch_opt)
     chlorophyl = models.TextField(max_length=8, **ch_opt)
+    total_phos = models.TextField(max_length=8, **ch_opt)
     diss_phos = models.TextField(max_length=8, **ch_opt)
     soluble_react_phos = models.TextField(max_length=8, **ch_opt)
     ammonia = models.TextField(max_length=8, **ch_opt)
@@ -251,6 +271,7 @@ class Sample(AbstractSample):
     part_org_nitro = models.TextField(max_length=8, **ch_opt)
     diss_org_carb = models.TextField(max_length=8, **ch_opt)
     col_dom = models.TextField(max_length=8, **ch_opt)
+    h2o2 = models.TextField(max_length=8, **ch_opt)
     suspend_part_matter = models.TextField(max_length=8, **ch_opt)
     suspend_vol_solid = models.TextField(max_length=8, **ch_opt)
     microcystis_count = models.PositiveIntegerField(**opt)
@@ -258,18 +279,33 @@ class Sample(AbstractSample):
     anabaena_d_count = models.PositiveIntegerField(**opt)
     cylindrospermopsis_count = models.PositiveIntegerField(**opt)
     ice_cover = models.PositiveSmallIntegerField(**opt)
-    chlorophyl_fluoresence = models.PositiveSmallIntegerField(**opt)
+    chlorophyl_fluoresence = models.DecimalField(max_digits=5, decimal_places=2, **opt)  # noqa:E501
     sampling_device = models.TextField(max_length=32, **ch_opt)
     modified_or_experimental = models.BooleanField(default=False)
     is_isolate = models.BooleanField(**opt)
     is_neg_control = models.BooleanField(**opt)
     is_pos_control = models.BooleanField(**opt)
-    filt_volume = models.DecimalField(max_digits=10, decimal_places=3, **opt)
+    samp_vol_we_dna_ext = models.DecimalField(max_digits=10, decimal_places=3, **opt)  # noqa: E501
     filt_duration = models.DurationField(**opt)
-    par = models.DecimalField(max_digits=8, decimal_places=2, **opt)
     qPCR_total = models.PositiveIntegerField(**opt)
     qPCR_mcyE = models.PositiveIntegerField(**opt)
     qPCR_sxtA = models.PositiveIntegerField(**opt)
+    silicate = models.TextField(max_length=32, **ch_opt)
+    tot_nit = models.TextField(max_length=32, **ch_opt)
+    green_algae = models.TextField(max_length=32, **ch_opt)
+    bluegreen = models.TextField(max_length=32, **ch_opt)
+    diatoms = models.TextField(max_length=32, **ch_opt)
+    crypto = models.TextField(max_length=32, **ch_opt)
+    tot_microcyst_lcmsms = models.TextField(max_length=32, **ch_opt)
+    attenuation = models.TextField(max_length=32, **ch_opt)
+    transmission = models.TextField(max_length=32, **ch_opt)
+    par = models.DecimalField(max_digits=8, decimal_places=2, **opt)
+    sky = models.TextField(max_length=32, **ch_opt)
+    wave_height = models.TextField(max_length=32, **ch_opt)
+    wind_speed = models.TextField(max_length=32, **ch_opt)
+    sortchem = models.TextField(max_length=32, **ch_opt)
+    phyco_fluoresence = models.TextField(max_length=32, **ch_opt)
+
     notes = models.TextField(**ch_opt)
 
     objects = SampleManager.from_queryset(SampleQuerySet)()
