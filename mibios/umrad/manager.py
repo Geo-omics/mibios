@@ -369,8 +369,9 @@ class BaseLoader(DjangoManager):
         """
         Do the data loading, called by load()
 
-        Returns a tuple of several diff statistics if parameter diff is True,
-        else returns None.
+        If diff=True and data loading proceeds normally, then the return value
+        is a tuple of several diff statistics.  If diff=False or in rare cases,
+        e.g. empty inpiut file we return None.
         """
         fields = self.spec.fields
         model_name = self.model._meta.model_name
@@ -634,6 +635,7 @@ class BaseLoader(DjangoManager):
                     except Exception as e:
                         print(f'exception {e} while saving {i}:\n{vars(i)=}')
                         raise
+        del upd_objs, update_fields
 
         if new_objs:
             if bulk:
@@ -647,8 +649,7 @@ class BaseLoader(DjangoManager):
                         print(f'ERROR: {type(e)}: {e} while saving object: {i}'
                               f'\n{vars(i)=}')
                         raise
-
-        del new_objs, upd_objs, update_fields
+        del new_objs
 
         if m2m_data:
             # get accession -> pk map
@@ -860,18 +861,19 @@ class BaseLoader(DjangoManager):
         On the other hand this can run much faster and can handle many update
         fields just fine.
         """
-        if connection.vendor != 'sqlite':
-            # TODO: need implementation for postgres, fallback for now
-            return self.bulk_update(objs, fields, batch_size=batch_size)
+        if connection.vendor == 'postgresql':
+            meth = self._fast_bulk_update_batch
+            if batch_size is None:
+                batch_size = 20000
 
-        if connection.vendor == 'sqlite':
-            meth = self._fast_bulk_update_sqlite_batch
+        elif connection.vendor == 'sqlite':
+            meth = self._fast_bulk_update_batch
             if batch_size is None:
                 # limit batch size to maximum allowed variable
                 batch_size = \
                     settings.SQLITE_MAX_VARIABLE_NUMBER // (len(fields) + 1)
         else:
-            raise NotImplementedError
+            return self.bulk_update(objs, fields, batch_size=batch_size)
 
         return self.bulk_update_wrapper(meth)(objs, fields, batch_size)
 
@@ -914,13 +916,16 @@ class BaseLoader(DjangoManager):
             obj_pool[key] = i
         return obj_pool
 
-    def _fast_bulk_update_sqlite_batch(self, objs, field_names):
+    def _fast_bulk_update_batch(self, objs, field_names):
         """
-        Fast-update a single batch under sqlite3
+        Fast-update a single batch
 
-        objs -- an iterable of objects to be updated
+        Parameters:
+            objs: an iterable of objects to be updated
+            field_names: a list of str, names of the fields to be updated
 
-        This implements a four step process:
+        This implements a four step process that should work with sqlite3 and
+        postgresql:
 
             1. create a temporary table
             2. insert data and primary keys into the temp table
