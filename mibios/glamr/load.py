@@ -4,6 +4,7 @@ import re
 from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import FieldDoesNotExist
+from django.db import connections
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
@@ -344,7 +345,8 @@ class SampleLoader(MetaDataLoader):
         return self.load(template=template, **kwargs)
 
 
-class SearchTermManager(Loader):
+class SearchableManager(Loader):
+    @atomic_dry
     def reindex(self):
         delete_all_objects_quickly(self.model)
         models = [
@@ -372,7 +374,7 @@ class SearchTermManager(Loader):
                 abund_lookup = None
             else:
                 abund_lookup = 'abundance'
-        print(f'Collecting search terms for {model._meta.verbose_name}... ',
+        print(f'Collecting searchable text for {model._meta.verbose_name}... ',
               end='', flush=True)
         if abund_lookup:
             # get PKs of objects with hits/abundance
@@ -386,19 +388,39 @@ class SearchTermManager(Loader):
         qs = model.objects.all()
         print(f'{qs.count()} [OK]')
 
-        def search_term_objs():
+        def searchable_objs():
             fs = SEARCH_FIELDS[model._meta.app_label][model._meta.model_name]
-            for obj in qs[:10000]:
+            for obj in qs:
                 for field_name in fs:
-                    term = getattr(obj, field_name)
-                    if term is None or term == '':
+                    txt = getattr(obj, field_name)
+                    if txt is None or txt == '':
                         continue
 
                     yield self.model(
-                        term=term,
+                        text=txt,
                         has_hit=(obj.pk in whits),
                         field=field_name,
                         content_object=obj,
                     )
 
-        self.bulk_create(search_term_objs())
+        self.bulk_create(searchable_objs(), batch_size=10000)
+
+
+class UniqueWordManager(Loader):
+    @atomic_dry
+    def reindex(self):
+        """
+        Populate table with unique, lower-case words from Searchable.text
+        """
+        Searchable = apps.get_app_config('glamr').get_model('searchable')
+        with connections['default'].cursor() as cur:
+            table = self.model._meta.db_table
+            cur.execute(f'TRUNCATE TABLE {table}')
+            searchable_table = Searchable._meta.db_table
+            cur.execute(
+                # cf. PostgreSQL documentation F.35.5.
+                f"INSERT INTO {table} (word) "
+                f"SELECT word FROM "
+                f"ts_stat('SELECT to_tsvector(''simple'', text) FROM "
+                f"{searchable_table}')"
+            )

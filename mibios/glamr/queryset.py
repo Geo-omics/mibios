@@ -2,6 +2,8 @@ from collections import Counter
 from itertools import groupby
 from operator import attrgetter
 
+from django.contrib.postgres.search import SearchQuery, TrigramDistance
+from django.db import connections
 from django.db.models import Count
 
 import pandas
@@ -88,17 +90,17 @@ class SampleQuerySet(QuerySet):
         return counts.unstack(fill_value=0)
 
 
-class SearchTermQuerySet(QuerySet):
+class SearchableQuerySet(QuerySet):
     def search(
         self,
         query,
         abundance=False,
         models=[],
         fields=[],
-        lookup='iexact',
+        lookup=None,
     ):
         """
-        Search search terms
+        Full-text search
 
         :param bool abundance:
             If True, then results are limited to those with abundance / related
@@ -107,7 +109,7 @@ class SearchTermQuerySet(QuerySet):
             list of str of model names, limit search to given models
         :param list fields:
             list of field names, limits results to these fields
-        :param str lookup: Use this lookup to query the search terms
+        :param str lookup: Use this lookup to query the text field
         """
         f = {}
         if abundance:
@@ -118,7 +120,15 @@ class SearchTermQuerySet(QuerySet):
             f['field__in'] = fields
             qs = self
 
-        f['term__' + lookup] = query
+        # use postgres full-text search if possible
+        if connections[self.db].vendor == 'postgresql' and lookup is None:
+            f['searchvector'] = SearchQuery(query, search_type='websearch')
+        else:
+            # sqlite etc. or specific lookup requested
+            if lookup is None:
+                # set default lookup for sqlite use
+                lookup = 'icontains'
+            f[f'text__{lookup}'] = query
 
         qs = self.filter(**f) \
             .select_related('content_type') \
@@ -130,8 +140,19 @@ class SearchTermQuerySet(QuerySet):
             result[model] = {}
             for field, in_grp in groupby(out_grp, key=attrgetter('field')):
                 result[model][field] = [
-                    (i.term, i.object_id)
+                    (i.text, i.object_id)
                     for i in in_grp
                 ]
 
         return result
+
+
+class UniqueWordQuerySet(QuerySet):
+    def suggest(self, query, limit=20):
+        qs = self \
+            .annotate(dist=TrigramDistance('word', query)) \
+            .order_by('dist')
+        if limit:
+            return qs[:limit]
+        else:
+            return qs

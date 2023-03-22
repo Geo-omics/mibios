@@ -29,3 +29,14 @@ class AppConfig(_AppConfig):
                 field = Sample._meta.get_field(field_name)
                 for attr_name, value in attrs.items():
                     setattr(field, attr_name, value)
+
+        # Monkey patching concrete fields of Searchable:
+        # since the searchvector field is a generated column, we can't let the
+        # model save data to it (even if it's just the default). So here we
+        # tell the model that it is not concrete.  A hack depending on django
+        # internals.  It is sufficient to run Searchable.objects.reindex()
+        Searchable = self.get_model('searchable')
+        Searchable._meta.concrete_fields = tuple((
+            i for i in Searchable._meta.concrete_fields
+            if i.name != 'searchvector'
+        ))

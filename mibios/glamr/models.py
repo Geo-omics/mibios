@@ -3,6 +3,8 @@ GLAMR-specific modeling
 """
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
+from django.contrib.postgres.indexes import GinIndex, GistIndex
+from django.contrib.postgres.search import SearchVectorField
 from django.db import models, router, transaction
 from django.urls import reverse
 
@@ -14,9 +16,13 @@ from mibios.umrad.models import Model
 from mibios.umrad.model_utils import ch_opt, fk_opt, fk_req, uniq_opt, opt
 
 from .fields import OptionalURLField
-from .load import \
-    DatasetLoader, ReferenceLoader, SampleLoader, SearchTermManager
-from .queryset import DatasetQuerySet, SampleQuerySet, SearchTermQuerySet
+from .load import (
+    DatasetLoader, ReferenceLoader, SampleLoader, SearchableManager,
+    UniqueWordManager,
+)
+from .queryset import (
+    DatasetQuerySet, SampleQuerySet, SearchableQuerySet, UniqueWordQuerySet,
+)
 
 
 class Dataset(AbstractDataset):
@@ -319,18 +325,70 @@ class Sample(AbstractSample):
             or super().__str__()
 
 
-class SearchTerm(models.Model):
-    term = models.TextField(max_length=32, db_index=True)
-    has_hit = models.BooleanField(default=False, db_index=True)
+class Searchable(models.Model):
+    """
+    Text that is subject to full-text search
+
+    To populate the table run Searchable.objects.reindex(). Under postgresql
+    the searchvector field should be "GENERATED ALWAYS AS" which means we can't
+    include the field in INSERTs from django.  A workable hack is to remove
+    searchvector from Meta.concrete_fields at runtime.
+
+    Under non-postgresql backends full-text search works, however slowly, via
+    icontains lookup or similar on the text column.
+    """
+    text = models.TextField(max_length=32)
+    has_hit = models.BooleanField(default=False)
     content_type = models.ForeignKey(ContentType, **fk_req)
-    field = models.CharField(max_length=100, db_index=True)
+    field = models.CharField(max_length=100)
     object_id = models.PositiveIntegerField()
     content_object = GenericForeignKey('content_type', 'object_id')
+    searchvector = SearchVectorField(null=True)
 
-    objects = SearchTermManager.from_queryset(SearchTermQuerySet)()
+    objects = SearchableManager.from_queryset(SearchableQuerySet)()
+
+    class Meta:
+        indexes = [
+            GinIndex(
+                fields=['searchvector'],
+                # bake in the name, else makemigrations will re-create the
+                # index with a different name, with changed hash part (it's a
+                # mystery)
+                name='glamr_searc_searchv_f71dcf_gin',
+            )
+        ]
 
     def __str__(self):
-        return self.term
+        if len(self.text) > 50:
+            return f'{self.field}:{self.text[:45]}[...]'
+        else:
+            return f'{self.field}:{self.text}'
+
+
+class UniqueWord(models.Model):
+    """
+    A distinct word in the Searchable text field
+
+    We use this for spelling suggestions with postgresql's trigram similarity.
+    Populate the table with UniqueWord.objects.reindex() after Searchable is
+    updated.  Then find spelling suggestions with
+    UniqueWord.objects.all().suggest(word).
+    """
+    word = models.TextField()
+
+    objects = UniqueWordManager.from_queryset(UniqueWordQuerySet)()
+
+    class Meta:
+        indexes = [
+            GistIndex(
+                name='term_trigram_idx',
+                fields=['word'],
+                opclasses=['gist_trgm_ops'],
+            ),
+        ]
+
+    def __str__(self):
+        return self.word
 
 
 def load_meta_data(dry_run=False):

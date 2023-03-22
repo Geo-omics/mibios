@@ -15,7 +15,7 @@ from mibios.umrad.models import (
     CompoundRecord, CompoundName, FunctionName, Location,
     FuncRefDBEntry, ReactionRecord, Uniprot, UniRef100,
 )
-from .models import SearchTerm
+from .models import Searchable, UniqueWord
 
 log = getLogger(__name__)
 
@@ -100,8 +100,8 @@ def update_spellfix(spellfix_ext_path=None):
             'FROM {table} WHERE {field} NOT IN '
             '(SELECT word FROM {spellfix_table}_vocab)'.format(
                 spellfix_table=SPELLFIX_TABLE,
-                field='term',
-                table=SearchTerm._meta.db_table,
+                field='text',
+                table=Searchable._meta.db_table,
             )
         )
         cur.execute('COMMIT')
@@ -109,7 +109,17 @@ def update_spellfix(spellfix_ext_path=None):
 
 
 def get_suggestions(query):
-    """ get top 20 spellfix suggestions """
+    """ get top 20 spelling suggestions """
+    match get_connection().vendor:
+        case 'sqlite':
+            return get_suggestions_sqlite(query)
+        case 'postgresql':
+            return UniqueWord.objects.all().suggest(query)
+        case _:
+            return []
+
+
+def get_suggestions_sqlite(query):
     if not settings.SPELLFIX_EXT_PATH:
         return []
 
