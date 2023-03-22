@@ -490,8 +490,10 @@ def delete_all_objects_quickly(model):
     conn = connections[db_alias]
 
     with conn.cursor() as cur:
-        if conn.vendor == 'postgres':
-            sql = [f'TRUNCATE TABLE {model._meta.db_table} CASCADE']
+        if conn.vendor == 'postgresql':
+            cur.execute(f'TRUNCATE TABLE {model._meta.db_table} CASCADE')
+            # there is no feedback from postgresql here
+            return
         else:
             # sqlite or other
             # 1. get model cascade, models with FKs initially go last
@@ -519,9 +521,9 @@ def delete_all_objects_quickly(model):
 
             sql = [f'delete from {i._meta.db_table}' for i in models]
 
-        for i in sql:
-            print('INFO:', i)
-            cur.execute(i)
-        res = cur.fetchall()
-    if res != []:
-        raise RuntimeError('expected empty list returned')
+            for i in sql:
+                print('INFO:', i)
+                cur.execute(i)
+            res = cur.fetchall()
+            if res != []:
+                raise RuntimeError(f'expected empty list but got: {res=}')
