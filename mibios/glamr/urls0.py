@@ -30,9 +30,8 @@ urlpatterns = [
     path('data/<str:model>/<int:pk>/abundance/<str:sample>/genes/', views.AbundanceGeneView.as_view(), name='record_abundance_genes'),  # noqa: E501
     path('data/<str:model>/<int:pk>/relations/<str:field>/', views.ToManyListView.as_view(), name='relations'),  # noqa: E501
     path('data/<str:model>/<int:pk>/relations/<str:field>/full/', views.ToManyFullListView.as_view(), name='relations_full'),  # noqa: E501
-    path('search/', views.SearchView.as_view(), name='search_initial'),  # noqa: E501
-    path('search/hits/', views.SearchHitView.as_view(), name='search_hits'),  # noqa: E501
-    path('search/samples/results/', views.SampleSearchHitView.as_view(), name='search_form_sample_results'),  # noqa: E501
-    path('search/datasets/results/', views.DatasetSearchHitView.as_view(), name='search_form_dataset_results'),  # noqa: E501
-    path('search/<str:model>/', views.SearchModelView.as_view(), name='search_model'),  # noqa: E501
+    path('search-adv/', views.SearchView.as_view(), name='search_initial'),
+    path('search/<str:model>/', views.ResultListView.as_view(), name='search_result'),  # noqa: E501
+    path('filter/<str:model>/', views.ResultListView.as_view(), name='filter_result'),  # noqa: E501
+    path('search-adv/<str:model>/', views.SearchModelView.as_view(), name='search_model'),  # noqa: E501
 ]

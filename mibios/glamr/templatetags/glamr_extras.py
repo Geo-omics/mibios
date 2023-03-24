@@ -78,3 +78,11 @@ def capfirstkeep(value):
     "ph" -> "Ph"
     """
     return capfirst(value) if value.islower() else value
+
+
+@register.filter(name='meta')
+def meta_attr_access(model, attrname):
+    """
+    Access an attribute of Model._meta
+    """
+    return getattr(model._meta, attrname)

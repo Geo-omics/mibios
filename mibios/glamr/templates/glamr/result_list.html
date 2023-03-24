@@ -1,0 +1,56 @@
+{% extends "glamr/base.html" %}
+{% load static %}
+{% load glamr_extras %}
+{% block content %}
+{% include "glamr/search_form_simple.html" %}
+<br/>
+
+{% if object_list %}
+<h3>
+    {% if search_model %}
+    Searching {{search_model|meta:"verbose_name_plural"}}
+    {% else %}
+    Global search
+    {% endif %}
+    for <small>"{{ query }}"</small> returned {{ object_list | length }} results:
+</h3>
+
+{% if result_stats %}
+<div class="m-2">
+    <ul>
+        {% for model, count in result_stats %}
+        <li><a href="#{{model|meta:"model_name"}}_first_item">{{count}} {{model|meta:"verbose_name_plural"}}</a></li>
+        {% endfor %}
+    </ul
+</div>
+{% endif %}{# result_stats #}
+
+<div class="m-2">
+    {% include "glamr/map.html"%}
+</div>
+
+{% if search_radius == 'dataset' %}
+    {% include "glamr/result_list_dataset.html" %}
+{% elif search_radius == 'sample' %}
+    {% include "glamr/result_list_sample.html" %}
+{% else %}
+    {% include "glamr/result_list_generic.html" %}
+{% endif %}
+
+{% else %}{# object_list #}
+<h3>No results for <small>"{{ query }}"</small>
+    {% if search_model %}among {{search_model|meta:"verbose_name_plural"}}{% endif %}
+</h3>
+{% if suggestions %}
+<h4>Maybe you meant:</h4>
+<ul>
+{% for item in suggestions %}
+<li><a href="{% url 'search_result' model=search_radius %}?query={{item}}">{{item}}</a></li>
+{% endfor %}
+</ul>
+{% endif %}{# suggestions #}
+{% endif %}{# object_list #}
+
+{% endblock %}{# content #}
+
+

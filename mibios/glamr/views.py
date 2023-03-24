@@ -1,19 +1,22 @@
-from itertools import chain, groupby
+from itertools import chain  # , groupby
 from logging import getLogger
 
 from django_tables2 import Column, SingleTableView, TemplateColumn
 
 import pandas
 
+from django.apps import apps
 from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
 from django.db import OperationalError
 from django.db.models import Count, Field, URLField
-from django.http import Http404, HttpResponse, HttpResponseRedirect
+from django.http import Http404, HttpResponse
 from django.urls import reverse
+from django.utils.functional import classproperty
 from django.views.generic import DetailView
 from django.views.generic.base import TemplateView
+from django.views.generic.list import ListView
 
 from mibios import get_registry
 from mibios.data import TableConfig
@@ -29,9 +32,8 @@ from mibios.omics.models import (
 from mibios.umrad.models import FuncRefDBEntry
 from mibios.omics.models import Gene
 from . import models, tables
-from .forms import (
-    AdvancedSearchForm, QBuilderForm, QLeafEditForm,
-)
+from .forms import QBuilderForm, QLeafEditForm, SearchForm
+from .search_fields import SEARCH_FIELDS
 from .search_utils import get_suggestions
 
 import json
@@ -332,11 +334,11 @@ class MapMixin():
     """
     def get_sample_queryset(self):
         """
-        Return a queryset of the samples to be displayed.
+        Return a Sample queryset of the samples to be displayed on the map.
 
         This must be implemented by inheriting classes
         """
-        pass
+        raise NotImplementedError('Inheriting views must impement this method')
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
@@ -366,6 +368,153 @@ class MapMixin():
             map_data.append(item)
 
         return map_data
+
+
+class SearchFormMixin:
+    """
+    Mixin sufficient to display the simple search form
+
+    Use via including search_form_simple.html in your template.
+    """
+    model = None  # model class to restrict search to
+    ALL_MODELS_URL_PART = 'global'  # url path part indicating global search
+    form_class = SearchForm
+
+    _model_class = None
+
+    @classproperty
+    def model_class(cls):
+        """ a lookup dict to get model classes from name """
+        if cls._model_class is None:
+            cls._model_class = {
+                model_name: apps.get_model(app_label, model_name)
+                for app_label, app_models in SEARCH_FIELDS.items()
+                for model_name in app_models.keys()
+            }
+        return cls._model_class
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        # add context for search form display:
+        ctx['advanced_search'] = False
+        ctx['models_and_fields'] = [
+            (
+                model_name,
+                self.model_class[model_name]._meta.verbose_name,
+                fields[:7],
+            )
+            for app, app_data in SEARCH_FIELDS.items()
+            for model_name, fields in app_data.items()
+        ]
+
+        ctx['search_model'] = self.model
+        if self.model:
+            ctx['search_radius'] = self.model._meta.model_name
+        else:
+            ctx['search_radius'] = self.ALL_MODELS_URL_PART
+        return ctx
+
+
+class SearchMixin(SearchFormMixin):
+    """
+    Mixin to process submitted query, search the database, and display results
+
+    Implementing classes need to call the search() method.
+    """
+    _verbose_field_name = None
+
+    @classproperty
+    def verbose_field_name(cls):
+        """
+        map field names to field's verbose_name
+
+        Returns a dict-of-dict mapping model names to dicts field
+        names->verbose field name.
+        """
+        if cls._verbose_field_name is None:
+            cls._verbose_field_name = {}
+            for app_label, app_models in SEARCH_FIELDS.items():
+                for model_name, fields in app_models.items():
+                    model = cls.model_class[model_name]
+                    verbose = {}
+                    for i in fields:  # fields is list of field names
+                        verbose[i] = model._meta.get_field(i).verbose_name
+                    cls._verbose_field_name[model_name] = verbose
+        return cls._verbose_field_name
+
+    def setup(self, request, *args, **kwargs):
+        super().setup(request, *args, **kwargs)
+        try:
+            model = kwargs['model']
+        except KeyError as e:
+            raise ValueError('expect model name passed from url conf') from e
+
+        if model == self.ALL_MODELS_URL_PART:
+            self.model = None
+        else:
+            try:
+                self.model = self.model_class[model]
+            except KeyError as e:
+                raise Http404('bad model name / is not searchable') from e
+
+        self.query = None
+        self.check_abundance = False
+        self.search_result = {}
+        self.suggestions = []
+
+    def process_search_form(self):
+        """
+        Process the user input
+
+        Called from search()
+        """
+        self.results = {}
+        form = self.form_class(data=self.request.GET)
+        if form.is_valid():
+            self.query = form.cleaned_data['query']
+            self.check_abundance = form.cleaned_data.get('field_data_only', False)  # noqa: E501
+        else:
+            # invalid form, pretend empty search result
+            log.debug(f'form errors: {form.errors=} {self.request.GET=}')
+            pass
+
+    def search(self):
+        """
+        Do the full-text search
+
+        Depending on the search's success, this methods sets the view's
+        search_result and suggestions attributes.
+        """
+        self.process_search_form()
+        if not self.query:
+            return
+        self.search_result = models.Searchable.objects.search(
+            query=self.query,
+            models=[self.model._meta.model_name] if self.model else [],
+            abundance=self.check_abundance,
+        )
+        if not self.search_result:
+            self.suggestions = get_suggestions(self.query)
+            if not self.suggestions:
+                messages.add_message(
+                    self.request, messages.INFO,
+                    'search: did not find anything'
+                )
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        # add context to display search results:
+        ctx['query'] = self.query
+        ctx['verbose_field_name'] = self.verbose_field_name
+        if self.search_result and self.model is None:
+            # issue results statistics unless a single model was searched
+            ctx['result_stats'] = [
+                (model, sum((len(items) for items in model_results.values())))
+                for model, model_results in self.search_result.items()
+            ]
+        else:
+            ctx['result_stats'] = None
+        return ctx
 
 
 class AbundanceView(ExportMixin, SingleTableView):
@@ -577,7 +726,7 @@ class DatasetView(BaseDetailView):
         return super().get_object()
 
 
-class DemoFrontPageView(MapMixin, SingleTableView):
+class DemoFrontPageView(SearchFormMixin, MapMixin, SingleTableView):
     model = models.Dataset
     template_name = 'glamr/demo_frontpage.html'
     table_class = tables.DatasetTable
@@ -841,7 +990,14 @@ class SearchView(TemplateView):
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['advanced_search'] = True
+        ctx['advanced_search'] = False
+        m_and_f = []
+        for app, app_data in SEARCH_FIELDS.items():
+            app = apps.get_app_config(app)
+            for model_name, fields in app_data.items():
+                m = app.get_model(model_name)
+                m_and_f.append((model_name, m._meta.verbose_name, fields[:7]))
+        ctx['models_and_fields'] = m_and_f
 
         # models in alphabetical order
         model_list = [
@@ -862,173 +1018,6 @@ class SearchModelView(EditFilterMixin, TemplateView):
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         return ctx
-
-
-class SearchHitView(TemplateView):
-    template_name = 'glamr/search_hits.html'
-
-    # tri-state indicator if search results hit field data or just reference
-    reference_hit_only = None
-
-    def get_context_data(self, **ctx):
-        ctx = super().get_context_data(**ctx)
-        ctx['search_hits'] = self.hits
-        ctx['query'] = self.query
-        ctx['no_hit_models'] = self.no_hit_models
-        ctx['reference_hit_only'] = self.reference_hit_only
-        ctx['suggestions'] = self.suggestions
-        ctx['field_data_only'] = self.form.cleaned_data.get('field_data_only')
-        return ctx
-
-    def get(self, request, *args, **kwargs):
-        self.form = AdvancedSearchForm(data=self.request.GET)
-        if self.form.is_valid():
-            self.query = self.form.cleaned_data['query']
-            check_abundance = self.form.cleaned_data.get('field_data_only')
-            self.search(check_abundance=check_abundance)
-            if check_abundance:
-                if self.hits:
-                    self.reference_hit_only = False
-                else:
-                    self.reference_hit_only = True
-                    # try again without restriction
-                    self.search(check_abundance=False)
-        else:
-            # invalid form, pretend empty search result
-            pass
-
-        if self.hits:
-            self.suggestions = None
-        else:
-            self.suggestions = get_suggestions(self.query)
-            if not self.suggestions:
-                messages.add_message(
-                    request, messages.INFO, 'search: did not find anything'
-                )
-                return HttpResponseRedirect(reverse('frontpage'))
-        return self.render_to_response(self.get_context_data())
-
-    def search(self, check_abundance=False):
-        self.hits = []
-        self.no_hit_models = []
-
-        qs = models.SearchTerm.objects.filter(term__iexact=self.query)
-        if check_abundance:
-            qs = qs.filter(has_hit=True)
-        qs = qs.order_by('content_type')
-
-        for content_type, grp in groupby(qs, key=lambda x: x.content_type):
-            grp = list(grp)
-            for i in grp:
-                if i.has_hit:
-                    have_abundance = True
-                    break
-            else:
-                have_abundance = False
-            model = content_type.model_class()
-            hits = [
-                (i.content_object, str(i.content_object), None)
-                for i in grp
-            ]
-            self.hits.append((
-                have_abundance,
-                model._meta.verbose_name_plural,
-                model._meta.model_name,
-                hits,
-            ))
-
-
-class SampleSearchHitView(MapMixin, TemplateView):
-    model = models.Sample
-    template_name = 'glamr/search_form_sample_results.html'
-    table_class = tables.SampleTable
-
-    def get_context_data(self, **ctx):
-        ctx = super().get_context_data(**ctx)
-        ctx['search_results'] = self.results
-        ctx['model_name'] = models.Sample._meta.model_name
-        ctx['query'] = self.query
-        return ctx
-
-    def get(self, request, *args, **kwargs):
-        self.form = AdvancedSearchForm(data=self.request.GET)
-        if self.form.is_valid():
-            self.query = self.form.cleaned_data['query']
-            self.search()
-        else:
-            # invalid form, pretend empty search result
-            pass
-
-        return self.render_to_response(self.get_context_data())
-
-    def search(self):
-        self.results = []
-        qs = Sample.objects.filter(
-            Q(geo_loc_name__icontains=self.query) |
-            Q(sample_type__icontains=self.query) |
-            Q(collection_ts_partial__icontains=self.query) |
-            Q(collection_timestamp__icontains=self.query) |
-            Q(project_id__icontains=self.query) |
-            Q(dataset__scheme__icontains=self.query) |
-            Q(env_broad_scale__icontains=self.query) |
-            Q(env_local_scale__icontains=self.query) |
-            Q(env_medium__icontains=self.query) |
-            Q(sample_id__icontains=self.query) |
-            Q(dataset__water_bodies__icontains=self.query) |
-            Q(dataset__scheme__icontains=self.query) |
-            Q(dataset__material_type__icontains=self.query) |
-            Q(dataset__reference__short_reference__icontains=self.query) |
-            Q(dataset__reference__title__icontains=self.query) |
-            Q(dataset__reference__authors__icontains=self.query) |
-            Q(sample_name__icontains=self.query)
-        ).order_by('sample_name').distinct()
-
-        self.results = qs
-
-    def get_sample_queryset(self):
-        return self.results
-
-class DatasetSearchHitView(TemplateView):
-    model = models.Dataset
-    template_name = 'glamr/search_form_dataset_results.html'
-    table_class = tables.DatasetTable
-
-    def get_context_data(self, **ctx):
-        ctx = super().get_context_data(**ctx)
-        ctx['search_results'] = self.results
-        ctx['model_name'] = models.Dataset._meta.model_name
-        ctx['query'] = self.query
-        return ctx
-
-    def get(self, request, *args, **kwargs):
-        self.results = []
-        self.form = AdvancedSearchForm(data=self.request.GET)
-        if self.form.is_valid():
-            self.query = self.form.cleaned_data['query']
-            self.search()
-        else:
-            # invalid form, pretend empty search result
-            pass
-
-        return self.render_to_response(self.get_context_data())
-
-    def search(self):
-        qs = Dataset.objects.filter(
-            Q(water_bodies__icontains=self.query) |
-            Q(material_type__icontains=self.query) |
-            Q(reference__short_reference__icontains=self.query) |
-            Q(reference__title__icontains=self.query) |
-            Q(reference__authors__icontains=self.query) |
-            Q(scheme__icontains=self.query) |
-            Q(bioproject__icontains=self.query) |
-            Q(dataset_id__icontains=self.query) |
-            Q(sample__sample_type__icontains=self.query) |
-            Q(sample__geo_loc_name__icontains=self.query)
-        ).order_by('dataset_id').distinct()
-        self.results = qs
-
-    def get_sample_queryset(self):
-        return Sample.objects.filter(dataset__in=self.results)
 
 
 class TableView(BaseFilterMixin, ModelTableMixin, SingleTableView):
@@ -1097,3 +1086,53 @@ class ToManyFullListView(ModelTableMixin, ToManyListView):
         super().setup(request, *args, **kwargs)
         # hide the column for the object
         self.exclude.append(self.field.remote_field.name)
+
+
+class ResultListView(SearchMixin, MapMixin, ListView):
+    template_name = 'glamr/result_list.html'
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['suggestions'] = self.suggestions
+        return ctx
+
+    def result_to_list(self, result):
+        """
+        Helper to turn SearchMixin.search_result into an ListView.object_list
+        """
+        res = []
+        for model, items_per_field in result.items():
+            model_name = model._meta.model_name
+            items = {
+                pk: (field, text)
+                for field, items in items_per_field.items()
+                for text, pk in items
+            }
+            objs = model.objects.in_bulk(items.keys())
+            is_first = True  # True for the first item of each model
+            for pk, (field, text) in items.items():
+                field = self.verbose_field_name[model_name][field]
+                res.append((is_first, model_name, objs[pk], field, text))
+                is_first = False
+        return res
+
+    def get_queryset(self):
+        self.search()
+        if self.search_result:
+            return self.result_to_list(self.search_result)
+        else:
+            return []
+
+    def get_sample_queryset(self):
+
+        sample_pks = set()
+        for _, result_items in self.search_result.get(Sample, {}).items():
+            for _, pk in result_items:
+                sample_pks.add(pk)
+        for _, result_items in self.search_result.get(Dataset, {}).items():
+            dataset_pks = [pk for _, pk in result_items]
+            sample_pks.update(
+                Sample.objects.filter(dataset__pk__in=dataset_pks)
+                .values_list('pk', flat=True)
+            )
+        return Sample.objects.filter(pk__in=sample_pks)

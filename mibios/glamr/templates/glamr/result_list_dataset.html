@@ -1,19 +1,9 @@
-{% extends "glamr/base.html" %}
-{% load static %}
 {% load glamr_extras %}
-{% load render_table from django_tables2 %}
-{% block content %}
-{% include "glamr/search_form_sample.html" %}
-<br/>
-<h3>Searching datasets for <small>"{{ query }}"</small> returned {{ search_results | length }} results:</h3>
-<div class="m-2">
-    {% include "glamr/map.html"%}
-</div>
 <ul>
-{% for item in search_results %}
+{% for _, _, item, field, text in object_list %}
     <li class="card mb-2">
         <div style="display: flex; flex-direction: row" class="card-header">
-            <h5 class="m-2"><a href="{% url 'dataset' pk=item.pk %}">Dataset: {{ item }}</a></h5>
+            <h5 class="m-2">Dataset: <a href="{% url 'dataset' pk=item.pk %}">{{ item }}</a> (found in {{ field }}: "{{text}}")</h5>
         </div>
         <div class="card-body">
             <table class="table table-hover table-condensed table-sm"><tbody>
@@ -46,6 +36,3 @@
     </li>
 {% endfor %}
 </ul>
-
-{% endblock %}
-
