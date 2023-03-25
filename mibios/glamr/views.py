@@ -353,18 +353,24 @@ class MapMixin():
         """
         qs = self.get_sample_queryset()
         qs = qs.select_related('dataset')
-        fields = ['id', 'sample_name', 'latitude', 'longitude', 'sample_type']
+        qs = qs.values('id', 'sample_name', 'latitude', 'longitude',
+                       'sample_type', 'dataset_id')
+
+        dataset_pks = set((i['dataset_id'] for i in qs))
+        datasets = Dataset.objects.filter(pk__in=dataset_pks)
+        # str() will access the reference
+        datasets = datasets.select_related('reference')
+        dataset_name = {i.pk: str(i) for i in datasets.iterator()}
 
         map_data = []
-        for i in qs:
-            item = {j: getattr(i, j) for j in fields}
-
+        for item in qs:
             # add in sample url
-            item['sample_url'] = reverse('sample', args=[i.pk])
+            item['sample_url'] = reverse('sample', args=[item['id']])
 
             # add in dataset info
-            item['dataset_url'] = reverse('dataset', args=[i.dataset.pk])
-            item['dataset_name'] = str(i.dataset)
+            item['dataset_url'] = reverse('dataset', args=[item['dataset_id']])
+            item['dataset_name'] = dataset_name[item['dataset_id']]
+            del item['dataset_id']
             map_data.append(item)
 
         return map_data
