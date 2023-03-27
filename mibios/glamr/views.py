@@ -744,8 +744,6 @@ class DemoFrontPageView(SearchFormMixin, MapMixin, SingleTableView):
     def get_table_data(self):
         data = super().get_table_data()
 
-        self.dataset_ids = data.values_list('id', flat=True)
-
         orphans = models.Dataset.orphans
         orphans.sample_count = orphans.samples().count()
 
@@ -806,8 +804,7 @@ class DemoFrontPageView(SearchFormMixin, MapMixin, SingleTableView):
         dataset_counts_data = json.loads(dataset_counts_json)
         ctx['dataset_counts'] = dataset_counts_data
 
-        ctx['dataset_totalcount'] = \
-            Dataset.objects.filter(pk__in=self.dataset_ids).count()
+        ctx['dataset_totalcount'] = Dataset.objects.count()
         ctx['sample_totalcount'] = Sample.objects.count()
 
         # Get context for sample summary
