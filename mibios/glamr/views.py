@@ -1139,3 +1139,38 @@ class ResultListView(SearchMixin, MapMixin, ListView):
                 .values_list('pk', flat=True)
             )
         return Sample.objects.filter(pk__in=sample_pks)
+
+
+class FilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
+                       SingleTableView):
+    template_name = 'glamr/filter_list.html'
+
+    def setup(self, request, *args, model=None, **kwargs):
+        super().setup(request, *args, **kwargs)
+        # support searchable models only for now
+        try:
+            self.model = self.model_class[model]
+        except KeyError as e:
+            raise Http404('model not supported in this view') from e
+        self.conf = TableConfig(self.model)
+
+    def get_queryset(self):
+        f = {}
+        for key, val in self.request.GET.items():
+            fname = key.split('__')[0]
+            try:
+                self.model._meta.get_field(fname)
+            except FieldDoesNotExist:
+                continue
+            f[key] = val
+        self.conf.filter = f
+        return self.conf.get_queryset()
+
+    def get_sample_queryset(self):
+        if self.model is Sample:
+            return self.get_queryset()
+        if self.model is Dataset:
+            return Sample.objects.filter(dataset__in=self.get_queryset())
+        else:
+            # TODO
+            return Sample.objects.none()

@@ -1,0 +1,22 @@
+{% extends "glamr/base.html" %}
+{% load static %}
+{% load glamr_extras %}
+{% block content %}
+{% include "glamr/search_form_simple.html" %}
+<br/>
+
+{% if object_list %}
+<div class="m-2">
+    {% include "glamr/map.html"%}
+</div>
+
+{% include "glamr/filter_list_generic.html" %}
+
+{% else %}{# object_list #}
+<h3>No results</h3>
+{% endif %}{# object_list #}
+
+{% endblock %}{# content #}
+
+
+

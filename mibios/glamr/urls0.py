@@ -32,6 +32,6 @@ urlpatterns = [
     path('data/<str:model>/<int:pk>/relations/<str:field>/full/', views.ToManyFullListView.as_view(), name='relations_full'),  # noqa: E501
     path('search-adv/', views.SearchView.as_view(), name='search_initial'),
     path('search/<str:model>/', views.ResultListView.as_view(), name='search_result'),  # noqa: E501
-    path('filter/<str:model>/', views.ResultListView.as_view(), name='filter_result'),  # noqa: E501
+    path('filter/<str:model>/', views.FilteredListView.as_view(), name='filter_result'),  # noqa: E501
     path('search-adv/<str:model>/', views.SearchModelView.as_view(), name='search_model'),  # noqa: E501
 ]
