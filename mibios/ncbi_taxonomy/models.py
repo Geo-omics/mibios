@@ -176,6 +176,7 @@ class TaxName(Model):
         indexes = [
             models.Index(fields=['node', 'name_class']),
         ]
+        verbose_name = 'taxonomic name'
 
     def __str__(self):
         return self.name
