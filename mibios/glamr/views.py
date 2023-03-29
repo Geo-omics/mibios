@@ -1132,7 +1132,8 @@ class FilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
             raise Http404('model not supported in this view') from e
         self.conf = TableConfig(self.model)
 
-    def get_queryset(self):
+    def set_filter(self):
+        """ set filter from GET querystring """
         f = {}
         for key, val in self.request.GET.items():
             fname = key.split('__')[0]
@@ -1142,6 +1143,9 @@ class FilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
                 continue
             f[key] = val
         self.conf.filter = f
+
+    def get_queryset(self):
+        self.set_filter()
         return self.conf.get_queryset()
 
     def get_sample_queryset(self):
@@ -1152,3 +1156,12 @@ class FilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
         else:
             # TODO
             return Sample.objects.none()
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        self.set_filter()
+        ctx['filter_items'] = [
+            (k.replace('__', '->'), v)
+            for k, v in self.conf.filter.items()
+        ]
+        return ctx

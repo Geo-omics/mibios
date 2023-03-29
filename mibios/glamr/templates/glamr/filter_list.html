@@ -16,6 +16,13 @@
     {% include "glamr/map.html"%}
 </div>
 
+<h3>Showing {{ view.model|meta:"verbose_name_plural" }}</h3>
+<p>with filter:
+<ul>
+{% for k, v in filter_items %}
+<li>{{k}}: {{v}}</li>
+{% endfor %}
+</ul></p>
 [<a href="?export">download</a>]
 {% include "glamr/filter_list_generic.html" %}
 
