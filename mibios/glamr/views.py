@@ -732,9 +732,9 @@ class DatasetView(BaseDetailView):
         return super().get_object()
 
 
-class DemoFrontPageView(SearchFormMixin, MapMixin, SingleTableView):
+class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
     model = models.Dataset
-    template_name = 'glamr/demo_frontpage.html'
+    template_name = 'glamr/frontpage.html'
     table_class = tables.DatasetTable
 
     filter_class = DatasetFilter
