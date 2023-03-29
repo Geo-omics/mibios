@@ -68,7 +68,7 @@ class ExportMixin(ExportBaseMixin):
             return super().get(request, *args, **kwargs)
 
     def export_check(self):
-        """ Returns wether a file export response is needed """
+        """ Returns True if a file export response is needed """
         return self.query_param in self.request.GET
 
     def export_response(self):
@@ -938,7 +938,7 @@ class OverViewSamplesView(SingleTableView):
         return ctx
 
 
-class SampleListView(SingleTableView):
+class SampleListView(ExportMixin, SingleTableView):
     """ List of samples belonging to a given dataset  """
     model = get_sample_model()
     template_name = 'glamr/sample_list.html'
