@@ -8,11 +8,7 @@
             <table class="table table-hover table-condensed table-sm"><tbody>
                 <tr>
                     <td>Dataset:</td>
-                    {% if item.dataset_id %}
-                        <td><a href="{% url 'dataset' pk=item.dataset_id %}">{{item.dataset}}</a></td>
-                    {% else %}
-                        <td><i>No dataset associated with this sample</i></td>
-                    {% endif %}
+                    <td><a href="{% url 'dataset' pk=item.dataset_id %}">{{item.dataset}}</a></td>
                 </tr>
                 <tr>
                     <td>Location:</td>

@@ -86,16 +86,8 @@ class Dataset(AbstractDataset):
     objects = Manager.from_queryset(DatasetQuerySet)()
     loader = DatasetLoader()
 
-    orphan_group_description = 'samples without a data set'
-
     class Meta:
         default_manager_name = 'objects'
-
-    def __init__(self, *args, orphan_group=False, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.orphan_group = orphan_group
-        if orphan_group and not self.short_name:
-            self.short_name = self.orphan_group_description
 
     def __str__(self):
         if self.reference_id is None:
@@ -144,13 +136,10 @@ class Dataset(AbstractDataset):
             return f'https://genome.jgi.doe.gov/portal/?core=genome&query={self.accession}'  # noqa: E501
 
     def get_absolute_url(self):
-        if self.orphan_group:
-            return reverse('dataset', args=[0])
         return reverse('dataset', args=[self.pk])
 
     def get_samples_url(self):
-        pk = 0 if self.orphan_group else self.pk
-        return reverse('dataset_sample_list', args=[pk])
+        return reverse('dataset_sample_list', args=[self.pk])
 
 
 class Reference(Model):

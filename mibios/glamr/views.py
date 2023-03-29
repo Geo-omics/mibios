@@ -1,4 +1,3 @@
-from itertools import chain  # , groupby
 from logging import getLogger
 
 from django_tables2 import Column, SingleTableView, TemplateColumn
@@ -726,11 +725,6 @@ class DatasetView(BaseDetailView):
         'note',
     ]
 
-    def get_object(self):
-        if self.kwargs.get(self.pk_url_kwarg) == 0:
-            return models.Dataset.orphans
-        return super().get_object()
-
 
 class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
     model = models.Dataset
@@ -740,18 +734,6 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
     filter_class = DatasetFilter
     formhelper_class = DatasetFilterFormHelper
     context_filter_name = 'filter'
-
-    def get_table_data(self):
-        data = super().get_table_data()
-
-        orphans = models.Dataset.orphans
-        orphans.sample_count = orphans.samples().count()
-
-        # put orphans into first row (if any exist):
-        if orphans.sample_count > 0:
-            return chain([orphans], data)
-        else:
-            return data
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -964,10 +946,7 @@ class SampleListView(SingleTableView):
 
     def get_queryset(self):
         pk = self.kwargs['pk']
-        if pk == 0:
-            self.dataset = models.Dataset.orphans
-        else:
-            self.dataset = models.Dataset.objects.get(pk=pk)
+        self.dataset = models.Dataset.objects.get(pk=pk)
         return self.dataset.samples()
 
     def get_context_data(self, **ctx):

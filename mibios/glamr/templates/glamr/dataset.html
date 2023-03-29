@@ -10,67 +10,61 @@
   </ol>
 </nav>
 
-{% if object.scheme %}
-	<h3>{{ object }}</h3>
-	<h6><i>{{object.scheme}}</i></h6>
-{% else %}
-	<h3>Samples Without a Data Set</h3>
-{% endif %}
+<h3>{{ object }}</h3>
+<h6><i>{{object.scheme}}</i></h6>
 
 <div>       
-	{% for name, _, url, value, _ in details %}
-		<div>
-		    {% if name == 'Samples' and url %}
-		    	<a href="{{ url }}" class="btn btn-primary mb-2 mt-2">{{ value }}</a>
-		    {% endif %}
-		    {% if name == 'Reference' %}
-		    	<a href="{{ url }}" class="mb-2">{{ value }}</a>
-		    {% endif %}
-		</div>
-	{% endfor %}
+{% for name, _, url, value, _ in details %}
+        <div>
+            {% if name == 'Samples' and url %}
+                <a href="{{ url }}" class="btn btn-primary mb-2 mt-2">{{ value }}</a>
+            {% endif %}
+            {% if name == 'Reference' %}
+                <a href="{{ url }}" class="mb-2">{{ value }}</a>
+            {% endif %}
+        </div>
+{% endfor %}
 
-{% if object.scheme %}
-	<div class="card mb-2 mt-2">
-		<div style="display: flex; flex-direction: row" class="card-header">
-            <h6 class="card-title m-1">Details</h6>
+<div class="card mb-2 mt-2">
+        <div style="display: flex; flex-direction: row" class="card-header">
+    <h6 class="card-title m-1">Details</h6>
+</div>
+        <div class="card-body">
+                <table class="table table-hover table-condensed"><tbody>
+                {% for name, _, url, value, _ in details %}
+                    {% if name != 'Samples' and name != 'Reference' %}
+                        <tr><div class="card-text">
+                                <td>{{ name|capfirst }}:</td>
+                                <td>
+                                        {% if url %}
+                                                <a href="{{ url }}">{{ value|capfirstkeep }}</a>
+                                        {% else %}
+                                                {{ value|capfirstkeep|default_if_none:"<missing/>" }}
+                                        {% endif %}
+                                </td>
+                            </div></tr>
+                    {% endif %}
+                {% endfor %}
+        </tbody></table>
         </div>
-		<div class="card-body">
-			<table class="table table-hover table-condensed"><tbody>
-			{% for name, _, url, value, _ in details %}
-			    {% if name != 'Samples' and name != 'Reference' %}
-			    	<tr><div class="card-text">
-			    		<td>{{ name|capfirst }}:</td>
-				    	<td>
-				    		{% if url %}
-				    			<a href="{{ url }}">{{ value|capfirstkeep }}</a>
-				    		{% else %}
-				    			{{ value|capfirstkeep|default_if_none:"<missing/>" }}
-				    		{% endif %}
-				    	</td>
-				    </div></tr>
-			    {% endif %}
-			{% endfor %}
-		</tbody></table>
-		</div>
-	</div>
-	<div class="card mb-2">
-		<div style="display: flex; flex-direction: row" class="card-header">
-            <h6 class="card-title m-1">Related Records</h6>
+</div>
+<div class="card mb-2">
+        <div style="display: flex; flex-direction: row" class="card-header">
+    <h6 class="card-title m-1">Related Records</h6>
+</div>
+        <div class="card-body">
+        {% for name, model_name, qs, field in relations %}
+                        <div>
+                            {% for obj in qs %}
+                                <a href="{% url 'record' model=model_name pk=obj.pk %}">{{ obj }}</a>{% if not forloop.last %}&nbsp;|&nbsp;{% endif %}
+                                {% empty %}
+                                        -
+                            {% endfor %}
+                            {% if qs|length == view.max_to_many %}[...]<br><a href="{% url 'relations' model=object_model_name pk=object.pk field=field.name %}">[view all]</a>{% endif %}
+                        </div>
+                {% endfor %}
         </div>
-		<div class="card-body">
-	    	{% for name, model_name, qs, field in relations %}
-				<div>
-				    {% for obj in qs %}
-				    	<a href="{% url 'record' model=model_name pk=obj.pk %}">{{ obj }}</a>{% if not forloop.last %}&nbsp;|&nbsp;{% endif %}
-				    	{% empty %}
-				    		-
-				    {% endfor %}
-				    {% if qs|length == view.max_to_many %}[...]<br><a href="{% url 'relations' model=object_model_name pk=object.pk field=field.name %}">[view all]</a>{% endif %}
-				</div>
-			{% endfor %}
-		</div>
-	</div>	
-{% endif %}
+</div>	
 
 </div>
 
