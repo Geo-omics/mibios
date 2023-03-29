@@ -951,8 +951,7 @@ class SampleListView(ExportMixin, SingleTableView):
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['dataset'] = str(self.dataset)
-        ctx['dataset_id'] = str(self.kwargs['pk'])
+        ctx['dataset'] = self.dataset
         return ctx
 
 

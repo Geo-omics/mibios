@@ -2,6 +2,12 @@
 {% load static %}
 {% load glamr_extras %}
 {% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'frontpage' %}">Home</a></li>
+    <li class="breadcrumb-item active" aria-current="page">{{ view.model|meta:"verbose_name_plural"|capfirst }} (filtered)</li>
+  </ol>
+</nav>
 {% include "glamr/search_form_simple.html" %}
 <br/>
 

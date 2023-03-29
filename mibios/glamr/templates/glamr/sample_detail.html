@@ -1,12 +1,13 @@
 {% extends "glamr/base.html" %}
+{% load glamr_extras %}
 {% block content %}
 
 <nav aria-label="breadcrumb">
   <ol class="breadcrumb">
     <li class="breadcrumb-item"><a href="{% url 'frontpage' %}">Home</a></li>
-    <li class="breadcrumb-item"><a href="{% url 'dataset' pk=object.dataset.pk %}">Data Set</a></li>
-    <li class="breadcrumb-item"><a href="{% url 'dataset_sample_list' pk=object.dataset.pk %}">Samples</a></li>
-    <li class="breadcrumb-item active" aria-current="page">Sample</li>
+    <li class="breadcrumb-item"><a href="{% url 'dataset' pk=object.dataset.pk %}">{{object.dataset|meta:"verbose_name"|capfirst}}</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'dataset_sample_list' pk=object.dataset.pk %}">{{object|meta:"verbose_name_plural"|capfirst}}</a></li>
+    <li class="breadcrumb-item active" aria-current="page">{{object|meta:"verbose_name"|capfirst}} (details)</li>
   </ol>
 </nav>
 

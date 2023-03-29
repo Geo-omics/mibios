@@ -1,6 +1,12 @@
 {% extends "glamr/base.html" %}
 {% load glamr_extras %}
 {% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'frontpage' %}">Home</a></li>
+      <li class="breadcrumb-item active" aria-current="page">{{ object|meta:"verbose_name"|capfirst}} (detail)</li>
+  </ol>
+</nav>
 
 <h3>{{ object_model_verbose_name|capfirst }}: {{ object }}</h3>
 
