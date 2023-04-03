@@ -203,15 +203,12 @@ class DatasetTable(Table):
         return mark_safe(' '.join(items))
 
     def render_sample_type(self, record):
-        types = record.sample_set.values_list('sample_type', flat=True)
-        types = types.distinct()
-        values = list(types)
-        values += [
-            record.sequencing_target,
-            record.size_fraction,
-        ]
-        values = filter(None, values)
-        return ' '.join(list(values))
+        values = list(set((i.sample_type for i in record.sample_set.all())))
+        if record.sequencing_target:
+            values.append(record.sequencing_target)
+        if record.size_fraction:
+            values.append(record.size_fraction)
+        return ' / '.join(values)
 
     def render_samples(self, record):
         if record.sample_count <= 0:

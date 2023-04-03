@@ -9,7 +9,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
 from django.db import OperationalError
-from django.db.models import Count, Field, URLField
+from django.db.models import Count, Field, Prefetch, URLField
 from django.http import Http404, HttpResponse
 from django.urls import reverse
 from django.utils.functional import classproperty
@@ -738,6 +738,12 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
     def get_queryset(self):
         qs = super().get_queryset()
         qs = qs.select_related('reference')
+
+        # to get sample type in table
+        qs = qs.prefetch_related(Prefetch(
+            'sample_set',
+            queryset=Sample.objects.only('dataset_id', 'sample_type'),
+        ))
 
         self.filter = self.filter_class(self.request.GET, queryset=qs)
         self.filter.form.helper = self.formhelper_class()
