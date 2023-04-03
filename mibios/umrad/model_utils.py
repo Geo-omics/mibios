@@ -471,6 +471,8 @@ class VocabularyModel(Model):
     """
     entry = models.TextField(max_length=64)
 
+    accession_fields = ('entry', )
+
     class Meta(Model.Meta):
         abstract = True
         ordering = ['entry']
