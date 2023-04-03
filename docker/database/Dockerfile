@@ -7,7 +7,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN ln -sf /usr/share/zoneinfo/America/Detroit /etc/localtime
 
 # locale setup
-RUN apt-get update && apt-get install --assume-yes --no-install-recommends \
+RUN apt-get update && apt-get upgrade --assume-yes && apt-get install --assume-yes --no-install-recommends \
     locales \
     adduser
 RUN echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen && locale-gen && update-locale
@@ -29,8 +29,17 @@ RUN apt-get update && apt-get install --assume-yes --no-install-recommends \
 ENV PGDATA=$POSTGRES_BASE/data
 USER postgres
 RUN echo "data_directory = '$PGDATA'" >> /etc/postgresql/15/main/conf.d/local.conf
-RUN echo "listen_addresses = '0.0.0.0'" >> /etc/postgresql/15/main/conf.d/local.conf
-RUN echo "host all all  samenet trust" >> /etc/postgresql/15/main/pg_hba.conf
+# network: database is our hostname via docker-compose, so we'll be listening at our IP address:
+RUN echo "listen_addresses = 'database'" >> /etc/postgresql/15/main/conf.d/local.conf
+RUN echo "client_encoding = 'UTF8'" >> /etc/postgresql/15/main/conf.d/local.conf
+RUN echo "max_wal_size = 10GB" >> /etc/postgresql/15/main/conf.d/local.conf
+RUN echo "ssl_cert_file = '$POSTGRES_BASE/server.crt'" >> /etc/postgresql/15/main/conf.d/local.conf
+RUN echo "ssl_key_file = '$POSTGRES_BASE/server.key'" >> /etc/postgresql/15/main/conf.d/local.conf
+# allow DB access from webapp between containers
+RUN echo "host glamr glamr_django glamr_webapp_1.glamr_default trust" >> /etc/postgresql/15/main/pg_hba.conf
+# allow SSL+password for development:
+RUN echo "hostssl all all all scram-sha-256" >> /etc/postgresql/15/main/pg_hba.conf
+
 EXPOSE 5432/tcp
 HEALTHCHECK CMD ["pg_isready"]
 STOPSIGNAL SIGINT

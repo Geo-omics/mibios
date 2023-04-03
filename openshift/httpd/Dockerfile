@@ -5,7 +5,7 @@ USER root
 
 RUN ln -sf /usr/share/zoneinfo/America/Detroit /etc/localtime
 
-RUN apt-get update && apt-get install --assume-yes --no-install-recommends \
+RUN apt-get update && apt-get upgrade --assume-yes && apt-get install --assume-yes --no-install-recommends \
     curl \
     apache2 \
     libapache2-mod-uwsgi \

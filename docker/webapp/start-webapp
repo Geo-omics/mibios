@@ -1,0 +1,4 @@
+#!/bin/bash
+manage_mibios collectstatic --no-input
+manage_mibios migrate --no-input
+uwsgi --ini /etc/uwsgi.ini

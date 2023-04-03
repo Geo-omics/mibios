@@ -2,11 +2,13 @@ For testing on a local machine:
 
 To build container images, run:
 
-./build
+docker build --tag glamr.apache2 apache2/
+docker build --tag glamr.webapp webapp/
+docker build --tag glamr.database database/
 
-To start the containers run, e.g.:
+To (re-)start the containers run, e.g.:
 
-COMPOSE_PROJECT_NAME=glamr docker-compose up
+COMPOSE_PROJECT_NAME=glamr docker-compose up [--detach]
 
 If the host's database data directory is not set up with a database, the db
 connection will fail and django app will probably respond with a 500 server

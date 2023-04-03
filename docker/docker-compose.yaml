@@ -6,6 +6,7 @@ services:
       - webapp
     restart: always
     ports:
+      # port 8080 on host on all interfaces
       - 8080:80
     volumes:
       - static:/glamr/static:ro
@@ -14,8 +15,6 @@ services:
     depends_on:
       - database
     restart: always
-    ports:
-      - 3032
     volumes:
       # manage collectstatic writes here
       - static:/glamr/static:rw
@@ -23,8 +22,10 @@ services:
     image: glamr.database
     restart: always
     ports:
-      - 5432
+      # open port 54321 on all host interfaces
+      - 54321:5432
     volumes:
+      # permanent storage on host
       - /var/local/postgresql-glamr:/var/local/postgresql
 
 volumes:
