@@ -1247,6 +1247,14 @@ class UniRef100Loader(BulkLoader):
 
     @atomic_dry
     def load(self, **kwargs):
+        # get map old->new for use by merge_taxids pre-processor
+        MergedNodes = import_string('mibios.ncbi_taxonomy.models.MergedNodes')
+        self.merged = dict(
+            MergedNodes.objects
+            .select_related('new_node')
+            .values_list('old_taxid', 'new_node__taxid')
+            .iterator()
+        )
         self.funcref2db = {}
         super().load(**kwargs)
         # set DB values for func xrefs -- can't do this in the regular load
@@ -1290,6 +1298,21 @@ class UniRef100Loader(BulkLoader):
                     rxns.add(j)
         return [(i, ) for i in rxns]
 
+    def merge_taxids(self, value, obj):
+        """ replace any merged taxid with new taxid """
+        items = self.split_m2m_value(value)
+        if not items:
+            return value
+        try:
+            taxids = [int(i) for i in items]
+        except ValueError as e:
+            raise InputFileError(f'failed parsing taxid: {e}') from e
+
+        # merge and remove any introduced (and otherwise) duplicates
+        taxids = set((self.merged.get(i, i) for i in taxids))
+        # this is an m2m field, so return list-of-tuples
+        return [(i, ) for i in taxids]
+
     spec = CSV_Spec(
         ('UR100', 'accession'),
         ('UR90', 'uniref90'),
@@ -1298,7 +1321,7 @@ class UniRef100Loader(BulkLoader):
         ('SigPep', 'signal_peptide'),
         ('TMS', 'tms'),
         ('DNA', 'dna_binding'),
-        ('TaxonId', 'taxa'),
+        ('TaxonId', 'taxa', merge_taxids),
         ('Binding', 'binding'),
         ('Loc', 'subcellular_locations'),
         ('TCDB', 'function_refs', process_func_xrefs),
