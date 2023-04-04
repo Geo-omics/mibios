@@ -4,10 +4,12 @@ USER root
 
 ARG DEBIAN_FRONTEND=noninteractive 
 RUN ln -sf /usr/share/zoneinfo/America/Detroit /etc/localtime
-RUN apt-get update && apt-get upgrade --assume-yes && apt-get install --assume-yes --no-install-recommends \
+RUN apt-get update && apt-get upgrade --assume-yes --quiet && apt-get install --assume-yes --no-install-recommends --quiet \
+    adduser \
     bind9-dnsutils \
     git \
     iputils-ping \
+    postgresql-client \
     procps \
     python3-biopython \
     python3-defusedxml \
@@ -34,14 +36,18 @@ RUN apt-get update && apt-get upgrade --assume-yes && apt-get install --assume-y
 RUN python3.11 -m pip install --no-index --no-deps --break-system-packages --python /usr/bin/python3.11 git+https://github.com/Geo-omics/mibios.git
 
 COPY uwsgi.ini /etc/uwsgi.ini
-RUN mkdir /glamr
 
-WORKDIR /glamr
-RUN mkdir static_var && chown 1001:0 static_var
-COPY settings.py start-webapp ./
-RUN    manage_mibios collectstatic --no-input \
-    && chown -R 1001:0 /glamr
+# openshift must supply APPLICATION_USER_ID
+RUN adduser --system --home=/glamr-webapp --group --uid $APPLICATION_USER_ID webapp
+RUN adduser webapp root
 
-USER 1001
+USER webapp
+WORKDIR /glamr-webapp
+RUN mkdir static_var
+RUN ln -s /glamr-django-secret-key/django-secret-key secret.key
+RUN id && pwd && ls -la
+COPY settings.py start-webapp /glamr-webapp/
+RUN manage_mibios collectstatic --no-input
+
 EXPOSE 3032/tcp
-CMD ["/glamr/start-webapp"]
+CMD ["/glamr-webapp/start-webapp"]

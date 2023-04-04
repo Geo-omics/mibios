@@ -28,7 +28,7 @@ RUN apt-get update && apt-get upgrade --assume-yes && apt-get install --assume-y
 # Also, currently, just "pip install" would install for python3.10, hence
 # invoke via "python3.11 -m pip"  // unsure if the --python option does
 # anything.
-RUN echo "increment for mibios upgrade: 7"
+RUN echo "increment for mibios upgrade: 14"
 RUN python3.11 -m pip install --no-index --no-deps --break-system-packages --python /usr/bin/python3.11 git+https://github.com/Geo-omics/mibios.git
 
 COPY uwsgi.ini /etc/uwsgi.ini

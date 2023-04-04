@@ -32,6 +32,7 @@ RUN echo "data_directory = '$PGDATA'" >> /etc/postgresql/15/main/conf.d/local.co
 # network: database is our hostname via docker-compose, so we'll be listening at our IP address:
 RUN echo "listen_addresses = 'database'" >> /etc/postgresql/15/main/conf.d/local.conf
 RUN echo "client_encoding = 'UTF8'" >> /etc/postgresql/15/main/conf.d/local.conf
+RUN echo "wal_level = 'logical'" >> /etc/postgresql/15/main/conf.d/local.conf
 RUN echo "max_wal_size = 10GB" >> /etc/postgresql/15/main/conf.d/local.conf
 RUN echo "ssl_cert_file = '$POSTGRES_BASE/server.crt'" >> /etc/postgresql/15/main/conf.d/local.conf
 RUN echo "ssl_key_file = '$POSTGRES_BASE/server.key'" >> /etc/postgresql/15/main/conf.d/local.conf

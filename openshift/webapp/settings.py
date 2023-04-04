@@ -28,23 +28,23 @@ ADMINS = [("Robert", "heinro@umich.edu")]
 
 # For production, set STATIC_ROOT to the directory containing static files,
 # relative to your instance's base directory
-# STATIC_ROOT = 'static'
+STATIC_ROOT = 'static'
 
 # URL for static files
-STATIC_URL = '/glamr/static/'
+STATIC_URL = '/static/'
 
 # Direcorty relative to the base where download files get stored
-MEDIA_ROOT = '/glamr/media/'
+MEDIA_ROOT = 'media/'
 
 # URL path for downloads
-MEDIA_URL = '/glamr/media/'
+MEDIA_URL = '/media/'
 
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'glamr',
         'USER': 'glamr_django',
-        'HOST': 'database',
+        'HOST': 'database.gdick-web-app.svc.cluster.local',
         'PORT': '5432',
     },
 }
@@ -53,15 +53,16 @@ DATABASES = {
 ALLOWED_HOSTS.append('127.0.0.1')
 ALLOWED_HOSTS.append('webapp')
 ALLOWED_HOSTS.append('vondamm.earth.lsa.umich.edu')
+ALLOWED_HOSTS.append('www-gdick-web-app.apps.gnosis.lsa.umich.edu')
 
 # Uncomment this do disable caching, for testing/debugging only
 # CACHES['default']['BACKEND'] = 'django.core.cache.backends.dummy.DummyCache'
 
 SITE_NAME = 'GLAMR'
-SITE_NAME_VERBOSE = 'GLAMR DB prototype'
+SITE_NAME_VERBOSE = 'GLAMR DB'
 
 SCHEMA_PLOT_APPS = ['mibios_omics']
 
 STATICFILES_DIRS = ['static_var']
-FORCE_SCRIPT_NAME = '/glamr'
+###FORCE_SCRIPT_NAME = '/glamr'
 LOGGING['loggers']['django.template'] = {'handlers': ['null'], 'propagate': False, }
