@@ -11,7 +11,6 @@ from django.core.exceptions import FieldDoesNotExist
 from django.db import OperationalError
 from django.db.models import Count, Field, Prefetch, URLField
 from django.http import Http404, HttpResponse
-from django.urls import reverse
 from django.utils.functional import classproperty
 from django.views.generic import DetailView
 from django.views.generic.base import TemplateView
@@ -34,6 +33,7 @@ from . import models, tables
 from .forms import QBuilderForm, QLeafEditForm, SearchForm
 from .search_fields import SEARCH_FIELDS
 from .search_utils import get_suggestions
+from .url_utils import fast_reverse
 
 import json
 
@@ -364,10 +364,10 @@ class MapMixin():
         map_data = []
         for item in qs:
             # add in sample url
-            item['sample_url'] = reverse('sample', args=[item['id']])
+            item['sample_url'] = fast_reverse('sample', args=[item['id']])
 
             # add in dataset info
-            item['dataset_url'] = reverse('dataset', args=[item['dataset_id']])
+            item['dataset_url'] = fast_reverse('dataset', args=[item['dataset_id']])  # noqa:E501
             item['dataset_name'] = dataset_name[item['dataset_id']]
             del item['dataset_id']
             map_data.append(item)
