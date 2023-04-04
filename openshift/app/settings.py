@@ -64,3 +64,4 @@ SCHEMA_PLOT_APPS = ['mibios_omics']
 
 STATICFILES_DIRS = ['static_var']
 FORCE_SCRIPT_NAME = '/glamr'
+LOGGING['loggers']['django.template'] = {'handlers': ['null'], 'propagate': False, }
