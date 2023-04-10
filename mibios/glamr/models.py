@@ -9,16 +9,14 @@ from django.db import models, router, transaction
 from django.urls import reverse
 
 from mibios.omics.models import AbstractDataset, AbstractSample
-from mibios.omics.managers import SampleManager
 from mibios.umrad.fields import AccessionField
-from mibios.umrad.manager import Manager
 from mibios.umrad.models import Model
 from mibios.umrad.model_utils import ch_opt, fk_opt, fk_req, uniq_opt, opt
 
 from .fields import OptionalURLField
 from .load import (
-    DatasetLoader, ReferenceLoader, SampleLoader, SearchableManager,
-    UniqueWordManager,
+    DatasetLoader, DatasetManager, ReferenceLoader, SampleLoader,
+    SampleManager, SearchableManager, UniqueWordManager,
 )
 from .queryset import (
     DatasetQuerySet, SampleQuerySet, SearchableQuerySet, UniqueWordQuerySet,
@@ -34,6 +32,10 @@ class Dataset(AbstractDataset):
         unique=True,
         verbose_name='Dataset ID',
         help_text='GLAMR accession to data set/study/project',
+    )
+    private = models.BooleanField(
+        default=False,
+        help_text='hide this record and related samples from public view',
     )
     reference = models.ForeignKey('Reference', **fk_opt)
     # project IDs: usually a single accession, but can be ,-sep lists or even
@@ -83,7 +85,7 @@ class Dataset(AbstractDataset):
 
     accession_fields = ('dataset_id', )
 
-    objects = Manager.from_queryset(DatasetQuerySet)()
+    objects = DatasetManager.from_queryset(DatasetQuerySet)()
     loader = DatasetLoader()
 
     class Meta:

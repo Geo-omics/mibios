@@ -737,6 +737,7 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        qs = qs.filter(private=False)
         qs = qs.select_related('reference')
 
         # to get sample type in table

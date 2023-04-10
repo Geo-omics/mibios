@@ -8,12 +8,31 @@ from django.db import connections
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
+from mibios.omics.managers import SampleManager as OmicsSampleManager
 from mibios.omics.models import AbstractSample
-from mibios.umrad.manager import InputFileError, Loader
+from mibios.umrad.manager import InputFileError, Loader, Manager
 from mibios.umrad.model_utils import delete_all_objects_quickly
 from mibios.umrad.utils import CSV_Spec, atomic_dry
 
 from .search_fields import SEARCH_FIELDS
+
+
+class BoolColMixin:
+    def parse_bool(self, value, obj):
+        """ Pre-processor to parse booleans """
+        # Only parse str values.  The pandas reader may give us booleans
+        # already for some reason (for the modified_or_experimental but not the
+        # has_paired data) ?!?
+        if isinstance(value, str) and value:
+            if value.casefold() == 'false':
+                return False
+            elif value.casefold() == 'true':
+                return True
+            else:
+                raise InputFileError(
+                    f'expected TRUE or FALSE (any case) but got: {value}'
+                )
+        return value
 
 
 class MetaDataLoader(Loader):
@@ -25,7 +44,7 @@ class MetaDataLoader(Loader):
     )
 
 
-class DatasetLoader(MetaDataLoader):
+class DatasetLoader(BoolColMixin, MetaDataLoader):
     empty_values = ['NA', 'Not Listed', 'NF', '#N/A']
 
     def get_file(self):
@@ -75,6 +94,7 @@ class DatasetLoader(MetaDataLoader):
         ('Sequencing targets', 'sequencing_target'),
         ('Sequencing Platform', 'sequencing_platform'),
         ('Size Fraction(s)', 'size_fraction'),
+        ('private', 'private', 'parse_bool'),
         ('Notes', 'note'),
     )
 
@@ -173,7 +193,7 @@ class SampleInputSpec(CSV_Spec):
         super().setup(loader, column_specs=specs, path=path)
 
 
-class SampleLoader(MetaDataLoader):
+class SampleLoader(BoolColMixin, MetaDataLoader):
     """ loader for Great_Lakes_Omics_Datasets.xlsx """
     empty_values = ['NA', 'Not Listed', 'NF', '#N/A', 'ND', 'not applicable']
 
@@ -183,22 +203,6 @@ class SampleLoader(MetaDataLoader):
     def fix_sample_id(self, value, obj):
         """ Remove leading "SAMPLE_" from accession value """
         return value.removeprefix('Sample_')
-
-    def parse_bool(self, value, obj):
-        """ Pre-processor to parse booleans """
-        # Only parse str values.  The pandas reader may give us booleans
-        # already for some reason (for the modified_or_experimental but not the
-        # has_paired data) ?!?
-        if isinstance(value, str) and value:
-            if value.casefold() == 'false':
-                return False
-            elif value.casefold() == 'true':
-                return True
-            else:
-                raise InputFileError(
-                    f'expected TRUE or FALSE (any case) but got: {value}'
-                )
-        return value
 
     def check_empty(self, sample_id_value, obj):
         """ check to allow skipping essentially empty rows """
@@ -317,7 +321,7 @@ class SampleLoader(MetaDataLoader):
         ('JGI_study', 'jgi_study'),  # K
         ('JGI_biosample', 'jgi_biosample'),  # L
         ('sample_type', 'sample_type'),  # M
-        ('has_paired_data', 'has_paired_data', parse_bool),  # N
+        ('has_paired_data', 'has_paired_data', 'parse_bool'),  # N
         ('amplicon_target', 'amplicon_target'),  # O
         ('F_primer', 'fwd_primer'),  # P
         ('R_primer', 'rev_primer'),  # Q
@@ -330,11 +334,11 @@ class SampleLoader(MetaDataLoader):
         ('planktothrix_count', 'planktothrix_count', parse_human_int),  # BM
         ('anabaena_D_count', 'anabaena_d_count', parse_human_int),  # BN
         ('sampling_device', 'sampling_device'),  # BR
-        ('modified_or_experimental', 'modified_or_experimental', parse_bool),
-        ('is_isolate', 'is_isolate', parse_bool),  # BT
-        ('is_blank_neg_control', 'is_neg_control', parse_bool),  # BU
-        ('is_mock_community_or_pos_control', 'is_pos_control', parse_bool),
-        ('modified_or_experimental', 'modified_or_experimental', parse_bool),
+        ('modified_or_experimental', 'modified_or_experimental', 'parse_bool'),
+        ('is_isolate', 'is_isolate', 'parse_bool'),  # BT
+        ('is_blank_neg_control', 'is_neg_control', 'parse_bool'),  # BU
+        ('is_mock_community_or_pos_control', 'is_pos_control', 'parse_bool'),
+        ('modified_or_experimental', 'modified_or_experimental', 'parse_bool'),
         ('Notes', 'notes'),  # CQ
     )
 
@@ -424,3 +428,13 @@ class UniqueWordManager(Loader):
                 f"ts_stat('SELECT to_tsvector(''simple'', text) FROM "
                 f"{searchable_table}')"
             )
+
+
+class DatasetManager(Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(private=False)
+
+
+class SampleManager(OmicsSampleManager):
+    def get_queryset(self):
+        return super().get_queryset().filter(dataset__private=False)
