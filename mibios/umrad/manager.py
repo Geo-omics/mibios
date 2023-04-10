@@ -404,14 +404,14 @@ class BaseLoader(DjangoManager):
                 [i.related_model._meta.get_field(j).to_python for j in lookups]
 
             print(f'Retrieving {i.related_model._meta.verbose_name} data, '
-                  f'indexing by {lookups} ...',
+                  f'indexing by ({",".join(lookups)}) ...',
                   end='', flush=True)
             fkmap[i.name] = {
                 tuple(a): pk for *a, pk
                 in i.related_model.objects.values_list(*lookups, 'pk')
                     .iterator()
             }
-            print('[OK]')
+            print(f'[{len(fkmap[i.name])} OK]')
 
         pp = ProgressPrinter(f'{model_name} rows read from file')
         new_objs = []  # will be created
