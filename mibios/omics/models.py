@@ -56,12 +56,6 @@ class AbstractSample(Model):
         unique=True,
         help_text='internal sample accession',
     )
-    tracking_id = models.CharField(
-        # length of md5 checksum, 128 bit as hex string
-        max_length=32,
-        **uniq_opt,
-        help_text='internal uniform hex id',
-    )
     sample_name = models.TextField(
         max_length=32,
         **ch_opt,
@@ -91,7 +85,7 @@ class AbstractSample(Model):
     )
     metag_pipeline_reg = models.BooleanField(
         default=False,
-        help_text='is registered in metagenomic pipeline, has tracking ID',
+        help_text='is registered in metagenomic pipeline',
     )
     contig_fasta_loaded = models.BooleanField(
         default=False,
@@ -166,7 +160,7 @@ class AbstractSample(Model):
         abstract = True
 
     def __str__(self):
-        return self.sample_id or self.tracking_id or super().__str__()
+        return self.sample_id
 
     def load_bins(self):
         if not self.binning_ok:
@@ -195,10 +189,8 @@ class AbstractSample(Model):
             self.save()
 
     def get_metagenome_path(self):
-        if self.tracking_id is None:
-            raise RuntimeError(f'sample {self} has no tracking id')
         return settings.OMICS_DATA_ROOT / 'data' / 'omics' / 'metagenomes' \
-            / self.tracking_id
+            / self.sample_id
 
     def get_fq_paths(self):
         base = settings.OMICS_DATA_ROOT / 'READS'
@@ -1063,8 +1055,8 @@ class Contig(ContigLike):
 
     def set_from_fa_head(self, fasta_head_line):
 
-        # parsing ">deadbeef_123\n" -> "123"
-        self.contig_id = fasta_head_line.lstrip('>').rstrip().partition('_')[2]
+        # parsing ">samp_14_123\n" -> "samp_14_123"
+        self.contig_id = fasta_head_line.rstrip().removeprefix('>')
 
 
 class FuncAbundance(AbstractAbundance):
@@ -1139,9 +1131,8 @@ class Gene(ContigLike):
             raise ValueError('expected strand to be "1" or "-1"')
 
         # name expected to be: deadbeef_123_1
-        gene_id = gene_id.partition('_')[2]  # get e.g. 123_1
         self.gene_id = gene_id
-        contig_id = gene_id.partition('_')[0]  # get e.g. 123
+        contig_id, _, _ = gene_id.rpartition('_')  # samp_12_34_5 -> samp_12_34
         try:
             # contig_id_map must be a mapping from contig_ids to Contig PKs
             self.contig_id = contig_id_map[contig_id]
@@ -1380,17 +1371,24 @@ class Dataset(AbstractDataset):
         swappable = 'OMICS_DATASET_MODEL'
 
 
-def load_all(**kwargs):
+def load_helper_metagenome(samples=None):
     """
     Load all data
-
-    assumes an empty DB.
     """
-    verbose = kwargs.get('verbose', False)
-    get_sample_model().sync(**kwargs)
-    # ReadLibrary.sync()
-    Contig.load(verbose=verbose)
-    Bin.import_all()
-    CheckM.import_all()
-    Gene.load(verbose=verbose)
-    Protein.load(verbose=verbose)
+    if samples is None:
+        Sample = get_sample_model()
+        samples = Sample.objects.filter(
+            sample_type='metagenome',
+            metag_pipeline_reg=True,
+            gene_alignment_hits_loaded=False,
+        )
+
+    for i in samples:
+        if not Alignment.loader.get_file(i).is_file():
+            continue
+        if not i.contig_fasta_loaded:
+            Contig.loader.load_fasta_sample(i)
+        if not i.gene_fasta_loaded:
+            Gene.loader.load_fasta_sample(i)
+        Alignment.loader.load_sample(i)
+        break

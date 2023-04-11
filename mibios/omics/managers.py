@@ -4,7 +4,7 @@ Module for data load managers
 === Workflow to load metagenomic data ===
 
 Assumes that UMRAD and sample meta-data is loaded
-    Sample.objects.sync()
+    Sample.objects.update_analysis_status()
     s = Sample.objects.get(sample_id='samp_14')
     Contig.loader.load_fasta_sample(s)
     Gene.loader.load_fasta_sample(s)
@@ -188,7 +188,7 @@ class AlignmentLoader(BulkLoader, SampleLoadMixin):
     load_flag_attr = 'gene_alignment_hits_loaded'
 
     def get_file(self, sample):
-        return sample.get_metagenome_path() / f'{sample.tracking_id}_GENES.m8'
+        return sample.get_metagenome_path() / f'{sample.sample_id}_GENES.m8'
 
     def query2gene_pk(self, value, obj):
         """
@@ -238,7 +238,7 @@ class CompoundAbundanceLoader(BulkLoader, SampleLoadMixin):
     def get_file(self, sample):
         return resolve_glob(
             sample.get_metagenome_path() / 'annotation',
-            f'{sample.tracking_id}_compounds_*.txt'
+            f'{sample.sample_id}_compounds_*.txt'
         )
 
 
@@ -374,9 +374,10 @@ class ContigLikeLoader(SequenceLikeLoader):
     abundance_load_flag = None  # set in inheriting class
 
     def get_contigs_file_path(self, sample):
+        # FIXME: this is unused, remove?
         return resolve_glob(
             sample.get_metagenome_path() / 'annotation',
-            f'{sample.tracking_id}_contigs_*.txt'
+            f'{sample.sample_id}_contigs_*.txt'
         )
 
     def process_coverage_header_data(self, sample, data):
@@ -494,11 +495,11 @@ class ContigLoader(ContigLikeLoader):
 
     def get_fasta_path(self, sample):
         return sample.get_metagenome_path() / 'assembly' \
-            / (sample.tracking_id + '_MCDD.fa')
+            / 'megahit_noNORM' / 'final.contigs.renamed.fa'
 
     def get_rpkm_path(self, sample):
         return sample.get_metagenome_path() / 'assembly' \
-            / f'{sample.tracking_id}_READSvsCONTIGS.rpkm'
+            / f'{sample.sample_id}_READSvsCONTIGS.rpkm'
 
     def trim_id(self, value, obj):
         """ Pre-processor to trim tracking id off, e.g. deadbeef_123 => 123 """
@@ -596,7 +597,7 @@ class FuncAbundanceLoader(BulkLoader, SampleLoadMixin):
     def get_file(self, sample):
         return resolve_glob(
             sample.get_metagenome_path() / 'annotation',
-            f'{sample.tracking_id}_functionss_*.txt'
+            f'{sample.sample_id}_functionss_*.txt'
         )
 
     spec = CSV_Spec(
@@ -618,12 +619,12 @@ class GeneLoader(ContigLikeLoader):
     def get_fasta_path(self, sample):
         return (
             sample.get_metagenome_path() / 'genes'
-            / f'{sample.tracking_id}_GENES.fna'
+            / f'{sample.sample_id}_GENES.fna'
         )
 
     def get_rpkm_path(self, sample):
         return sample.get_metagenome_path() / 'genes' \
-            / f'{sample.tracking_id}_READSvsGENES.rpkm'
+            / f'{sample.sample_id}_READSvsGENES.rpkm'
 
     def extract_gene_id(self, value, obj):
         """
@@ -743,16 +744,12 @@ class SampleManager(Manager):
     """ Manager for the Sample """
     def get_file(self):
         """ get the metagenomic pipeline import log """
-        return settings.OMICS_DATA_ROOT / 'data' / 'import_log.tsv'
+        return settings.OMICS_DATA_ROOT / 'data' / 'imported_samples.tsv'
 
     @atomic_dry
-    def sync(self, source_file=None, create=False, skip_on_error=False):
+    def update_analysis_status(self, source_file=None, skip_on_error=False):
         """
         Update sample table with analysis status
-
-        :param bool create:
-            Create a new sample if needed.  The new sample will not belong to a
-            dataset.  Not for production use.
         """
         if source_file is None:
             source_file = self.get_file()
@@ -760,18 +757,16 @@ class SampleManager(Manager):
         with open(source_file) as f:
             # check assumptions on columns
             SAMPLE_ID = 0
-            PROJECT = 1
-            TYPE = 2
-            TRACKING_ID = 7
-            ANALYSIS_DIR = 12
-            SUCCESS = 16
+            STUDY_ID = 1
+            TYPE = 3
+            ANALYSIS_DIR = 4
+            SUCCESS = 6
             cols = (
-                (SAMPLE_ID, 'Sample'),
-                (PROJECT, 'Project'),
+                (SAMPLE_ID, 'SampleID'),
+                (STUDY_ID, 'StudyID'),
                 (TYPE, 'sample_type'),
-                (TRACKING_ID, 'sampleID'),
                 (ANALYSIS_DIR, 'sample_dir'),
-                (SUCCESS, 'import_sucess'),  # [sic]
+                (SUCCESS, 'import_success'),
             )
 
             head = f.readline().rstrip('\n').split('\t')
@@ -783,57 +778,49 @@ class SampleManager(Manager):
                     )
 
             seen = []
-            track_id_seen = set()
+            samp_id_seen = set()
             unchanged = 0
+            notfound = 0
+            nosuccess = 0
             for line in f:
                 row = line.rstrip('\n').split('\t')
                 sample_id = row[SAMPLE_ID]
-                dataset = row[PROJECT]
+                dataset = row[STUDY_ID]
                 sample_type = row[TYPE]
-                tracking_id = row[TRACKING_ID]
                 analysis_dir = row[ANALYSIS_DIR]
                 success = row[SUCCESS]
 
-                if not all([sample_id, tracking_id, analysis_dir, success]):
+                if not all([sample_id, dataset, sample_type, analysis_dir, success]):  # noqa: E501
                     raise RuntimeError(f'field is empty in row: {row}')
 
-                if tracking_id in track_id_seen:
+                if sample_id in samp_id_seen:
                     # skip rev line
                     continue
                 else:
-                    track_id_seen.add(tracking_id)
+                    samp_id_seen.add(sample_id)
 
                 if success != 'TRUE':
                     log.info(f'ignoring {sample_id}: no import success')
+                    nosuccess += 1
                     continue
 
                 need_save = False
                 try:
                     obj = self.get(
                         sample_id=sample_id,
-                        # dataset__short_name=dataset,
                     )
                 except self.model.DoesNotExist:
-                    if not create:
-                        if skip_on_error:
-                            log.warning(f'no such sample: {sample_id} / '
-                                        f'{dataset} (skipping)')
-                            continue
-                        else:
-                            raise
-
-                    # create a new orphan sample
-                    obj = self.model(
-                        tracking_id=tracking_id,
-                        sample_id=sample_id,
-                        dataset=None,
-                        sample_type=sample_type,
-                        analysis_dir=analysis_dir,
-                    )
-                    need_save = True
-                    save_info = f'new sample: {obj}'
+                    # object may be hidden by default manager (private or so)
+                    log.warning(f'no such sample: {sample_id} (skipping)')
+                    notfound += 1
+                    continue
                 else:
-                    updateable = ['tracking_id', 'sample_type', 'analysis_dir']
+                    if obj.dataset.dataset_id != dataset:
+                        raise RuntimeError('{sample_id}: bad dataset')
+                    if obj.sample_type != sample_type:
+                        raise RuntimeError('{sample_id}: bad sample type')
+
+                    updateable = ['analysis_dir']
                     changed = []
                     for attr in updateable:
                         val = locals()[attr]
@@ -854,6 +841,14 @@ class SampleManager(Manager):
                     log.info(save_info)
 
                 seen.append(obj.pk)
+
+        if notfound:
+            log.warning(
+                f'Samples missing from database (or hidden): {notfound}'
+            )
+
+        if nosuccess:
+            log.warning(f'Samples not marked "import_success": {nosuccess}')
 
         if unchanged:
             log.info(f'Data for {unchanged} samples are already in the DB and '

@@ -17,7 +17,6 @@ BASE_FIELDS = [
 
 EXCLUDE_FIELDS = [
     # technical field for omics app
-    'tracking_id',
     'metag_pipeline_reg',
     'analysis_dir',
     'read_count',
