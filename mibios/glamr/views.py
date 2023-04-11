@@ -352,8 +352,10 @@ class MapMixin():
         """
         qs = self.get_sample_queryset()
         qs = qs.select_related('dataset')
-        qs = qs.values('id', 'sample_name', 'latitude', 'longitude',
-                       'sample_type', 'dataset_id')
+        qs = qs.values(
+            'id', 'sample_name', 'latitude', 'longitude', 'sample_type',
+            'dataset_id', 'collection_timestamp', 'sample_id', 'biosample',
+        )
 
         dataset_pks = set((i['dataset_id'] for i in qs))
         datasets = Dataset.objects.filter(pk__in=dataset_pks)
