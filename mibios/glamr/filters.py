@@ -65,6 +65,6 @@ class DatasetFilter(django_filters.FilterSet):
 
     def search_sample_date(self, qs, name, value):
         return qs.filter(sample__collection_timestamp__year=value)
-
+    
     def search_sample_locations(self, qs, name, value):
         return qs.filter(sample__geo_loc_name__icontains=value)
