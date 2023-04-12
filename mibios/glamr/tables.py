@@ -209,7 +209,13 @@ class DatasetTable(Table):
         return mark_safe(' '.join(items))
 
     def render_sample_type(self, record):
-        values = list(set((i.sample_type for i in record.sample_set.all())))
+        values = set((
+            i.sample_type
+            for i in record.sample_set.all()
+            if i.sample_type
+        ))
+        values = sorted(values)
+
         if record.sequencing_target:
             values.append(record.sequencing_target)
         if record.size_fraction:
