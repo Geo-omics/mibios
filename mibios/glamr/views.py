@@ -1169,8 +1169,17 @@ class FilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         self.set_filter()
+
         ctx['filter_items'] = [
-            (k.replace('__', '->'), v)
+            (k.replace('__', ' -> '), v)
             for k, v in self.conf.filter.items()
         ]
+
+        if self.model is Sample:
+            ctx['filter_model'] = "sample"
+        elif self.model is Dataset:
+            ctx['filter_model'] = "dataset"
+        else:
+            ctx['filter_model'] = "generic"
+
         return ctx
