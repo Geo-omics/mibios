@@ -795,6 +795,7 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
         ctx['dataset_counts'] = dataset_counts_data
 
         ctx['dataset_totalcount'] = Dataset.objects.count()
+        ctx['filtered_dataset_totalcount'] = self.filter.qs.count()
         ctx['sample_totalcount'] = Sample.objects.count()
 
         # Get context for sample summary

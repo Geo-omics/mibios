@@ -44,6 +44,11 @@ class DatasetFilter(django_filters.FilterSet):
         label='Sample year (YYYY)',
     )
 
+    sample__collection_timestamp = django_filters.DateFromToRangeFilter(
+        label="Sample Collection Date Range",
+        widget=django_filters.widgets.RangeWidget(attrs={'type': 'date'}),
+    )
+
     class Meta:
         model = Dataset
         fields = [
@@ -55,6 +60,7 @@ class DatasetFilter(django_filters.FilterSet):
             'sample_location',
             'sample__sample_type',
             'sample_year',
+            'sample__collection_timestamp',
         ]
 
     def search_sample_date(self, qs, name, value):
