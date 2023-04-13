@@ -1,3 +1,4 @@
+from collections import defaultdict
 from pathlib import Path
 
 from django.conf import settings
@@ -7,6 +8,7 @@ from django.db.models import ForeignObjectRel
 from . import DUMP_FILES
 from mibios.umrad.utils import atomic_dry, InputFileSpec
 from mibios.umrad.manager import InputFileError, Loader as UMRADLoader
+from mibios.umrad.model_utils import delete_all_objects_quickly
 
 
 class DumpFile(InputFileSpec):
@@ -109,3 +111,82 @@ class TaxNodeLoader(Loader):
             taxid, parentid, *_ = row
             by_taxid[int(taxid)].parent = by_taxid[int(parentid)]
         self.fast_bulk_update(objs, fields=['parent'])
+        print('Populating ancestry...')
+        self.populate_ancestry()
+        print('[OK]')
+
+    def lineages(self, tree, *ancestors):
+        """
+        traverse tree left-to-right and yield full lineages
+
+        This is a helper for populating the ancestry relation
+        """
+        if tree:
+            for pk, subtree in tree.items():
+                yield from self.lineages(subtree, *ancestors, pk)
+        else:
+            yield ancestors
+
+    def ancestry_node_pairs(self, lineages):
+        """
+        Generate distinct (ancestor, descendend) pk pairs
+
+        This is a helper to populate the ancestry relation.  The lineages
+        parameter must be a iterable of all the lineages ordered left-to-right
+        (or right-to-left.)
+        """
+        # whenever some initial nodes are the same as for the previous lineage,
+        # the links between these can be skipped as we got them last time.  The
+        # index of the first fresh node is saved in the first_change_index
+        # variable
+        prev = []
+        for lin in lineages:
+            first_change_index = 0
+            for first_change_index, (a, b) in enumerate(zip(prev, lin)):
+                if a != b:
+                    break
+
+            for i in range(first_change_index, len(lin)):
+                for j in range(i):
+                    yield lin[j], lin[i]
+
+            prev = lin
+
+    @atomic_dry
+    def populate_ancestry(self):
+        """
+        Populate the ancestor m2m relation
+
+        Assumes that there is a root node with taxid 1.
+        """
+        m2m_field = self.model._meta.get_field('ancestors')
+        Through = m2m_field.remote_field.through
+        delete_all_objects_quickly(Through)
+
+        root = self.get(taxid=1)
+
+        print('  Generating tree from parent relations...', end='', flush=True)
+        # some super clever code to turn the parent relation into a tree (a
+        # dict of dicts, keys are PKs, values are sub-trees
+        dict_of_dict = lambda: defaultdict(dict)  # noqa: E731
+        forest = defaultdict(dict_of_dict)
+        for child, parent in self.values_list('pk', 'parent_id').iterator():
+            forest[parent][child] = forest[child]
+
+        # Pick the tree for root.  After this, the root, is implicit, while we
+        # keep the root node itself, we will only work with the tree below
+        # root, so the ancestor relation with it will not be saved.
+        tree = forest[root.pk]
+        del forest
+        # in NCBI taxonomy root's parent is root, that circle must be removed,
+        # as we'll do some depth-first tranversal, so we want a real tree
+        del tree[root.pk]
+        print(' [OK]')
+
+        lins = self.lineages(tree)
+        pairs = self.ancestry_node_pairs(lins)
+        through_objs = ((
+            Through(from_taxnode_id=b, to_taxnode_id=a)
+            for a, b in pairs
+        ))
+        self.bulk_create_wrapper(Through.objects.bulk_create)(through_objs)

@@ -1,6 +1,5 @@
-from itertools import zip_longest
-
 from django.db import models
+from django.utils.functional import cached_property
 
 from mibios.umrad.model_utils import ch_opt, fk_opt, fk_req, opt
 from mibios.umrad.model_utils import Model as UmradModel
@@ -233,6 +232,7 @@ class TaxNode(Model):
     is_hgc_inherited = models.BooleanField(
         help_text='inherits hydrogenosome gencode from parent'
     )
+    ancestors = models.ManyToManyField('self', symmetrical=False)
 
     loader = TaxNodeLoader()
 
@@ -240,18 +240,31 @@ class TaxNode(Model):
         verbose_name = 'NCBI taxon'
         verbose_name_plural = 'NCBI taxa'
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # an attribute allowing alternative methods to prove the name:
+        self._name = None
+
     def __str__(self):
         return f'{self.taxid}'
 
-    @property
+    @cached_property
     def name(self):
         """
         Get the scientific name of node
 
         This works because (and as long as) each node has exactly one
-        scientific name
+        scientific name.
         """
-        return self.taxname_set.get(name_class=TaxName.NAME_CLASS_SCI)
+        if self._name is None:
+            qs = TaxName.objects.filter(
+                node=self,
+                name_class=TaxName.NAME_CLASS_SCI,
+            )
+            qs = qs.values_list('name', flat=True)
+            return qs.get()
+        else:
+            return self._name
 
     def is_root(self):
         """ Say if node is the root of the taxonomic tree """
@@ -262,59 +275,64 @@ class TaxNode(Model):
         'species',
     )
 
-    def lineage_list(self, full=True, names=True):
-        lineage = list(reversed(list(self.ancestors(all_ranks=full))))
-        if names:
-            f = dict(node_id__in=lineage, name_class=TaxName.NAME_CLASS_SCI)
-            qs = TaxName.objects.filter(**f)
-            name_map = dict(qs.values_list('node__taxid', 'name'))
-            lineage = [(i, name_map[i.taxid]) for i in lineage]
+    @cached_property
+    def lineage(self):
+        nodes = {i.pk: i for i in self.ancestors.all()}
+        lin = [self]
+        while nodes:
+            lin.insert(0, nodes.pop(lin[0].parent_id))
+        return lin
 
-        return lineage
+    def get_standard_lineage(self):
+        """ Get standard 8-rank lineage """
+        return [i for i in self.lineage if i.rank in self.STANDARD_RANKS]
 
-    def lineage(self, full=True):
-        lin = [
-            f'{i.rank}:{name}'
-            for i, name in self.lineage_list(full=full, names=True)
-        ]
+    def fetch_lineage_names(self):
+        """ fetch scientific names for all lineage nodes """
+        f = dict(
+            node__in=self.lineage,
+            name_class=TaxName.NAME_CLASS_SCI,
+        )
+        qs = TaxName.objects.filter(**f).values_list('node_id', 'name')
+        names = dict(qs)
+        for i in self.lineage:
+            i._name = names[i.pk]
+
+    def lineage_fmt(self, full=False):
+        """ Return formatted lineage """
+        if full:
+            lin = self.lineage
+        else:
+            lin = self.get_standard_lineage()
+        lin = [f'{i.rank}:{i.name}' for i in lin]
         return ';'.join(lin)
 
-    def ancestors(self, all_ranks=True):
+    def get_lca_lineage(self, *others, full=False):
         """
-        Generate a node's ancestor nodes starting with itself, towards the root
+        Calculate the LCA between this and another TaxNode
 
-        Will always yield self even if all_ranks is False.
+        Returns the corresponding lineage as list of TaxNodes.
+        Returns an empty list if LCA is root.
         """
-        cur = self
-        while True:
-            if all_ranks or cur.rank in self.STANDARD_RANKS or cur is self:
-                yield cur
-            if cur.is_root():
-                break
-            cur = cur.parent
-
-    def lca(self, other, all_ranks=True):
-        seen_a = set()
-        seen_b = set()
-        a_anc = self.ancestors(all_ranks=all_ranks)
-        b_anc = other.ancestors(all_ranks=all_ranks)
-        for a, b in zip_longest(a_anc, b_anc):
-            if a is not None:
-                seen_a.add(a)
-            if b is not None:
-                seen_b.add(b)
-
-            if a in seen_b:
-                return a
-            if b in seen_a:
-                return b
-
-        # all_ranks == False but lca is above superkingdom
-        return None
+        lca = []
+        lineages = [i.lineage for i in [self] + list(others)]
+        for our_node, *other_nodes in zip(*lineages):
+            for i in other_nodes:
+                if i != our_node:
+                    break
+            else:
+                # all nodes the same
+                if full or our_node.rank in self.STANDARD_RANKS:
+                    lca.append(our_node)
+        return lca
 
     def __eq__(self, other):
-        # It's taxid or nothing
-        return self.taxid == other.taxid
+        try:
+            # It's taxid or nothing
+            return self.taxid == other.taxid
+        except AttributeError:
+            # other has no taxid attr
+            return False
 
     def is_ancestor_of(self, other):
         """
@@ -322,11 +340,7 @@ class TaxNode(Model):
 
         This method is the base of the rich comparison method
         """
-        # TODO: optimize by checking on rank?
-        for i in other.ancestors(all_ranks=True):
-            if self == i:
-                return True
-        return False
+        return other in self.lineage
 
     def __lt__(self, other):
         return self.is_ancestor_of(other) and not self == other
