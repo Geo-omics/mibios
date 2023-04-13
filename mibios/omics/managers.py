@@ -14,8 +14,8 @@ Assumes that UMRAD and sample meta-data is loaded
     Gene.loader.assign_gene_lca(s)
     Contig.loader.assign_contig_lca(s)
     TaxonAbundance.loader.load_sample(s)
-
 """
+
 from itertools import groupby, islice
 from logging import getLogger
 from operator import itemgetter
@@ -26,7 +26,6 @@ import subprocess
 import tempfile
 
 from django.conf import settings
-from django.db.models import prefetch_related_objects
 from django.utils.module_loading import import_string
 
 from mibios.models import QuerySet
@@ -197,8 +196,7 @@ class AlignmentLoader(BulkLoader, SampleLoadMixin):
         The query column has all that's in the fasta header, incl. the prodigal
         data.  Also add the sample pk (gene is a FK field).
         """
-        gene_id = value.split('\t', maxsplit=1)[0].partition('_')[2]
-        return self.gene_id_map[gene_id]
+        return self.gene_id_map[value]
 
     def upper(self, value, obj):
         """
@@ -440,11 +438,13 @@ class ContigLikeLoader(SequenceLikeLoader):
             **kwargs)
 
     @staticmethod
-    def get_lca(taxa):
+    def get_lca(nodes):
         """ helper to calculate the LCA of given TaxNodes """
-        # FIXME: needs transition to NCBI taxonomy
+        lca, *others = nodes
+        for i in others:
+            lca = lca.lca(i)
         lins = []
-        for i in taxa:
+        for i in nodes:
             # assume ancestors are prefetched, so sort by python
             lineage = sorted(i.ancestors.all(), key=lambda x: x.rank)
             lineage.append(i)
@@ -452,7 +452,7 @@ class ContigLikeLoader(SequenceLikeLoader):
 
         lca = None
         for items in zip(*lins):
-            if len(set([i.pk for i in items])) == 1:
+            if len(set((i.pk for i in items))) == 1:
                 lca = items[0]
             else:
                 break
@@ -536,15 +536,16 @@ class ContigLoader(ContigLikeLoader):
 
         This populates the Contig.lca/taxa fields
         """
-        # FIXME: needs transition to NCBI taxonomy
         Gene = import_string('mibios.omics.models.Gene')
-        # TODO: make this a Contig manager method?  Or Sample method?
         genes = Gene.objects.filter(sample=sample)
         # genes = genes.exclude(hits=None)
-        genes = genes.values_list('contig_id', 'pk', 'lca_id')
-        genes = genes.order_by('contig_id')  # _id is contig's PK here
+        genes = genes.values_list('contig_id', 'pk')
+        genes = genes.order_by('contig_id')
         print('Fetching taxonomy... ', end='', flush=True)
-        taxa = TaxNode.objects.filter(gene__sample=sample).distinct().in_bulk()
+        taxa = TaxNode.objects \
+            .filter(classified_gene__sample=sample) \
+            .distinct() \
+            .in_bulk()
         print(f'{len(taxa)} [OK]')
         print('Fetching contigs... ', end='', flush=True)
         contigs = self.model.objects.filter(sample=sample).in_bulk()
@@ -559,21 +560,36 @@ class ContigLoader(ContigLikeLoader):
             g2taxa[gene_pk] = [i for _, i in grp]
         print(f'{len(g2taxa)} [OK]')
 
+        lca_cache = {}
+
         def contig_taxnode_links():
             """ generate m2m links with side-effects """
             for contig_pk, grp in groupby(genes, lambda x: x[0]):
                 taxnode_pks = set()
-                lcas = set()
-                for _, gene_pk, lca_pk in grp:
+                for _, gene_pk, in grp:
                     try:
                         taxnode_pks.update(g2taxa[gene_pk])
-                        lcas.add(taxa[lca_pk])
                     except KeyError:
                         # gene w/o hits
                         pass
 
                 # assign contig LCA from gene LCAs (side-effect):
-                contigs[contig_pk].lca = self.get_lca(lcas)
+                if taxnode_pks:
+                    taxnode_pks = frozenset(taxnode_pks)
+                    try:
+                        lca = lca_cache[taxnode_pks]
+                    except KeyError:
+                        node, *others = ((taxa[i] for i in taxnode_pks))
+                        lca_lin = node.get_lca_lineage(*others, full=True)
+                        if lca_lin:
+                            lca = lca_lin[-1]
+                        else:
+                            lca = None
+                        lca_cache[taxnode_pks] = lca
+                else:
+                    lca = None
+
+                contigs[contig_pk].lca = lca
 
                 for i in taxnode_pks:
                     yield (contig_pk, i)
@@ -587,6 +603,8 @@ class ContigLoader(ContigLikeLoader):
             for i, j in contig_taxnode_links()
         )
         self.bulk_create_wrapper(Through.objects.bulk_create)(objs)
+        if True:  # flake8 trickery
+            del lca_cache
 
         self.fast_bulk_update(contigs.values(), fields=['lca'])
 
@@ -668,36 +686,19 @@ class GeneLoader(ContigLikeLoader):
 
         This also populates Gene.lca / Gene.besthit fields
         """
-        # FIXME: needs transition to NCBI taxonomy
         Alignment = import_string('mibios.omics.models.Alignment')
 
-        # Get UniRef100.taxa m2m links
-        TUT = UniRef100._meta.get_field('taxa').remote_field.through
-        qs = TUT.objects.filter(uniref100__gene_hit__sample=sample).distinct()
-        qs = qs.order_by('uniref100').values_list('uniref100_id', 'taxnode_id')
         print('Fetching uniref100/taxa...', end='', flush=True)
-        u2t = {}  # pk map ur100->taxnodes
-        for ur100_pk, grp in groupby(qs.iterator(), key=lambda x: x[0]):
-            u2t[ur100_pk] = [i for _, i in grp]
+        qs = UniRef100.objects \
+            .filter(gene_hit__sample=sample) \
+            .prefetch_related('taxa') \
+            .distinct()
+        u2t = {i.pk: i.taxa.all() for i in qs.iterator()}
         print(f'{len(u2t)} [OK]')
-
-        print('Fetching tax info...', end='', flush=True)
-        # FIXME ncbi taxonomy
-        qs = (
-            TaxNode.objects
-            .filter(classified_uniref100__gene_hit__sample=sample)
-            .select_related('taxon')
-        )
-        taxmap = {i.pk: i.taxon for i in qs.iterator()}
-        print(f'{len(taxmap)} [OK]')
-
-        print('Fetching ancestry...', end='', flush=True)
-        taxaX = list(taxmap.values())
-        prefetch_related_objects(taxaX, 'ancestors')
-        print(f'{len(taxaX)} [OK]')
 
         hits = Alignment.objects.filter(gene__sample=sample)
         hits = hits.select_related('gene').order_by('gene')
+        lca_cache = {}
         genes = []
 
         def gene_taxa_links():
@@ -709,21 +710,35 @@ class GeneLoader(ContigLikeLoader):
             """
             for gene, grp in groupby(hits.iterator(), key=lambda x: x.gene):
                 # get all taxa for all hits, some UR100 may not have taxa
-                taxa = set()
+                taxa = {}
                 best = None
                 for align in grp:
                     if best is None or align.score > best.score:
                         best = align
-                    for taxnode_pk in u2t.get(align.ref_id, []):
-                        if taxnode_pk in taxa:
+                    for taxnode in u2t.get(align.ref_id, []):
+                        if taxnode.pk in taxa:
                             continue
                         else:
-                            taxa.add(taxnode_pk)
-                            yield (gene.pk, taxnode_pk)
+                            taxa[taxnode.pk] = taxnode
+                            yield (gene.pk, taxnode.pk)
+
                 gene.besthit_id = best.ref_id
-                gene.lca = self.get_lca([taxmap[i] for i in taxa])
-                # some genes here have hits but no taxa, for those lca is set
-                # to None here
+                if taxa:
+                    node_pks = frozenset(taxa.keys())
+                    try:
+                        lca = lca_cache[node_pks]
+                    except KeyError:
+                        node, *others = taxa.values()
+                        lca = node.get_lca_lineage(*others, full=True)
+                        lca_cache[node_pks] = lca
+                    if lca:
+                        gene.lca = lca[-1]
+                    else:
+                        # LCA is root
+                        gene.lca = None
+                else:
+                    # some genes here have hits but no taxa, so no LCA (=root)
+                    gene.lca = None
                 genes.append(gene)
 
         Through = self.model._meta.get_field('taxa').remote_field.through
@@ -732,6 +747,8 @@ class GeneLoader(ContigLikeLoader):
             print(f'Deleted {delcount} existing gene-taxnode links')
         objs = (Through(gene_id=i, taxnode_id=j) for i, j in gene_taxa_links())
         self.bulk_create_wrapper(Through.objects.bulk_create)(objs)
+        if True:  # tricking flake8, undefined name in inner function above
+            del lca_cache, u2t
 
         # update lca field for all genes incl. the unknowns
         self.fast_bulk_update(genes, fields=['lca', 'besthit'])
