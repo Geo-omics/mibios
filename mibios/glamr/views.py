@@ -642,6 +642,9 @@ class BaseDetailView(DetailView):
     ignored, fields not listed go last, in the order they are declared in the
     model class """
 
+    hidden_fields = set()
+    """ a list of field names of fields that should not appear in the view """
+
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['object_model_name'] = self.model._meta.model_name
@@ -663,7 +666,7 @@ class BaseDetailView(DetailView):
             del ford, inf
 
         for i in fields:
-            if i.name == 'id':
+            if i.name == 'id' or i.name in self.hidden_fields:
                 continue
 
             # some relations (e.g.: 1-1) don't have a verbose name:
@@ -967,6 +970,9 @@ class SampleListView(ExportMixin, SingleTableView):
 class SampleView(BaseDetailView):
     model = get_sample_model()
     template_name = 'glamr/sample_detail.html'
+    hidden_fields = [
+        'meta_data_loaded',
+    ]
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
