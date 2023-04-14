@@ -359,7 +359,7 @@ class MapMixin():
         datasets = Dataset.objects.filter(pk__in=dataset_pks)
         # str() will access the reference
         datasets = datasets.select_related('reference')
-        dataset_name = {i.pk: str(i) for i in datasets.iterator()}
+        dataset_name = {i.pk: str(i) for i in datasets}
 
         map_data = []
         for item in qs:
