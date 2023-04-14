@@ -16,15 +16,21 @@
     {% include "glamr/map.html"%}
 </div>
 
-<h3>Showing {{ view.model|meta:"verbose_name_plural" }}</h3>
-<p>with filter:
+<h3>Search results ({{ object_list | length }}) for {{ view.model|meta:"verbose_name_plural" }} with filter:</h3>
 <ul>
 {% for k, v in filter_items %}
 <li>{{k}}: {{v}}</li>
 {% endfor %}
-</ul></p>
+</ul>
 [<a href="?export">download</a>]
-{% include "glamr/filter_list_generic.html" %}
+
+{% if filter_model == 'dataset' %}
+    {% include "glamr/filter_list_dataset.html" %}
+{% elif filter_model == 'sample' %}
+    {% include "glamr/filter_list_sample.html" %}
+{% else %}
+    {% include "glamr/filter_list_generic.html" %}
+{% endif %}
 
 {% else %}{# object_list #}
 <h3>No results</h3>

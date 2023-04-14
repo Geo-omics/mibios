@@ -4,8 +4,8 @@ const url = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 const layer = L.tileLayer(url, { attribution: copy });
 const map = L.map("map", { 
 	layers: [layer], 
-	center: [45, -85],
-	zoom: 5.3,
+	center: [45.10, -84.29],
+	zoom: 6,
 	scrollWheelZoom: false 
 });
 L.control.scale().addTo(map);
@@ -30,27 +30,33 @@ var markers = [];
 // adapted from https://gis.stackexchange.com/questions/195422/create-map-using-leaflet-and-json
 for (var i in map_points) {
 	if(map_points[i].latitude & map_points[i].longitude){
-		var lat_long = L.latLng({ lat: map_points[i].latitude, lng: map_points[i].longitude });
-   		var sample_url = "Sample: <a href='" + map_points[i].sample_url + "'>" + map_points[i].sample_name + "</a>"
-    	var dataset_url = "Dataset: <a href='" + map_points[i].dataset_url + "'>" + map_points[i].dataset_name + "</a>"
-    	var sample_type_string = map_points[i].sample_type[0].toUpperCase() + map_points[i].sample_type.slice(1)
-    	var sample_type = "Sample Type: " + sample_type_string + "<br/>"
+                var lat_long = L.latLng({ lat: map_points[i].latitude, lng: map_points[i].longitude });
 
-    	var iconType = "amplicon-icon";
-    	if(map_points[i].sample_type == "metagenome"){
-    		iconType = "metagenome-icon";
-    	}
-    	else if(map_points[i].sample_type == "metatranscriptome"){
-    		iconType="metatranscriptome-icon"
-    	}
+                var sample_name = map_points[i].sample_name ? map_points[i].sample_name  : (map_points[i].sample_id ? map_points[i].sample_id : (map_points[i].biosample ? map_points[i].biosample : "<i>Name not provided</i>"))
+                var sample_url = "Sample: <a href='" + map_points[i].sample_url + "'>" + sample_name + "</a>"
 
-    	var iconMarker = L.divIcon({className: iconType});
+                var dataset_url = "Dataset: <a href='" + map_points[i].dataset_url + "'>" + map_points[i].dataset_name + "</a>"
 
-    	var marker = L.marker(lat_long,{icon: iconMarker})
-    	marker.bindPopup(sample_url + "<br/>" + sample_type + dataset_url).openPopup();
-    	markers.push(marker);
+                var sample_type_string = map_points[i].sample_type[0].toUpperCase() + map_points[i].sample_type.slice(1)
+                var sample_type = "Sample Type: " + sample_type_string + "<br/>"
+
+                var collection_timestamp = new Date(map_points[i].collection_timestamp)
+                var sample_date = "Collection Date: " + collection_timestamp.toLocaleDateString(0,{year:'numeric', month:'2-digit', day: '2-digit'})
+
+                var iconType = "amplicon-icon";
+                if(map_points[i].sample_type == "metagenome"){
+                        iconType = "metagenome-icon";
+                }
+                else if(map_points[i].sample_type == "metatranscriptome"){
+                        iconType="metatranscriptome-icon"
+                }
+
+                var iconMarker = L.divIcon({className: iconType});
+
+                var marker = L.marker(lat_long,{icon: iconMarker})
+                marker.bindPopup(sample_url + "<br/>" + sample_date + "<br/>" + sample_type + dataset_url).openPopup();
+                markers.push(marker);
 	}
 }
 
 var group = L.featureGroup(markers).addTo(map);
-map.fitBounds(group.getBounds());

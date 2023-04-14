@@ -2,8 +2,6 @@ from logging import getLogger
 
 from django_tables2 import Column, SingleTableView, TemplateColumn
 
-import pandas
-
 from django.apps import apps
 from django.conf import settings
 from django.contrib import messages
@@ -337,7 +335,7 @@ class MapMixin():
 
         This must be implemented by inheriting classes
         """
-        raise NotImplementedError('Inheriting views must impement this method')
+        raise NotImplementedError('Inheriting view must implement this method')
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
@@ -352,14 +350,16 @@ class MapMixin():
         """
         qs = self.get_sample_queryset()
         qs = qs.select_related('dataset')
-        qs = qs.values('id', 'sample_name', 'latitude', 'longitude',
-                       'sample_type', 'dataset_id')
+        qs = qs.values(
+            'id', 'sample_name', 'latitude', 'longitude', 'sample_type',
+            'dataset_id', 'collection_timestamp', 'sample_id', 'biosample',
+        )
 
         dataset_pks = set((i['dataset_id'] for i in qs))
         datasets = Dataset.objects.filter(pk__in=dataset_pks)
         # str() will access the reference
         datasets = datasets.select_related('reference')
-        dataset_name = {i.pk: str(i) for i in datasets.iterator()}
+        dataset_name = {i.pk: str(i) for i in datasets}
 
         map_data = []
         for item in qs:
@@ -640,6 +640,9 @@ class BaseDetailView(DetailView):
     ignored, fields not listed go last, in the order they are declared in the
     model class """
 
+    hidden_fields = set()
+    """ a list of field names of fields that should not appear in the view """
+
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['object_model_name'] = self.model._meta.model_name
@@ -661,7 +664,7 @@ class BaseDetailView(DetailView):
             del ford, inf
 
         for i in fields:
-            if i.name == 'id':
+            if i.name == 'id' or i.name in self.hidden_fields:
                 continue
 
             # some relations (e.g.: 1-1) don't have a verbose name:
@@ -794,6 +797,7 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
         ctx['dataset_counts'] = dataset_counts_data
 
         ctx['dataset_totalcount'] = Dataset.objects.count()
+        ctx['filtered_dataset_totalcount'] = self.filter.qs.count()
         ctx['sample_totalcount'] = Sample.objects.count()
 
         # Get context for sample summary
@@ -803,18 +807,6 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
         ctx['sample_counts'] = sample_counts_data
 
         return ctx
-
-    def make_ratios_plot(self):
-        # DEPRECATED -- remove?
-        imgpath = settings.STATIC_VAR_DIR + '/mappedratios.png'
-        ratios = pandas.DataFrame([
-            (i.reads_mapped_contigs / i.read_count,
-             i.reads_mapped_genes / i.read_count)
-            for i in get_sample_model().objects.all()
-            if i.contigs_ok and i.genes_ok
-        ], columns=['contigs', 'genes'])
-        plot = ratios.plot(x='contigs', y='genes', kind='scatter')
-        plot.figure.savefig(imgpath)
 
     def get_sample_queryset(self):
         qs = Sample.objects.filter(dataset__in=self.get_queryset())
@@ -965,6 +957,9 @@ class SampleListView(ExportMixin, SingleTableView):
 class SampleView(BaseDetailView):
     model = get_sample_model()
     template_name = 'glamr/sample_detail.html'
+    hidden_fields = [
+        'meta_data_loaded',
+    ]
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
@@ -1167,8 +1162,17 @@ class FilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         self.set_filter()
+
         ctx['filter_items'] = [
-            (k.replace('__', '->'), v)
+            (k.replace('__', ' -> '), v)
             for k, v in self.conf.filter.items()
         ]
+
+        if self.model is Sample:
+            ctx['filter_model'] = "sample"
+        elif self.model is Dataset:
+            ctx['filter_model'] = "dataset"
+        else:
+            ctx['filter_model'] = "generic"
+
         return ctx

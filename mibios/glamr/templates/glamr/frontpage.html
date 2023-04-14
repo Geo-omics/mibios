@@ -2,27 +2,34 @@
 {% load static %}
 {% load render_table from django_tables2 %}
 {% block content %}
-
-
+<h3>Welcome to the Great Lakes Atlas for Multi-omics Research (GLAMR)</h3><br/>
 {% include "glamr/search_form_simple.html" %}
+
+{% include "glamr/frontpage_intro_text.html" %}
+
 {% if db_is_good %}
-<hr/>
 {% include "glamr/frontpage_summary.html"%}
 {% endif %}
 <hr/>
-<h3>Available Data Sets ({{ dataset_totalcount }})</h3>
+<h4>Available Datasets ({{ filtered_dataset_totalcount }})</h4>
 
 <div class="m-1">
 	{% include "glamr/frontpage_filter.html"%}
 </div>
 
-<div class="m-2">
-	{% include "glamr/map.html"%}
-</div>
 
 {% if db_is_good %}
 {# Table template adapted from https://stackoverflow.com/questions/47871550/is-it-possible-to-custom-django-tables2-template-for-a-specific-page-in-this-cas#}
-{% render_table table 'glamr/table_cards.html'%}
+<div class="flex-container">
+	<div class="m-2 frontpage-map flex-item">
+		{% include "glamr/map.html"%}
+	</div>
+	<div class="flex-item">
+		{% render_table table 'glamr/table_cards.html'%}
+	</div>
+</div>
+
+
 {% endif %}
 
 {% endblock %}
