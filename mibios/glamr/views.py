@@ -2,8 +2,6 @@ from logging import getLogger
 
 from django_tables2 import Column, SingleTableView, TemplateColumn
 
-import pandas
-
 from django.apps import apps
 from django.conf import settings
 from django.contrib import messages
@@ -337,7 +335,7 @@ class MapMixin():
 
         This must be implemented by inheriting classes
         """
-        raise NotImplementedError('Inheriting views must impement this method')
+        raise NotImplementedError('Inheriting view must implement this method')
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
@@ -808,18 +806,6 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
         ctx['sample_counts'] = sample_counts_data
 
         return ctx
-
-    def make_ratios_plot(self):
-        # DEPRECATED -- remove?
-        imgpath = settings.STATIC_VAR_DIR + '/mappedratios.png'
-        ratios = pandas.DataFrame([
-            (i.reads_mapped_contigs / i.read_count,
-             i.reads_mapped_genes / i.read_count)
-            for i in get_sample_model().objects.all()
-            if i.contigs_ok and i.genes_ok
-        ], columns=['contigs', 'genes'])
-        plot = ratios.plot(x='contigs', y='genes', kind='scatter')
-        plot.figure.savefig(imgpath)
 
     def get_sample_queryset(self):
         qs = Sample.objects.filter(dataset__in=self.get_queryset())

@@ -1,5 +1,3 @@
-import string
-
 from django.urls import reverse
 from django.utils.html import escape, format_html, mark_safe
 
@@ -7,6 +5,7 @@ from django_tables2 import A, Column, Table, TemplateColumn
 
 from mibios.glamr import models as glamr_models
 from mibios.omics import models as omics_models
+
 
 def get_record_url(*args):
     """
@@ -194,7 +193,7 @@ class DatasetTable(Table):
         scheme = r.scheme or r.short_name or r.bioproject \
             or r.jgi_project or r.gold_id or str(record)
         # capitalize just the first letter; leave other characters as they are:
-        return scheme[0].upper() + scheme[1:] 
+        return scheme[0].upper() + scheme[1:]
 
     def render_external_urls(self, value, record):
         # value is a list of tuples (accession, url)
@@ -224,7 +223,7 @@ class DatasetTable(Table):
 
     def render_samples(self, record):
         if record.sample_count <= 0:
-            return mark_safe(f'<div class="btn btn-primary disabled mb-1">No samples</div>')
+            return mark_safe('<div class="btn btn-primary disabled mb-1">No samples</div>')
 
         url = record.get_samples_url()
         return mark_safe(f'<a href="{url}" class="btn btn-primary mb-1">{record.sample_count} available samples</a>')
