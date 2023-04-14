@@ -363,8 +363,8 @@ class AbstractDataset(Model):
         unique=True,
         help_text='internal accession to data set/study/project',
     )
-    short_name = models.CharField(
-        max_length=64,
+    short_name = models.TextField(
+        max_length=128,
         **uniq_opt,
         help_text='a short name or description, for internal use, not '
                   '(necessarily) for public display',
@@ -1028,7 +1028,7 @@ class ContigLike(SequenceLike):
 
 
 class Contig(ContigLike):
-    contig_id = AccessionField(unique=False, max_length=10)
+    contig_id = models.TextField(max_length=32)
 
     # bin membership
     bin_max = models.ForeignKey(BinMAX, **fk_opt, related_name='members')
@@ -1093,7 +1093,7 @@ class Gene(ContigLike):
         ('+', '+'),
         ('-', '-'),
     )
-    gene_id = AccessionField(unique=False, max_length=20)
+    gene_id = models.TextField(max_length=32)
     contig = models.ForeignKey('Contig', **fk_req)
     start = models.PositiveIntegerField()
     end = models.PositiveIntegerField()
