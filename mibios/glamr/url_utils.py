@@ -22,7 +22,7 @@ from django.utils.translation import get_language
 # glamr frontpage with 6000 URLs for map points.
 
 _language_code = get_language()
-_script_prefix = get_script_prefix()
+# _script_prefix = get_script_prefix()
 
 
 class FastURLReverser(URLResolver):
@@ -50,5 +50,5 @@ def fast_reverse(viewname, args=None, kwargs=None):
     if kwargs is None:
         kwargs = {}
     return _resolver._reverse_with_prefix(
-        viewname, _script_prefix, *args, **kwargs
+        viewname, get_script_prefix(), *args, **kwargs
     )
