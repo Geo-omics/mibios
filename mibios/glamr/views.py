@@ -1081,7 +1081,7 @@ class ResultListView(SearchMixin, MapMixin, ListView):
 
     def result_to_list(self, result):
         """
-        Helper to turn SearchMixin.search_result into an ListView.object_list
+        Helper to turn SearchMixin.search_result into a ListView.object_list
         """
         res = []
         for model, items_per_field in result.items():
@@ -1094,6 +1094,9 @@ class ResultListView(SearchMixin, MapMixin, ListView):
             objs = model.objects.in_bulk(items.keys())
             is_first = True  # True for the first item of each model
             for pk, (field, text) in items.items():
+                if pk not in objs:
+                    # search index out-of-sync
+                    continue
                 field = self.verbose_field_name[model_name][field]
                 res.append((is_first, model_name, objs[pk], field, text))
                 is_first = False
