@@ -774,9 +774,10 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
             messages.add_message(
                 self.request,
                 messages.WARNING,
-                'Database connection failure',
+                'Database connection failure: almost nothing will work, sorry',
             )
             ctx['db_is_good'] = False
+            ctx['search_radius'] = 'global'
         else:
             ctx['db_is_good'] = True
 
