@@ -48,7 +48,6 @@ SEARCH_FIELDS = {
     'umrad': {
         'compoundname': ['entry'],
         'functionname': ['entry'],
-        'uniref100': ['accession', 'uniref90'],
     },
 }
 
