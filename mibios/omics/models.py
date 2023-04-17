@@ -1383,12 +1383,20 @@ def load_helper_metagenome(samples=None):
             gene_alignment_hits_loaded=False,
         )
 
+    print(f'{samples.count()} samples to go...')
     for i in samples:
         if not Alignment.loader.get_file(i).is_file():
+            print(f'No m8 file: {i} skipping...')
             continue
         if not i.contig_fasta_loaded:
             Contig.loader.load_fasta_sample(i)
         if not i.gene_fasta_loaded:
             Gene.loader.load_fasta_sample(i)
-        Alignment.loader.load_sample(i)
-        break
+
+        with atomic():
+            Alignment.loader.load_sample(i)
+            Gene.loader.assign_gene_lca(i)
+            Contig.loader.assign_contig_lca(i)
+            i.gene_alignment_hits_loaded = True
+            i.save()
+        print(f'Sample {i} done!')
