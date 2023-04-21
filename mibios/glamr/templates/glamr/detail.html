@@ -21,7 +21,7 @@
                 {% for name, extra_info, url, value, unit in details %}
                     {% spaceless %}<tr><div class="card-text">
                                 <td>{{ name|capfirstkeep }}{%if extra_info%} <small>[{{extra_info}}]</small>{% endif %}:</td>
-                                <td>{%if url%}<a href="{{url}}">{%endif%}{{ value|default_if_none:"<missing/>" }}{%if url%}</a>{%endif%}</td>
+                                <td>{%if url%}<a href="{{url}}">{%endif%}{{ value|default_if_none:"<missing/>" }} {{unit|default:''}}{%if url%}</a>{%endif%}</td>
                         </div></tr>{%endspaceless%}
                 {% endfor %}
         </tbody></table>
