@@ -26,6 +26,7 @@ from mibios.omics.models import (
     CompoundAbundance, FuncAbundance, TaxonAbundance
 )
 from mibios.umrad.models import FuncRefDBEntry
+from mibios.umrad.utils import DefaultDict
 from mibios.omics.models import Gene
 from . import models, tables
 from .forms import QBuilderForm, QLeafEditForm, SearchForm
@@ -631,7 +632,10 @@ class AbundanceGeneView(ModelTableMixin, SingleTableView):
             return super().get_values()
 
 
-class BaseDetailView(DetailView):
+class RecordView(DetailView):
+    """
+    View details of a single object of any model
+    """
     template_name = 'glamr/detail.html'
     max_to_many = 16
 
@@ -642,6 +646,18 @@ class BaseDetailView(DetailView):
 
     hidden_fields = set()
     """ a list of field names of fields that should not appear in the view """
+
+    def setup(self, request, *args, **kwargs):
+        super().setup(request, *args, **kwargs)
+        if self.model is None:
+            # generic case, need to get the model from URL:
+            if 'model' not in kwargs:
+                raise ValueError('no model specified by class nor by url')
+
+            try:
+                self.model = get_registry().models[kwargs['model']]
+            except KeyError as e:
+                raise Http404(f'no such model: {e}') from e
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
@@ -711,7 +727,7 @@ class BaseDetailView(DetailView):
         return details, rel_lists
 
 
-class DatasetView(BaseDetailView):
+class DatasetView(RecordView):
     model = models.Dataset
     template_name = 'glamr/dataset.html'
     field_order = [
@@ -814,17 +830,8 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
         return qs
 
 
-class ReferenceView(BaseDetailView):
+class ReferenceView(RecordView):
     model = models.Reference
-
-
-class RecordView(BaseDetailView):
-    def setup(self, request, *args, **kwargs):
-        super().setup(request, *args, **kwargs)
-        try:
-            self.model = get_registry().models[kwargs['model']]
-        except KeyError as e:
-            raise Http404(f'no such model: {e}') from e
 
 
 class OverView(SingleTableView):
@@ -955,7 +962,7 @@ class SampleListView(ExportMixin, SingleTableView):
         return ctx
 
 
-class SampleView(BaseDetailView):
+class SampleView(RecordView):
     model = get_sample_model()
     template_name = 'glamr/sample_detail.html'
     hidden_fields = [
@@ -1180,3 +1187,23 @@ class FilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
             ctx['filter_model'] = "generic"
 
         return ctx
+
+
+record_view_registry = DefaultDict(
+    dataset=DatasetView.as_view(),
+    sample=SampleView.as_view(),
+    reference=ReferenceView.as_view(),
+    default=RecordView.as_view(),
+)
+"""
+The record view registry: maps model name to RecordView subclass views.
+RecordView is fall-back for models for which no key exists.  This exists purely
+for record_view() so that the view function don't get computed at runtime.
+"""
+
+
+def record_view(*args, **kwargs):
+    """
+    Dispatch function to delegate to RecordView-derived view based on model
+    """
+    return record_view_registry[kwargs.get('model')](*args, **kwargs)

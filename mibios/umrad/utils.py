@@ -850,3 +850,42 @@ def save_import_diff(model, changes, unchanged_count, new_count, missing_objs,
         for pk, key in missing_objs:
             ofile.write(f'missing: {pk} / {key}\n')
     print(f'Diff saved to: {opath}')
+
+
+class DefaultDict(dict):
+    """
+    A dict that can map unknown keys to a default value
+
+    The default value is set via the default key, which by default is the
+    string 'default'.  If there is a chance that the default key occurs in your
+    data then one can get an instance with a different default key, e.g.:
+
+    DEFAULT_KEY = object()
+    d = SafeDict.with_default_key(DEFAULT_KEY)(...)
+
+    If a default key-value pair is set then the default value is returned for
+    any unknown key.  If no default key-value is set (or if a previous one was
+    deleted) then the usual KeyError is raised when trying to access the
+    dictionary with an unknown key.
+    """
+    default_key = 'default'
+
+    @classmethod
+    def with_default_key(cls, default_key):
+        """
+        Make a subclass with an alternative default key
+        """
+        if isinstance(default_key, str):
+            name_suffix = default_key
+        else:
+            name_suffix = str(hash(default_key))
+
+        name = cls.__name__ + '_' + name_suffix
+        attrs = dict(default_key=default_key)
+        return type(name, (cls, ), attrs)
+
+    def __missing__(self, key):
+        if self.default_key in self:
+            return self[self.default_key]
+        else:
+            raise KeyError(key)
