@@ -9,6 +9,7 @@ from django.core.exceptions import FieldDoesNotExist
 from django.db import OperationalError
 from django.db.models import Count, Field, Prefetch, URLField
 from django.http import Http404, HttpResponse
+from django.urls import reverse
 from django.utils.functional import classproperty
 from django.views.generic import DetailView
 from django.views.generic.base import TemplateView
@@ -639,13 +640,18 @@ class RecordView(DetailView):
     template_name = 'glamr/detail.html'
     max_to_many = 16
 
-    field_order = None
+    fields = None
     """ a list of field names, setting the order of display, invalid names are
     ignored, fields not listed go last, in the order they are declared in the
     model class """
 
-    hidden_fields = set()
+    related = None
+    """ *-to-many fields for which to show objects """
+
+    exclude = []
     """ a list of field names of fields that should not appear in the view """
+
+    OTHERS = object()
 
     def setup(self, request, *args, **kwargs):
         super().setup(request, *args, **kwargs)
@@ -663,74 +669,171 @@ class RecordView(DetailView):
         ctx = super().get_context_data(**ctx)
         ctx['object_model_name'] = self.model._meta.model_name
         ctx['object_model_verbose_name'] = self.model._meta.verbose_name
-        ctx['details'], ctx['relations'] = self.get_details()
+        ctx['details'] = self.get_details()
+        ctx['relations'] = self.get_relations()
         ctx['external_url'] = self.object.get_external_url()
 
         return ctx
 
-    def get_details(self):
-        details = []
-        rel_lists = []
-        fields = self.model._meta.get_fields()
+    def get_ordered_fields(self):
+        """
+        Helper to make a correctly ordered list of fields
+        """
+        fields = []
+        if self.fields:
+            for i in self.fields:
+                if i in self.exclude:
+                    continue
 
-        if self.field_order:
-            ford = dict(zip(self.field_order, range(len(self.field_order))))
-            inf = float('inf')
-            fields = sorted(fields, key=lambda x: ford.get(x.name, inf))
-            del ford, inf
+                if i is RecordView.OTHERS:
+                    continue
 
-        for i in fields:
-            if i.name == 'id' or i.name in self.hidden_fields:
-                continue
-
-            # some relations (e.g.: 1-1) don't have a verbose name:
-            name = getattr(i, 'verbose_name', i.name)
-
-            if i.many_to_many or i.one_to_many:
-                model_name = i.related_model._meta.model_name
                 try:
-                    # trying as m2m relation (other side of declared field)
-                    rel_attr = i.get_accessor_name()
-                except AttributeError:
-                    # this is the m2m field
-                    rel_attr = i.name
-                qs = getattr(self.object, rel_attr).all()[:self.max_to_many]
-                rel_lists.append((name, model_name, qs, i))
-                continue
+                    fields.append(self.model._meta.get_field(i))
+                except FieldDoesNotExist:
+                    if hasattr(self.model, i):
+                        fields.append(i)
+                    else:
+                        raise AttributeError(
+                            f'{self.model} has no field or attribute "{i}"'
+                        )
 
-            value = getattr(self.object, i.name, None)
-            if value:
-                if i.many_to_one or i.one_to_one:  # TODO: test 1-1 fields
-                    url = tables.get_record_url(value)
-                elif isinstance(i, URLField):
-                    url = value
-                else:
-                    url = None
+            try:
+                others_pos = self.fields.index(RecordView.OTHERS)
+            except ValueError:
+                # no others
+                others_pos = None
+        else:
+            # self.fields not set, auto-add below
+            others_pos = -1
+
+        if others_pos is not None:
+            others = []
+            for i in self.model._meta.get_fields():
+                if i in fields:
+                    continue
+                if i.name == 'id' or i.name in self.exclude:
+                    continue
+                others.append(i)
+            fields = fields[:others_pos] + others + fields[others_pos + 1:]
+        return fields
+
+    def get_relations(self):
+        """
+        Get details on *-to-many fields
+        """
+        fields = []
+        if self.related is None:
+            # the default, display all *-to-many fields
+            for i in self.model._meta.get_fields():
+                if i.one_to_many or i.many_to_many:
+                    fields.append(i)
+        elif self.related:
+            # only diplay specified fields
+            for i in self.related:
+                fields.append(self.model._meta.get_field(i))
+        else:
+            # self.related is set empty  ==>  show nothing
+            return []
+
+        data = []
+        for i in fields:
+            model_name = i.related_model._meta.model_name
+            name = getattr(i, 'verbose_name_plural', i.name)
+            try:
+                # trying as m2m relation (other side of declared field)
+                rel_attr = i.get_accessor_name()
+            except AttributeError:
+                # this is the m2m field
+                rel_attr = i.name
+            qs = getattr(self.object, rel_attr).all()[:self.max_to_many]
+            data.append((name, model_name, qs, i))
+
+        return data
+
+    def get_detail_for_field(self, field):
+        """ get the 5-tuple detail item for a field """
+        f = field
+        if f.one_to_many or f.many_to_many:
+            name = f.related_model._meta.verbose_name_plural
+            # value is count of related objects!
+            value = getattr(self.object, f.get_accessor_name()).count()
+            if value == 0:
+                # Let's not show zeros
+                value = ''
+        else:
+            if f.one_to_one:
+                # 1-1 fields don't have a verbose name
+                name = f.name
+            else:
+                name = f.verbose_name
+            value = getattr(self.object, f.name, None)
+
+        if value:
+            if f.many_to_one or f.one_to_one:  # TODO: test 1-1 fields
+                url = tables.get_record_url(value)
+            elif f.one_to_many or f.many_to_many:
+                url_kw = {
+                    'model': self.object._meta.model_name,
+                    'pk': self.object.pk,
+                    'field': f.name,
+                }
+                url = reverse('relations', kwargs=url_kw)
+            elif isinstance(f, URLField):
+                url = value
             else:
                 url = None
+        else:
+            url = None
 
-            if hasattr(i, 'choices') and i.choices:
-                value = getattr(self.object, f'get_{i.name}_display')()
+        if hasattr(f, 'choices') and f.choices:
+            value = getattr(self.object, f'get_{f.name}_display')()
 
-            if value:
-                unit = getattr(i, 'unit', None)
+        if value:
+            unit = getattr(f, 'unit', None)
+        else:
+            unit = None
+
+        extra_info = getattr(f, 'pseudo_unit', None)
+        return (name, extra_info, url, value, unit)
+
+    def get_details(self):
+        """
+        A list, one item per field to be passed to the template
+
+        Returns a list of 5-tuples:
+          - field name
+          - pseudo unit / extra field info
+          - url
+          - value
+          - real unit
+        This is about the order in which things are displayed on screen
+        """
+        details = []
+        for i in self.get_ordered_fields():
+            if isinstance(i, str):
+                # detail of a non-field attribute
+                item = (i, None, None, getattr(self.object, i), None)
+                attrname = i
             else:
-                unit = None
+                item = self.get_detail_for_field(i)
+                attrname = i.name
 
-            pseudo_unit = getattr(i, 'pseudo_unit', None)
-
-            details.append((name, pseudo_unit, url, value, unit))
+            detail_fn_name = f'get_{attrname}_detail'
+            if detail_fn := getattr(self, detail_fn_name, None):
+                item = detail_fn(i, item)
+            details.append(item)
 
         if exturl := self.object.get_external_url():
             details.append(('external URL', None, exturl, exturl, None))
 
-        return details, rel_lists
+        return details
 
 
 class DatasetView(RecordView):
     model = models.Dataset
     template_name = 'glamr/dataset.html'
-    field_order = [
+    fields = [
         'reference',
         'sample',
         'bioproject',
@@ -741,7 +844,6 @@ class DatasetView(RecordView):
         'sequencing_target',
         'sequencing_platform',
         'size_fraction',
-        'note',
     ]
 
 
@@ -832,6 +934,7 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
 
 class ReferenceView(RecordView):
     model = models.Reference
+    exclude = ['reference_id', 'short_reference']
 
 
 class OverView(SingleTableView):
@@ -964,15 +1067,52 @@ class SampleListView(ExportMixin, SingleTableView):
 
 class SampleView(RecordView):
     model = get_sample_model()
-    template_name = 'glamr/sample_detail.html'
-    hidden_fields = [
-        'meta_data_loaded',
+    # template_name = 'glamr/sample_detail.html'
+    template_name = 'glamr/detail.html'
+    fields = [
+        'dataset',
+        'sample_name',
+        'collection_timestamp',
+        'geo_loc_name',
+        'noaa_site',
+        RecordView.OTHERS,
     ]
+    exclude = [
+        'sample_id',
+        'collection_ts_partial',
+        'meta_data_loaded',
+        'metag_pipeline_reg',
+        'analysis_dir',
+        'sortchem',
+        'notes',
+    ]
+    related = []
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['sample_id'] = str(self.kwargs['pk'])
         return ctx
+
+    def get_ordered_fields(self):
+        fields = []
+        for i in super().get_ordered_fields():
+            try:
+                if i.name.endswith('_loaded'):
+                    continue
+                if i.name.endswith('_ok'):
+                    continue
+                if i.one_to_many:
+                    continue
+            except AttributeError:
+                # not a field
+                pass
+            fields.append(i)
+        return fields
+
+    def get_collection_timestamp_detail(self, field, item):
+        name, info, _, _, _ = item
+        value = self.object.format_collection_timestamp()
+        return (name, info, None, value, None)
 
 
 class SearchView(TemplateView):

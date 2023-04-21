@@ -315,6 +315,20 @@ class Sample(AbstractSample):
         return self.sample_name or self.sample_id or self.biosample \
             or super().__str__()
 
+    def format_collection_timestamp(self):
+        """ format partial timestamp """
+        ts = self.collection_timestamp
+        match self.collection_ts_partial:
+            case self.DATE_ONLY:
+                return ts.date().strftime('%m/%d/%Y')
+            case self.YEAR_ONLY:
+                return ts.strftime('%Y')
+            case self.MONTH_ONLY:
+                return ts.strftime('%m/%Y')
+            case _:
+                # FULL_TIMESTAMP
+                return str(ts)
+
 
 class Searchable(models.Model):
     """
