@@ -1008,7 +1008,7 @@ class TableView(BaseFilterMixin, ModelTableMixin, SingleTableView):
 
     def get_queryset(self):
         self.conf.q = [self.q]
-        return self.conf.get_queryset()
+        return self.conf.get_queryset().distinct()
 
     def setup(self, request, *args, **kwargs):
         super().setup(request, *args, **kwargs)
