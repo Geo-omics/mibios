@@ -1,0 +1,7 @@
+# Postgres logical replication setup
+# on primary:
+create publication pub_basic_for_public_website for table glamr_dataset, glamr_reference, glamr_sample, glamr_searchable, glamr_uniqueword;
+
+# on secondary:
+create subscription sub_basic_to_primary connection 'dbname=glamr host=vondamm.earth.lsa.umich.edu user=public_db_subscriber password=******* port=54321' publication pub_basic_for_public_website
+

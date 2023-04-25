@@ -1,7 +1,13 @@
 FROM debian:bookworm-slim
+ENV APP_BASE_DIR=/glamr-webapp
+ARG APP_USER=www-data
+ARG APP_GROUP=www-data
+
+USER root
+
 ARG DEBIAN_FRONTEND=noninteractive 
 RUN ln -sf /usr/share/zoneinfo/America/Detroit /etc/localtime
-RUN apt-get update && apt-get upgrade --assume-yes && apt-get install --assume-yes --no-install-recommends \
+RUN apt-get update && apt-get upgrade --assume-yes --quiet && apt-get install --assume-yes --no-install-recommends --quiet \
     bind9-dnsutils \
     git \
     iputils-ping \
@@ -29,17 +35,18 @@ RUN apt-get update && apt-get upgrade --assume-yes && apt-get install --assume-y
 # Also, currently, just "pip install" would install for python3.10, hence
 # invoke via "python3.11 -m pip"  // unsure if the --python option does
 # anything.
-RUN echo "increment for mibios upgrade: 14"
+RUN echo "increment for mibios upgrade: 19"
 RUN python3.11 -m pip install --no-index --no-deps --break-system-packages --python /usr/bin/python3.11 git+https://github.com/Geo-omics/mibios.git
 
 COPY uwsgi.ini /etc/uwsgi.ini
-RUN mkdir /glamr && chown www-data:www-data /glamr
 
-USER www-data:www-data
-WORKDIR /glamr
-RUN mkdir static_var && chown www-data:www-data static_var
+WORKDIR ${APP_BASE_DIR}
 COPY settings.py start-webapp ./
-RUN    manage_mibios collectstatic --no-input
+RUN chmod ugo+rwx+t $APP_BASE_DIR
+USER $APP_USER:$APP_GROUP
+RUN mkdir static_var
+
+RUN manage_mibios collectstatic --no-input
 
 EXPOSE 3032/tcp
-CMD ["/glamr/start-webapp"]
+CMD sh -c "exec $APP_BASE_DIR/start-webapp"

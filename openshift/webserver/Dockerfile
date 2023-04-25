@@ -10,6 +10,8 @@ RUN apt-get update && apt-get upgrade --assume-yes --quiet && apt-get install --
     curl \
     apache2 \
     libapache2-mod-uwsgi \
+    iputils-ping \
+    net-tools \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

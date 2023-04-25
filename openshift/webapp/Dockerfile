@@ -1,13 +1,13 @@
 FROM debian:bookworm-slim
-
 USER root
-
 ARG DEBIAN_FRONTEND=noninteractive 
 RUN ln -sf /usr/share/zoneinfo/America/Detroit /etc/localtime
 RUN apt-get update && apt-get upgrade --assume-yes --quiet && apt-get install --assume-yes --no-install-recommends --quiet \
     adduser \
+    curl \
     bind9-dnsutils \
     git \
+    iproute2 \
     iputils-ping \
     postgresql-client \
     procps \
@@ -46,7 +46,6 @@ USER webapp
 WORKDIR /glamr-webapp
 RUN mkdir static_var
 RUN ln -s /glamr-django-secret-key/django-secret-key secret.key
-RUN id && pwd && ls -la
 COPY settings.py start-webapp /glamr-webapp/
 RUN manage_mibios collectstatic --no-input
 

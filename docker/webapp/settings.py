@@ -8,6 +8,9 @@ from mibios.glamr.settings import *
 # Set to True for development but never in production deployment
 DEBUG = False
 
+# Yes, show internal stuff
+INTERNAL_DEPLOYMENT = True
+
 # Set this to False when running the runserver command on localhost
 SECURE_SSL_REDIRECT = False
 
@@ -28,13 +31,13 @@ ADMINS = [("Robert", "heinro@umich.edu")]
 
 # For production, set STATIC_ROOT to the directory containing static files,
 # relative to your instance's base directory
-# STATIC_ROOT = 'static'
+STATIC_ROOT = 'static'
 
 # URL for static files
 STATIC_URL = '/glamr/static/'
 
 # Direcorty relative to the base where download files get stored
-MEDIA_ROOT = '/glamr/media/'
+MEDIA_ROOT = 'media/'
 
 # URL path for downloads
 MEDIA_URL = '/glamr/media/'

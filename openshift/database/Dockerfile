@@ -31,7 +31,7 @@ RUN apt-get update && apt-get install --assume-yes --no-install-recommends --qui
 ENV PGDATA=$POSTGRES_BASE/data
 RUN mkdir $POSTGRES_BASE && chown postgres:root $POSTGRES_BASE
 USER postgres
-# RUN mkdir --mode 00700 $PGDATA
+# RUN [[ -e $PGDATA ]] || mkdir --mode 00700 $PGDATA
 RUN ls -laR $POSTGRES_BASE
 RUN echo "data_directory = '$PGDATA'" >> /etc/postgresql/15/main/conf.d/local.conf
 # network: database is our hostname via docker-compose, so we'll be listening at our IP address:

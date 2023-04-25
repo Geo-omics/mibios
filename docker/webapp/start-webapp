@@ -1,5 +1,6 @@
 #!/bin/bash
+set -eu
 manage_mibios collectstatic --no-input
 manage_mibios generate_model_graphs
 manage_mibios migrate --no-input
-uwsgi --ini /etc/uwsgi.ini
+uwsgi --chdir "$APP_BASE_DIR" --ini /etc/uwsgi.ini

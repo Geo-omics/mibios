@@ -52,8 +52,9 @@ DATABASES = {
 # Allowed host settings:
 ALLOWED_HOSTS.append('127.0.0.1')
 ALLOWED_HOSTS.append('webapp')
-ALLOWED_HOSTS.append('vondamm.earth.lsa.umich.edu')
 ALLOWED_HOSTS.append('www-gdick-web-app.apps.gnosis.lsa.umich.edu')
+ALLOWED_HOSTS.append('glamr.earth.lsa.umich.edu')
+ALLOWED_HOSTS.append('greatlakesomics.org')
 
 # Uncomment this do disable caching, for testing/debugging only
 # CACHES['default']['BACKEND'] = 'django.core.cache.backends.dummy.DummyCache'
