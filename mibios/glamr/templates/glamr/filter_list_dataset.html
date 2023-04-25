@@ -35,6 +35,51 @@
                         <td>-</td>
                     {% endif %}
                 </tr>
+                {% if item.primers %}
+                    <tr>
+                        <td>Primers:</td>
+                        <td>{{ item.primers }}</td>
+                    </tr>
+                {% endif %}
+                {% if item.sequencing_target %}
+                    <tr>
+                        <td>Sequencing Target:</td>
+                        <td>{{ item.sequencing_target }}</td>
+                    </tr>
+                {% endif %}
+                {% if item.sequencing_platform %}
+                    <tr>
+                        <td>Sequencing Platform:</td>
+                        <td>{{ item.sequencing_platform }}</td>
+                    </tr>
+                {% endif %}
+                {% if item.size_fraction %}
+                    <tr>
+                        <td>Size Fraction:</td>
+                        <td>{{ item.size_fraction }}</td>
+                    </tr>
+                {% endif %}
+                {% if item.note %}
+                    <tr>
+                        <td>Notes:</td>
+                        <td>{{ item.note }}</td>
+                    </tr>
+                {% endif %}
+                {% if item.external_urls %}
+                    <tr>
+                        <td>External URLs:</td>
+                        <td>
+                            {% for name, url in item.external_urls %}
+                                {% if url %}
+                                    <a href={{url}}>{{name}}</a>
+                                {% else %}
+                                   <span class="mr-1">{{name}}</span>
+                                {% endif %}
+                            {% endfor %}
+
+                        </td>
+                    </tr>
+                {% endif %}
             </tbody></table>
         </div> 
     </li>
