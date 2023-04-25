@@ -295,6 +295,7 @@ class LoadMixin:
 class Model(MibiosModel):
     history = None
     objects = Manager()
+    curated = objects
 
     accession_fields = None
     """
