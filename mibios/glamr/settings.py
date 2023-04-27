@@ -39,3 +39,7 @@ MESSAGE_TAGS = {
     message_constants.WARNING: 'alert-warning',
     message_constants.ERROR: 'alert-danger',
 }
+
+# Set to True to expose extra, non-public functionality via the web-frontend,
+# leave it at False for public-facing deployments
+INTERNAL_DEPLOYMENT = False

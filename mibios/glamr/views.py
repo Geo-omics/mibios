@@ -903,6 +903,7 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
 
     def _get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
+        ctx['show_internal_nav'] = settings.INTERNAL_DEPLOYMENT
         ctx['mc_abund'] = TaxonAbundance.objects \
             .filter(taxon__taxname__name='Microcystis') \
             .select_related('sample')[:5]

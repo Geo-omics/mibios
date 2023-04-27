@@ -7,6 +7,7 @@ url declarations for the mibios.glamr app
 # will result in a loop.  Calling the module url0 avoids getting into that loop
 # in the first place.  We should revise if the automatic include in mibios.url
 # still makes sense.
+from django.conf import settings
 from django.urls import include, path
 
 from mibios import urls as mibios_urls
@@ -16,7 +17,6 @@ from . import views
 
 urlpatterns = [
     path('', views.FrontPageView.as_view(), name='frontpage'),
-    path('tables/', include(mibios_urls)),
     path('dataset/<int:pk>/samples', views.SampleListView.as_view(), name='dataset_sample_list'),  # noqa: E501
     path('dataset/<int:pk>/', views.DatasetView.as_view(), name='dataset'),
     path('reference/<int:pk>/', views.ReferenceView.as_view(), name='reference'),  # noqa: E501
@@ -35,3 +35,6 @@ urlpatterns = [
     path('filter/<str:model>/', views.FilteredListView.as_view(), name='filter_result'),  # noqa: E501
     path('search-adv/<str:model>/', views.SearchModelView.as_view(), name='search_model'),  # noqa: E501
 ]
+
+if settings.INTERNAL_DEPLOYMENT:
+    urlpatterns.append(path('tables/', include(mibios_urls)))
