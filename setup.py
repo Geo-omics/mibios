@@ -107,6 +107,7 @@ setuptools.setup(
         'psycopg2~=2.9.0',
         'xlrd~=1.2',
         'zipstream~=1.1.0',
+        'pygraphviz',
     ],
     packages=setuptools.find_packages(),
     package_data=get_package_data(),

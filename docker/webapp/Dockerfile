@@ -18,6 +18,7 @@ RUN apt-get update && apt-get upgrade --assume-yes && apt-get install --assume-y
     python3-pandas \
     python3-pip \
     python3-psycopg2 \
+    python3-pygraphviz \
     python3-xlrd \
     python3-zipstream \
     uwsgi \
