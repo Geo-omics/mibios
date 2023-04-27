@@ -11,7 +11,6 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied
-from django.core.management import call_command
 from django.http import Http404, HttpResponse, StreamingHttpResponse
 from django.urls import reverse
 from django.utils.html import format_html
@@ -33,6 +32,7 @@ from .forms import (ExportForm, get_field_search_form, UploadFileForm,
 from .load import Loader
 from .management.import_base import AbstractImportCommand
 from .models import ChangeRecord, ImportFile, Snapshot
+from .model_graphs import get_model_graph_info
 from .tables import (DeletedHistoryTable, HistoryTable,
                      CompactHistoryTable, DetailedHistoryTable,
                      SnapshotListTable, SnapshotTableColumn, Table,
@@ -1197,11 +1197,11 @@ class ModelGraphView(TemplateView):
         ]
         if 'app_name' in kwargs:
             self.app_name = kwargs['app_name']
-            if self.app_name in self.available_apps:
-                self.image_file_name = f'{self.app_name}.png'
-                self.make_graph(self.app_name)
-            else:
+            try:
+                self.image_file_name = get_model_graph_info()[self.app_name]
+            except KeyError:
                 raise Http404('invalid app name')
+
         else:
             # None triggers displaying the app list
             self.app_name = None
@@ -1211,18 +1211,5 @@ class ModelGraphView(TemplateView):
         ctx = super().get_context_data(**ctx)
         ctx['app_name'] = self.app_name
         ctx['image_file_name'] = self.image_file_name
-        ctx['available_apps'] = self.available_apps
+        ctx['available_apps'] = list(get_model_graph_info().keys())
         return ctx
-
-    def make_graph(self, app_name):
-        if 'django_extensions' in settings.INSTALLED_APPS:
-            call_command(
-                'graph_models',
-                self.app_name,
-                output=settings.STATIC_VAR_DIR + '/' + self.image_file_name,
-                exclude_models=['Model'],
-                no_inheritance=True,
-            )
-        else:
-            pass
-            # raise RuntimeError('sss')
