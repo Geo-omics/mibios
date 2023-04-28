@@ -284,13 +284,33 @@ class ModelTableMixin(ExportMixin):
     table_class = None  # triggers the model-based table class creation
     exclude = ['id']  # do not display these fields
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._add_extra_columns = False
+
     def get_table_kwargs(self):
-        kw = {}
+        kw = super().get_table_kwargs()
         kw['exclude'] = self.exclude
-        kw['extra_columns'] = self.get_improved_columns()
+        if self._add_extra_columns:
+            kw['extra_columns'] = self._get_improved_columns()
         return kw
 
-    def get_improved_columns(self):
+    def get_table_class(self):
+        if self.table_class:
+            return self.table_class
+
+        # Some model have dedicated tables, everything else gets a table from
+        # the factory at SingleTableMixin
+        match self.model._meta.model_name:
+            case 'dataset':
+                return tables.DatasetTable
+            case 'sample':
+                return tables.SampleTable
+            case _:
+                self._add_extra_columns = True
+                return super().get_table_class()
+
+    def _get_improved_columns(self):
         """ make replacements to linkify FK + accession columns """
         cols = []
         try:
@@ -1157,7 +1177,12 @@ class TableView(BaseFilterMixin, ModelTableMixin, SingleTableView):
 
     def get_queryset(self):
         self.conf.q = [self.q]
-        return self.conf.get_queryset()
+        qs = self.conf.get_queryset()
+
+        if self.model == models.Dataset:
+            qs = qs.annotate(sample_count=Count('sample')).order_by("-sample_count")
+
+        return qs
 
     def setup(self, request, *args, **kwargs):
         super().setup(request, *args, **kwargs)
