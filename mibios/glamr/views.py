@@ -887,10 +887,12 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
             queryset=Sample.objects.only('dataset_id', 'sample_type'),
         ))
 
+        qs = qs.annotate(sample_count=Count('sample', distinct=True))
+
         self.filter = self.filter_class(self.request.GET, queryset=qs)
         self.filter.form.helper = self.formhelper_class()
 
-        return self.filter.qs.annotate(sample_count=Count('sample')).order_by("-sample_count")  # noqa: E501
+        return self.filter.qs.order_by("-sample_count")
 
     def get_context_data(self, **ctx):
         # Make the frontpage resilient to database connection issues: Any DB
@@ -937,7 +939,7 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
         ctx['dataset_counts'] = dataset_counts_data
 
         ctx['dataset_totalcount'] = Dataset.objects.count()
-        ctx['filtered_dataset_totalcount'] = self.filter.qs.count()
+        ctx['filtered_dataset_totalcount'] = self.filter.qs.distinct().count()
         ctx['sample_totalcount'] = Sample.objects.count()
 
         # Get context for sample summary
