@@ -132,7 +132,6 @@ class DatasetTable(Table):
     )
     samples = Column(
         verbose_name='Available samples',
-        order_by=A('-sample_count'),
         attrs={
             'showFieldTitle': False,
             'cardTitle': False,

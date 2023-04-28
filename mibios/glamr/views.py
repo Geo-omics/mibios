@@ -870,7 +870,7 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
         self.filter = self.filter_class(self.request.GET, queryset=qs)
         self.filter.form.helper = self.formhelper_class()
 
-        return self.filter.qs.annotate(sample_count=Count('sample'))
+        return self.filter.qs.annotate(sample_count=Count('sample')).order_by("-sample_count")
 
     def get_context_data(self, **ctx):
         # Make the frontpage resilient to database connection issues: Any DB
