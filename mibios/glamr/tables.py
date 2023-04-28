@@ -182,6 +182,7 @@ class DatasetTable(Table):
 
     class Meta:
         empty_text = 'No dataset / study information available'
+        template_name = 'glamr/table_cards.html'
         attrs = {
             "id": "overview-table",
             "class": "table table-hover",

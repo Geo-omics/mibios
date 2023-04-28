@@ -2,15 +2,17 @@
 {% load render_table from django_tables2 %}
 {% block content %}
 <div class="container-fluid">
-<h2>{{ model_verbose_name_plural }}</h2>
-{% if qnode %}
-with filter:</br>
-{% include 'glamr/search_filter.html' %}
-(<a href="{% url 'search_model' model=model_name %}">change</a>)
-{% else %}
-all {{ model_verbose_name }} data shown (<a href="{% url 'search_model' model=model_name %}">add filter</a>)
-{% endif %}
-{% render_table table %}
+    <h2>{{ model_verbose_name_plural | capfirst }}</h2>
+        {% if qnode %}
+            with filter:</br>
+            {% include 'glamr/search_filter.html' %}
+            (<a href="{% url 'search_model' model=model_name %}">change</a>)
+            <h4 class="mt-1 mb-2">Found {{ object_list | length }} records:</h4>
+        {% else %}
+        <h4 class="mt-1 mb-2">All records shown</h4>
+        (<a href="{% url 'search_model' model=model_name %}">add filter</a>)
+        {% endif %}
+        {% render_table table %}
 </div>
 {% endblock %}
 
