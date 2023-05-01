@@ -191,7 +191,10 @@ class DatasetTable(Table):
     def render_scheme(self, value, record):
         r = record
         scheme = r.scheme or r.short_name or r.bioproject \
-            or r.jgi_project or r.gold_id or str(record)
+            or r.jgi_project or r.gold_id
+        if not scheme:
+            scheme = (f'(no description available) '
+                      f'id:{record.dataset_id}/pk:{record.pk}')
         # capitalize just the first letter; leave other characters as they are:
         return scheme[0].upper() + scheme[1:]
 
