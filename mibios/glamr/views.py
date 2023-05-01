@@ -890,7 +890,7 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
         self.filter = self.filter_class(self.request.GET, queryset=qs)
         self.filter.form.helper = self.formhelper_class()
 
-        return self.filter.qs.annotate(sample_count=Count('sample')).order_by("-sample_count")
+        return self.filter.qs.annotate(sample_count=Count('sample')).order_by("-sample_count")  # noqa: E501
 
     def get_context_data(self, **ctx):
         # Make the frontpage resilient to database connection issues: Any DB
@@ -1180,7 +1180,7 @@ class TableView(BaseFilterMixin, ModelTableMixin, SingleTableView):
         qs = self.conf.get_queryset()
 
         if self.model == models.Dataset:
-            qs = qs.annotate(sample_count=Count('sample')).order_by("-sample_count")
+            qs = qs.annotate(sample_count=Count('sample')).order_by("-sample_count")  # noqa:E501
 
         return qs
 
