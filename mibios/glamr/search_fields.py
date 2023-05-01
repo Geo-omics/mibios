@@ -52,6 +52,13 @@ SEARCH_FIELDS = {
 }
 
 
+ADVANCED_SEARCH_MODELS = [
+    'dataset', 'sample', 'reference', 'compoundname', 'contig',
+    'functionname', 'gene', 'taxname',
+]
+""" names of models we offer for the advanced search """
+
+
 def print():
     """ helper go generate SEARCH_FIELD """
     r = get_registry()

@@ -9,7 +9,7 @@
         Select a data category
     </button>
     <div class="dropdown-menu scrollable" aria-labelledby="dropdownMenuLink">
-        {% for name, verbose in models %}
+        {% for name, verbose in adv_search_models %}
             <a href="{% url 'search_model' model=name %}" class="dropdown-item">{{ verbose }}</a>
         {% endfor %}
     </div>

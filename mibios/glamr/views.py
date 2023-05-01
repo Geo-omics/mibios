@@ -31,7 +31,7 @@ from mibios.umrad.utils import DefaultDict
 from mibios.omics.models import Gene
 from . import models, tables
 from .forms import QBuilderForm, QLeafEditForm, SearchForm
-from .search_fields import SEARCH_FIELDS
+from .search_fields import ADVANCED_SEARCH_MODELS, SEARCH_FIELDS
 from .search_utils import get_suggestions
 from .url_utils import fast_reverse
 
@@ -1152,12 +1152,12 @@ class SearchView(TemplateView):
         ctx['models_and_fields'] = m_and_f
 
         # models in alphabetical order
-        model_list = [
-            (i._meta.model_name, i._meta.verbose_name)
-            for i in get_registry().models.values()
-        ]
-        model_list.sort(key=lambda item: item[1].lower())
-        ctx['models'] = model_list
+        models = get_registry().models
+        items = []
+        for i in ADVANCED_SEARCH_MODELS:
+            m = models[i]
+            items.append((m._meta.model_name, m._meta.verbose_name))
+        ctx['adv_search_models'] = sorted(items, key=lambda x: x[1].lower())
 
         return ctx
 
