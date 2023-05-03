@@ -1,5 +1,6 @@
 """The project package for mibios"""
 import os
+from pathlib import Path
 import sys
 
 from django.core.management.utils import get_random_secret_key
@@ -53,14 +54,44 @@ def get_secret_key(keyfile):
 
     If file does not exist, generate a key randomly and store it in the file
     first.
+
+    Example usage in settings.py:
+        SECRET_KEY = get_secret_key('./secret-key.txt')
     """
+    keyfile = Path(keyfile)
     try:
         if not keyfile.exists():
-            keyfile.touch(mode=0o600, exist_ok=False)
-            keyfile.write_text(get_random_secret_key())
-            keyfile.chmod(0o400)
+            print(f'Creating secret key file {keyfile} ...')
+            try:
+                keyfile.touch(mode=0o600, exist_ok=False)
+            except FileExistsError as e:
+                print(f'DEBUG: {keyfile=} {keyfile.exists()=} '
+                      f'{e.__class__.__name__}: {e}')
+                raise
+            except Exception as e:
+                print(f'WARNING: failed touching {keyfile}: '
+                      f'{e.__class__.__name__}: {e}')
+                raise
+            try:
+                keyfile.write_text(get_random_secret_key())
+            except Exception as e:
+                print(f'WARNING: failed writing to {keyfile}: '
+                      f'{e.__class__.__name__}: {e}')
+                raise
+            try:
+                keyfile.chmod(0o400)
+            except Exception as e:
+                print(f'WARNING: failed mode setting {keyfile}: '
+                      f'{e.__class__.__name__}: {e}')
+                raise
 
-        return keyfile.read_text()
+        try:
+            return keyfile.read_text()
+        except Exception as e:
+            print(f'WARNING: failed reading {keyfile}: '
+                  f'{e.__class__.__name__}: {e}')
+            raise
+
     except Exception as e:
         # file permissions?
         # TODO: explore consequences of non-permanent keys
