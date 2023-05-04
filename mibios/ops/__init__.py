@@ -61,13 +61,18 @@ def get_secret_key(keyfile):
     keyfile = Path(keyfile)
     try:
         if not keyfile.exists():
+            if keyfile.is_symlink():
+                # A broken symlink, not doing anything about that, even though
+                # write_text() could create the target just fine, touch()
+                # however is a bit touchy, and will, with exits_ok=False raise
+                # a "File exist", but create the target with exist_ok=True.
+                # Let's just assume that the broken symlink is fully intended.
+                raise RuntimeError('is broken symlink')
             print(f'Creating secret key file {keyfile} ...')
+            # while this whole function isn't TOCTOU-safe, at least make the
+            # key writing safe from preying eyes of other users:
             try:
                 keyfile.touch(mode=0o600, exist_ok=False)
-            except FileExistsError as e:
-                print(f'DEBUG: {keyfile=} {keyfile.exists()=} '
-                      f'{e.__class__.__name__}: {e}')
-                raise
             except Exception as e:
                 print(f'WARNING: failed touching {keyfile}: '
                       f'{e.__class__.__name__}: {e}')
