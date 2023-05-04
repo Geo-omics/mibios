@@ -1,5 +1,10 @@
 FROM debian:bookworm-slim
+ENV APP_BASE_DIR=/glamr-webapp
+ARG APP_USER=webapp
+ARG APP_GROUP=webapp
+
 USER root
+
 ARG DEBIAN_FRONTEND=noninteractive 
 RUN ln -sf /usr/share/zoneinfo/America/Detroit /etc/localtime
 RUN apt-get update && apt-get upgrade --assume-yes --quiet && apt-get install --assume-yes --no-install-recommends --quiet \
@@ -39,15 +44,17 @@ RUN python3.11 -m pip install --no-index --no-deps --break-system-packages --pyt
 COPY uwsgi.ini /etc/uwsgi.ini
 
 # openshift must supply APPLICATION_USER_ID
-RUN adduser --system --home=/glamr-webapp --group --uid $APPLICATION_USER_ID webapp
-RUN adduser webapp root
+RUN adduser --system --home=$APP_BASE_DIR --group --uid $APPLICATION_USER_ID $APP_USER
+RUN adduser $APP_USER root
 
-USER webapp
-WORKDIR /glamr-webapp
+WORKDIR ${APP_BASE_DIR}
+COPY settings.py start-webapp ./
+RUN chmod ugo+rwx+t $APP_BASE_DIR
+USER $APP_USER:$APP_GROUP
 RUN mkdir static_var
 RUN ln -s /glamr-django-secret-key/django-secret-key secret.key
-COPY settings.py start-webapp /glamr-webapp/
+
 RUN manage_mibios collectstatic --no-input
 
 EXPOSE 3032/tcp
-CMD ["/glamr-webapp/start-webapp"]
+CMD sh -c "exec $APP_BASE_DIR/start-webapp"

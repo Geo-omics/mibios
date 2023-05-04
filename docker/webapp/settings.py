@@ -61,7 +61,7 @@ ALLOWED_HOSTS.append('vondamm.earth.lsa.umich.edu')
 # CACHES['default']['BACKEND'] = 'django.core.cache.backends.dummy.DummyCache'
 
 SITE_NAME = 'GLAMR'
-SITE_NAME_VERBOSE = 'GLAMR DB prototype'
+SITE_NAME_VERBOSE = 'GLAMR DB testing'
 
 SCHEMA_PLOT_APPS = ['mibios_omics']
 
