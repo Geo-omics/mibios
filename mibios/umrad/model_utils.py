@@ -4,8 +4,10 @@ Model-related utilities
 Separate module to avoid circular imports issues
 """
 from collections import UserDict
+from collections.abc import Sequence
 from itertools import islice
 import os
+import re
 
 from django.core.exceptions import FieldDoesNotExist
 from django.db import connections, models, router
@@ -303,6 +305,12 @@ class Model(MibiosModel):
     automatic detection in get_accession_fields() fails for whatever reason.
     """
 
+    URL_TEMPLATES = {}
+    """
+    Map of field name to URL template to support get_attr_urls()
+    Implementing classes should overwrite this as needed.
+    """
+
     class Meta:
         abstract = True
         default_manager_name = 'objects'
@@ -464,6 +472,57 @@ class Model(MibiosModel):
         default implementation returns None.
         """
         pass
+
+    def get_attr_urls(self, attr):
+        """
+        Get URL list for supported fields/attribute.
+
+        Supports attributes/fields with string or sequence values.  Strings are
+        tested for commata or semicolons and split into items.
+
+        Returns None for values evaluating to boolean False (blank values).
+
+        Returns None if the field does not support URLs (that is if no URL
+        template is defined.)
+
+        Raises AttributeError for an invalid field/attribute name.
+
+        Otherwise returns a list.  May return an empty list in rare cases, e.g.
+        if a string value only contains space and commas.  If the template
+        contains test patterns then the return list may contain None values in
+        place of items that don't match any pattern.  A pattern of None is
+        interpreted as a fall-back, it should be placed last among the
+        different pattern in a patterned template.
+        """
+        value = getattr(self, attr)
+        if not value:
+            return None
+
+        if attr not in self.URL_TEMPLATES:
+            return None
+
+        # auto-listify value
+        if isinstance(value, str):
+            # recognize comma or semicolon
+            vals = str(value).replace(',', ' ').replace(';', ' ').split()
+        elif isinstance(value, Sequence):
+            vals = list(value)
+        else:
+            vals = [value]
+
+        urls = []
+        templates = self.URL_TEMPLATES[attr]
+        if isinstance(templates, str):
+            templates = {None: templates}
+        for val_item in vals:
+            for pat, templ in templates.items():
+                if pat is None or re.match(pat, val_item):
+                    urls.append(templ.format(val_item))
+                    break
+            else:
+                # no matching pattern
+                urls.append(None)
+        return urls
 
 
 class VocabularyModel(Model):

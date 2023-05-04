@@ -18,10 +18,10 @@
 </div>
         <div class="card-body">
                 <table class="table table-hover table-condensed"><tbody>
-                {% for name, extra_info, url, value, unit in details %}
+                {% for name, extra_info, items, unit in details %}
                     {% spaceless %}<tr><div class="card-text">
                                 <td>{{ name|capfirstkeep }}{%if extra_info%} <small>[{{extra_info}}]</small>{% endif %}:</td>
-                                <td>{%if url%}<a href="{{url}}">{%endif%}{{ value|default_if_none:"<missing/>" }} {{unit|default:''}}{%if url%}</a>{%endif%}</td>
+                                <td>{%for value, url in items%}{%if url%}<a href="{{url}}">{%endif%}{{ value|default_if_none:"<missing/>" }} {{unit|default:''}}{%if url%}</a>{%endif%}{%if not forloop.last%}, {%endif%}{%endfor%}</td>
                         </div></tr>{%endspaceless%}
                 {% endfor %}
         </tbody></table>

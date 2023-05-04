@@ -772,7 +772,7 @@ class RecordView(DetailView):
         return data
 
     def get_detail_for_field(self, field):
-        """ get the 5-tuple detail item for a field """
+        """ get the 4-tuple detail data for a field """
         f = field
         if f.one_to_many or f.many_to_many:
             name = f.related_model._meta.verbose_name_plural
@@ -791,41 +791,63 @@ class RecordView(DetailView):
 
         if value:
             if f.many_to_one or f.one_to_one:  # TODO: test 1-1 fields
-                url = tables.get_record_url(value)
+                urls = [tables.get_record_url(value)]
             elif f.one_to_many or f.many_to_many:
                 url_kw = {
                     'model': self.object._meta.model_name,
                     'pk': self.object.pk,
                     'field': f.name,
                 }
-                url = reverse('relations', kwargs=url_kw)
+                urls = [reverse('relations', kwargs=url_kw)]
             elif isinstance(f, URLField):
-                url = value
+                urls = [value]
             else:
-                url = None
+                urls = self.object.get_attr_urls(f.attname)
         else:
-            url = None
+            urls = None
 
         if hasattr(f, 'choices') and f.choices:
             value = getattr(self.object, f'get_{f.name}_display')()
 
         if value:
             unit = getattr(f, 'unit', None)
-        else:
-            unit = None
 
+            if urls:
+                if len(urls) > 1:
+                    # Multiple URLs, try to split string values, if that
+                    # doesn't work for any reason just display the original
+                    # value and no URL
+                    if isinstance(value, str):
+                        val = value.replace(',', ' ').replace(';', ' ').split()
+                        if len(val) == len(urls):
+                            items = list(zip(val, urls))
+                        else:
+                            # degrade
+                            items = [(value, None)]
+                    else:
+                        # degrade
+                        items = [(value, None)]
+                else:
+                    # single value + single URL
+                    items = [(value, urls[0])]
+            else:
+                # single value, no URL
+                items = [(value, None)]
+        else:
+            # blank
+            unit = None
+            items = []
         extra_info = getattr(f, 'pseudo_unit', None)
-        return (name, extra_info, url, value, unit)
+        return (name, extra_info, items, unit)
 
     def get_details(self):
         """
-        A list, one item per field to be passed to the template
+        A list, one element per field to be passed to the template
 
-        Returns a list of 5-tuples:
+        Returns a list of 4-tuples:
           - field name
           - pseudo unit / extra field info
-          - url
-          - value
+          - list if pairs (value item, URL)
           - real unit
         This is about the order in which things are displayed on screen
         """
@@ -845,7 +867,7 @@ class RecordView(DetailView):
             details.append(item)
 
         if exturl := self.object.get_external_url():
-            details.append(('external URL', None, exturl, exturl, None))
+            details.append(('external URL', None, [(exturl, exturl)], None))
 
         return details
 
@@ -1133,9 +1155,9 @@ class SampleView(RecordView):
         return fields
 
     def get_collection_timestamp_detail(self, field, item):
-        name, info, _, _, _ = item
+        name, info, _, _ = item
         value = self.object.format_collection_timestamp()
-        return (name, info, None, value, None)
+        return (name, info, [(value, None)], None)
 
 
 class SearchView(TemplateView):

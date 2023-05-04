@@ -106,6 +106,16 @@ class Dataset(AbstractDataset):
         return ' - '.join(filter(None, [scheme, ref])) or self.short_name \
             or super().__str__()
 
+    URL_TEMPLATES = {
+        'bioproject': 'https://www.ncbi.nlm.nih.gov/bioproject/{}',
+        'gold_id': {
+            '^Ga': 'https://gold.jgi.doe.gov/analysis_project?id={}',
+            '^Gp': 'https://gold.jgi.doe.gov/project?id={}',
+            '^Gs': 'https://gold.jgi.doe.gov/study?id={}',
+            '^Gb': 'https://gold.jgi.doe.gov/biosample?id={}',
+        },
+    }
+
     bioproject_url_templ = 'https://www.ncbi.nlm.nih.gov/bioproject/{}'
     jgi_project_url_templ = 'https://genome.jgi.doe.gov/portal/lookup' \
         '?keyName=jgiProjectId&keyValue={}&app=Info&showParent=false'
@@ -328,6 +338,19 @@ class Sample(AbstractSample):
             case _:
                 # FULL_TIMESTAMP
                 return str(ts)
+
+    URL_TEMPLATES = {
+        'project_id': 'https://www.ncbi.nlm.nih.gov/bioproject/{}',
+        'biosample': 'https://www.ncbi.nlm.nih.gov/biosample/{}',
+        'gold_analysis_id': Dataset.URL_TEMPLATES['gold_id']['^Ga'],
+        'gold_seq_id': Dataset.URL_TEMPLATES['gold_id']['^Gp'],
+        'jgi_study_id': Dataset.URL_TEMPLATES['gold_id']['^Gs'],
+        'jgi_biosample_id': Dataset.URL_TEMPLATES['gold_id']['^Gb'],
+        'sra_accession': {
+            '^SRR': 'https://trace.ncbi.nlm.nih.gov/Traces/?view=run_browser&acc={}&display=metadata',  # noqa:E501
+            None: 'https://www.ncbi.nlm.nih.gov/sra/?term={}',
+        }
+    }
 
 
 class Searchable(models.Model):
