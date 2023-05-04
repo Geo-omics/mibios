@@ -284,3 +284,6 @@ class SampleTable(Table):
     def render_geo_loc_name(self, record):
         items = [record.geo_loc_name, record.noaa_site]
         return ' / '.join([i for i in items if i])
+
+    def render_collection_timestamp(self, record):
+        return record.format_collection_timestamp()

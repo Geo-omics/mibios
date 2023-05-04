@@ -326,18 +326,25 @@ class Sample(AbstractSample):
             or super().__str__()
 
     def format_collection_timestamp(self):
-        """ format partial timestamp """
+        """
+        format partial timestamp
+
+        Returns a str.
+        """
         ts = self.collection_timestamp
         match self.collection_ts_partial:
             case self.DATE_ONLY:
-                return ts.date().strftime('%m/%d/%Y')
+                return ts.date().isoformat()
             case self.YEAR_ONLY:
                 return ts.strftime('%Y')
             case self.MONTH_ONLY:
-                return ts.strftime('%m/%Y')
+                return ts.strftime('%B %Y')
             case _:
-                # FULL_TIMESTAMP
-                return str(ts)
+                if ts is None:
+                    return ''
+                else:
+                    # FULL_TIMESTAMP
+                    return ts.astimezone().isoformat()
 
     URL_TEMPLATES = {
         'project_id': 'https://www.ncbi.nlm.nih.gov/bioproject/{}',
