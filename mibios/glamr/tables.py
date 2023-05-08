@@ -225,6 +225,9 @@ class DatasetTable(Table):
         return ' / '.join(values)
 
     def render_samples(self, record):
+        if not hasattr(record, 'sample_count'):
+            # sample_count is a queryset annotation, it may be missing
+            return ''
         if record.sample_count <= 0:
             return mark_safe('<div class="btn btn-primary disabled mb-1">No samples</div>')  # noqa: E501
 
