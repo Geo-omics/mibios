@@ -1,7 +1,6 @@
 FROM debian:bookworm-slim
 
 ARG POSTGRES_BASE=/var/local/postgresql
-ARG POSTGRES_GID=130
 ARG DEBIAN_FRONTEND=noninteractive 
 
 RUN ln -sf /usr/share/zoneinfo/America/Detroit /etc/localtime
@@ -14,11 +13,13 @@ RUN echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen && locale-gen && update-locale
 ENV LANG=en_US.utf8
 
 # get us a postgres user
-RUN addgroup --system --gid $POSTGRES_GID postgres
+RUN addgroup --system --gid $APPLICATION_USER_ID postgres
 RUN adduser --system --home=$POSTGRES_BASE --no-create-home --uid $APPLICATION_USER_ID --ingroup postgres postgres
 RUN adduser postgres root
 
 RUN apt-get update && apt-get install --assume-yes --no-install-recommends --quiet \
+    acl \
+    nfs4-acl-tools \
     dnsutils \
     postgresql-15
 
@@ -28,16 +29,13 @@ RUN apt-get update && apt-get install --assume-yes --no-install-recommends --qui
 # configuration alone.  The new place needs to have something mounted via
 # docker-compose's volumes directive or docker-run's --volume option that
 # contains a ready-to-use database or have initdb run manually.
-ENV PGDATA=$POSTGRES_BASE/data
-RUN mkdir $POSTGRES_BASE && chown postgres:root $POSTGRES_BASE
+ENV PGDATA=$POSTGRES_BASE/pgdata_mnt/data
 USER postgres
-# RUN [[ -e $PGDATA ]] || mkdir --mode 00700 $PGDATA
-RUN ls -laR $POSTGRES_BASE
 RUN echo "data_directory = '$PGDATA'" >> /etc/postgresql/15/main/conf.d/local.conf
 # network: database is our hostname via docker-compose, so we'll be listening at our IP address:
 RUN echo "listen_addresses = '0.0.0.0'" >> /etc/postgresql/15/main/conf.d/local.conf
 RUN echo "client_encoding = 'UTF8'" >> /etc/postgresql/15/main/conf.d/local.conf
-#RUN echo "max_wal_size = 10GB" >> /etc/postgresql/15/main/conf.d/local.conf
+RUN echo "max_wal_size = 10GB" >> /etc/postgresql/15/main/conf.d/local.conf
 #RUN echo "ssl_cert_file = '$POSTGRES_BASE/server.crt'" >> /etc/postgresql/15/main/conf.d/local.conf
 #RUN echo "ssl_key_file = '$POSTGRES_BASE/server.key'" >> /etc/postgresql/15/main/conf.d/local.conf
 # allow DB access from webapp between containers
