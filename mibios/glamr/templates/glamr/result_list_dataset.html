@@ -17,7 +17,7 @@
                 </tr>
                 <tr>
                     <td>Description:</td>
-                    <td>{{ item.scheme|capfirst }}</td>
+                    <td>{{ item.scheme|capfirstsmart }}</td>
                 </tr>
                 <tr>
                     <td>Water Bodies:</td>
@@ -26,7 +26,7 @@
                 <tr>
                     <td>Material Type:</td>
                     {% if item.material_type %}
-                        <td>{{ item.material_type|capfirstkeep }}</td>
+                        <td>{{ item.material_type|capfirstsmart }}</td>
                     {% else %}
                         <td>-</td>
                     {% endif %}

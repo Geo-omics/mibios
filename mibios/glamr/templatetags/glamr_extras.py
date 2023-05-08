@@ -68,16 +68,16 @@ def is_q(value):
     return isinstance(value, Q)
 
 
-@register.filter(name='capfirstkeep')
+@register.filter(name='capfirstsmart')
 @stringfilter
-def capfirstkeep(value):
+def capfirstsmart(value):
     """
-    like capfirst but preserves existing capitalizations
+    Like capfirst but preserves existing capitalizations in first word.
 
-    "pH" -> "pH"
-    "ph" -> "Ph"
+    "pH average" -> "pH average"
+    "average pH" -> "Average pH"
     """
-    return capfirst(value) if value.islower() else value
+    return capfirst(value) if value.split(maxsplit=1)[0].islower() else value
 
 
 @register.filter(name='meta')
