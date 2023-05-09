@@ -8,35 +8,43 @@ from django.db.models import Count
 
 import pandas
 
+from . import GREAT_LAKES
 from mibios.umrad.manager import QuerySet
 
 
 class DatasetQuerySet(QuerySet):
-    def basic_counts(
+    def summary(
             self,
             column_field='sample_type',
             row_field='geo_loc_name',
-            exclude_blanks=True,
             as_dataframe=True,
+            otherize=True,
     ):
         """
-        Compute basic statistics for front page display
+        Compute basic count statistics for front-page
 
         Parameters:  column_field and row_fields must be char field names from
         the Sample model.
 
         Datasets are counted multiples times if they contain samples from
-        different lakes or of different type.
+        several lakes or of more than one type.
         """
-        our_col_field = 'sample__' + column_field
-        our_row_field = 'sample__' + row_field
+        if otherize and not as_dataframe:
+            raise RuntimeError('otherize implies as_dataframe')
+
+        col_field = 'sample__' + column_field
+        row_field = 'sample__' + row_field
         qs = (self
-              .values_list('pk', our_row_field, our_col_field)
-              .order_by(our_row_field, our_col_field)
+              .values_list('pk', row_field, col_field)
+              .order_by(row_field, col_field)
               .distinct()
               )
 
-        counts = Counter(((a, b) for _, a, b in qs if a and b))
+        # When counting below, do not account for missing type (b), hence we
+        # test for b, missing location (a) is OK as those normally go into
+        # 'other'
+        counts = Counter(((a, b) for _, a, b in qs if b))
+
         if not as_dataframe:
             return counts
 
@@ -47,32 +55,45 @@ class DatasetQuerySet(QuerySet):
                 names=(row_field, column_field),
             ),
         )
-        return counts.unstack(fill_value=0)
+        df = counts.unstack(fill_value=0)
+
+        if otherize:
+            greats = set(GREAT_LAKES)
+            others = df.loc[[i for i in df.index if i not in greats]].sum()
+            df = df.loc[GREAT_LAKES]
+            df.loc['other'] = others
+
+        return df
 
 
 class SampleQuerySet(QuerySet):
-    def basic_counts(
-            self,
-            column_field='sample_type',
-            row_field='geo_loc_name',
-            exclude_blanks=True,
-            as_dataframe=True,
-    ):
+    def basic_counts(self, *fields, exclude_blanks=True):
         """
-        Compute basic statistics for front page display
+        Count samples by given combination of categories
         """
+        if not fields:
+            raise ValueError('fields parameter missing')
         qs = self
         if exclude_blanks:
-            qs = qs.exclude(**{column_field: ''}).exclude(**{row_field: ''})
+            for i in fields:
+                qs = qs.exclude(**{i: ''})
         qs = (qs
-              .values_list(row_field, column_field)
-              .order_by(row_field, column_field)
+              .values_list(*fields)
+              .order_by(*fields)
               .annotate(count=Count('*'))
-              # .order_by('-count')
               )
+        return qs
 
-        if not as_dataframe:
-            return qs
+    def summary(
+        self,
+        column_field='sample_type',
+        row_field='geo_loc_name',
+        exclude_blanks=True,
+        otherize=True,
+    ):
+        """ Get count summary (for frontpage view) """
+        qs = self.basic_counts(row_field, column_field,
+                               exclude_blanks=exclude_blanks)
 
         # It's not totally trivial to turn the QuerySet, a sequence of tuples
         # (row_name, column_name, count) into a DataFrame.  So we put the
@@ -87,7 +108,15 @@ class SampleQuerySet(QuerySet):
                 names=(row_field, column_field),
             ),
         )
-        return counts.unstack(fill_value=0)
+        df = counts.unstack(fill_value=0)
+
+        if otherize:
+            greats = set(GREAT_LAKES)
+            others = df.loc[[i for i in df.index if i not in greats]].sum()
+            df = df.loc[GREAT_LAKES]
+            df.loc['other'] = others
+
+        return df
 
 
 class SearchableQuerySet(QuerySet):

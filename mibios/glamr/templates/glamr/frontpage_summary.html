@@ -12,36 +12,22 @@
 		<div class="card-body">
 			<div class="card-text">
 				<table class="table table-hover table-condensed table-sm">
-					<thead>
-						<tr>
-							<th>Location</th>
-							<th>Datasets with Amplicon Samples</th>
-							<th>Datasets with Metagenome Samples</th>
-							<th>Datasets with Metatranscriptome Samples</th>
-						</tr>
-					</thead>
-					<tbody>
-						{% for row in dataset_counts %}
-					    	<tr>
-					    		<td>{{ row.geo_loc_name }}:</td>
-						    	<td>
-                                                            {% if row.amplicon %}
-                                                            <a href="{% url 'filter_result' model='dataset' %}?sample__sample_type=amplicon&sample__geo_loc_name={{row.geo_loc_name}}">{{row.amplicon}}</a>
-                                                            {% else %}0{% endif %}
-						    	</td>
-						    	<td>
-                                                            {% if row.metagenome %}
-                                                            <a href="{% url 'filter_result' model='dataset' %}?sample__sample_type=metagenome&sample__geo_loc_name={{row.geo_loc_name}}">{{row.metagenome}}</a>
-                                                            {% else %}0{% endif %}
-						    	</td>
-						    	<td>
-                                                            {% if row.metatranscriptiome %}
-                                                            <a href="{% url 'filter_result' model='dataset' %}?sample__sample_type=metatranscriptome&sample__geo_loc_name={{row.geo_loc_name}}">{{row.metatranscriptome}}</a>
-                                                            {% else %}0{% endif %}
-						    	</td>
-						    </tr>
-						{% endfor %}
-					</tbody>
+                                {%for row in dataset_counts %}
+                                    {% if forloop.first %}<thead>
+                                        <tr>
+                                            <th>Location</th>
+                                            {%for qstr, value in row%}<th><a href="{% url 'filter_result' model='dataset'%}?{{qstr}}">{{value}}</a></th>{%endfor%}
+                                        </tr>
+				    </thead><tbody>
+                                    {%else%}
+                                        <tr>
+                                        {%for qstr, value in row%}
+                                            <td>{%if qstr%}<a href="{% url 'filter_result' model='dataset'%}?{{qstr}}">{%endif%}{{value}}{%if qstr%}</a>{%endif%}</td>
+                                        {%endfor%}
+                                        </tr>
+                                    {%endif%}
+				    {%if forloop.last%}</tbody>{%endif%}
+                                {%endfor%}
 				</table>
 			</div>
 		</div>
@@ -55,36 +41,22 @@
 		<div class="card-body">
 			<div class="card-text">
 				<table class="table table-hover table-condensed table-sm">
-					<thead>
-						<tr>
-							<th>Location</th>
-							<th>Amplicon Samples</th>
-							<th>Metagenome Samples</th>
-							<th>Metatranscriptome Samples</th>
-						</tr>
-					</thead>
-					<tbody>
-						{% for row in sample_counts %}
-					    	<tr>
-					    		<td>{{ row.geo_loc_name }}:</td>
-						    	<td>
-                                                            {% if row.amplicon %}
-                                                            <a href="{% url 'filter_result' model='sample' %}?sample_type=amplicon&geo_loc_name={{row.geo_loc_name}}">{{row.amplicon}}</a>
-                                                            {% else %}0{% endif %}
-						    	</td>
-						    	<td>
-                                                            {% if row.metagenome %}
-                                                            <a href="{% url 'filter_result' model='sample' %}?sample_type=metagenome&geo_loc_name={{row.geo_loc_name}}">{{row.metagenome}}</a>
-                                                            {% else %}0{% endif %}
-						    	</td>
-						    	<td>
-                                                            {% if row.metatranscriptome %}
-                                                            <a href="{% url 'filter_result' model='sample' %}?sample_type=metatranscriptome&geo_loc_name={{row.geo_loc_name}}">{{row.metatranscriptome}}</a>
-                                                            {% else %}0{% endif %}
-						    	</td>
-						    </tr>
-						{% endfor %}
-					</tbody>
+                                {%for row in sample_counts %}
+                                    {% if forloop.first %}<thead>
+                                        <tr>
+                                            <th>Location</th>
+                                            {%for qstr, value in row%}<th><a href="{% url 'filter_result' model='sample'%}?{{qstr}}">{{value}}</a></th>{%endfor%}
+                                        </tr>
+				    </thead><tbody>
+                                    {%else%}
+                                        <tr>
+                                        {%for qstr, value in row%}
+                                            <td>{%if qstr%}<a href="{% url 'filter_result' model='sample'%}?{{qstr}}">{%endif%}{{value}}{%if qstr%}</a>{%endif%}</td>
+                                        {%endfor%}
+                                        </tr>
+                                    {%endif%}
+				    {%if forloop.last%}</tbody>{%endif%}
+                                {%endfor%}
 				</table>
 			</div>
 		</div>

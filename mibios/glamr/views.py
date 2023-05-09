@@ -16,7 +16,7 @@ from django.views.generic.base import TemplateView
 from django.views.generic.list import ListView
 
 from mibios import get_registry
-from mibios.data import TableConfig
+from mibios.data import DataConfig, TableConfig
 from mibios.glamr.filters import DatasetFilter
 from mibios.glamr.forms import DatasetFilterFormHelper
 from mibios.glamr.models import Sample, Dataset
@@ -29,13 +29,11 @@ from mibios.omics.models import (
 from mibios.umrad.models import FuncRefDBEntry
 from mibios.umrad.utils import DefaultDict
 from mibios.omics.models import Gene
-from . import models, tables
+from . import models, tables, GREAT_LAKES
 from .forms import QBuilderForm, QLeafEditForm, SearchForm
 from .search_fields import ADVANCED_SEARCH_MODELS, SEARCH_FIELDS
 from .search_utils import get_suggestions
 from .url_utils import fast_reverse
-
-import json
 
 
 log = getLogger(__name__)
@@ -954,20 +952,63 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
 
         ctx[self.context_filter_name] = self.filter
 
-        # Get context for dataset summary
-        dataset_counts_df = Dataset.objects.basic_counts()
-        dataset_counts_json = dataset_counts_df.reset_index().to_json(orient='records')  # noqa: E501
-        dataset_counts_data = json.loads(dataset_counts_json)
-        ctx['dataset_counts'] = dataset_counts_data
-
         ctx['dataset_totalcount'] = Dataset.objects.count()
         ctx['filtered_dataset_totalcount'] = self.filter.qs.distinct().count()
         ctx['sample_totalcount'] = Sample.objects.count()
 
-        # Get context for sample summary
-        sample_counts_df = Sample.objects.basic_counts()
-        sample_counts_json = sample_counts_df.reset_index().to_json(orient='records')  # noqa: E501
-        sample_counts_data = json.loads(sample_counts_json)
+        # Compile data for dataset summary: A list of the rows of the table,
+        # for each cell it's a tuple of URL query string and value (text or
+        # count.)
+        df = Dataset.objects.summary(
+            column_field='sample_type',
+            row_field='geo_loc_name',
+        )
+        conf = DataConfig(Dataset)
+        head = []
+        for i in df.columns:
+            conf.filter['sample__sample_type'] = i
+            head.append((conf.url_query(), i))
+        dataset_counts_data = [head]
+        for lake, lake_counts in df.to_dict(orient='index').items():
+            conf.clear_selection()
+            if lake == 'other':
+                conf.q = [~ Q(sample__geo_loc_name__in=GREAT_LAKES)]
+            else:
+                conf.filter = dict(sample__geo_loc_name=lake)
+            row = [(conf.url_query(), lake)]
+            for samp_type, count in lake_counts.items():
+                if count > 0:
+                    conf.filter['sample__sample_type'] = samp_type
+                    q_str = conf.url_query()
+                else:
+                    q_str = None
+                row.append((q_str, count))
+            dataset_counts_data.append(row)
+        ctx['dataset_counts'] = dataset_counts_data
+
+        # Compile data for sample summary: Similar to above for datasets
+        df = Sample.objects.summary('sample_type', 'geo_loc_name')
+        conf = DataConfig(Sample)
+        head = []
+        for i in df.columns:
+            conf.filter['sample_type'] = i
+            head.append((conf.url_query(), i))
+        sample_counts_data = [head]
+        for lake, lake_counts in df.to_dict(orient='index').items():
+            conf.clear_selection()
+            if lake == 'other':
+                conf.q = [~ Q(geo_loc_name__in=GREAT_LAKES)]
+            else:
+                conf.filter = dict(geo_loc_name=lake)
+            row = [(conf.url_query(), lake)]
+            for samp_type, count in lake_counts.items():
+                if count > 0:
+                    conf.filter['sample_type'] = samp_type
+                    q_str = conf.url_query()
+                else:
+                    q_str = None
+                row.append((q_str, count))
+            sample_counts_data.append(row)
         ctx['sample_counts'] = sample_counts_data
 
         return ctx
@@ -1337,15 +1378,14 @@ class FilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
 
     def set_filter(self):
         """ set filter from GET querystring """
-        f = {}
-        for key, val in self.request.GET.items():
-            fname = key.split('__')[0]
-            try:
-                self.model._meta.get_field(fname)
-            except FieldDoesNotExist:
-                continue
-            f[key] = val
-        self.conf.filter = f
+        self.conf.clear_selection()
+        self.conf.set_from_query(self.request.GET)
+        try:
+            # if this fails, assume it's something bad via URL
+            self.conf.get_queryset()
+        except Exception as e:
+            raise Http404(f'suspected bad URL query string: {e}') from e
+        return
 
     def get_queryset(self):
         self.set_filter()
