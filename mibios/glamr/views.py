@@ -1437,3 +1437,7 @@ def record_view(*args, **kwargs):
     Dispatch function to delegate to RecordView-derived view based on model
     """
     return record_view_registry[kwargs.get('model')](*args, **kwargs)
+
+
+def test_server_error(request):
+    raise RuntimeError('you were asking for it')

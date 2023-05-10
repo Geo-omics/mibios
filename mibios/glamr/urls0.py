@@ -41,6 +41,7 @@ urlpatterns = [
 
 if settings.INTERNAL_DEPLOYMENT:
     urlpatterns.append(path('tables/', include(mibios_urls)))
+    urlpatterns.append(path('server-error/', views.test_server_error))
 
 
 # The default template names are without path, so take up the global name space
