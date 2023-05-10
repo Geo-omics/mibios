@@ -870,7 +870,7 @@ class RecordView(DetailView):
         return details
 
 
-class DatasetView(RecordView):
+class DatasetView(MapMixin, RecordView):
     model = models.Dataset
     template_name = 'glamr/dataset.html'
     fields = [
@@ -885,6 +885,9 @@ class DatasetView(RecordView):
         'sequencing_platform',
         'size_fraction',
     ]
+
+    def get_sample_queryset(self):
+        return self.object.sample_set.all()
 
 
 class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
