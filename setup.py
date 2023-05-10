@@ -58,8 +58,7 @@ def get_package_data():
     # globs in django app package directory for the kind of data files we're
     # looking for:
     paths = [
-        'templates/*.html',
-        'templates/{app_name}/*.html',
+        'templates/**/*.html',
         'static/{app_name}/css/*.css',
         'static/{app_name}/js/*.js',
         'static/{app_name}/img/*.png',

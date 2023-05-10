@@ -7,8 +7,11 @@ url declarations for the mibios.glamr app
 # will result in a loop.  Calling the module url0 avoids getting into that loop
 # in the first place.  We should revise if the automatic include in mibios.url
 # still makes sense.
+from functools import partial
+
 from django.conf import settings
 from django.urls import include, path
+from django.views import defaults
 
 from mibios import urls as mibios_urls
 from mibios.omics.views import krona
@@ -38,3 +41,12 @@ urlpatterns = [
 
 if settings.INTERNAL_DEPLOYMENT:
     urlpatterns.append(path('tables/', include(mibios_urls)))
+
+
+# The default template names are without path, so take up the global name space
+# and mibios' templates may take precedence if mibios is listed first in
+# INSTALLED_APPS.  So, here we re-declare all the error handler in order to
+# pass along our templates with app-specific path.
+handler400 = partial(defaults.bad_request, template_name='glamr/errors/400.html')  # noqa: E501
+handler404 = partial(defaults.page_not_found, template_name='glamr/errors/404.html')  # noqa: E501
+handler500 = partial(defaults.server_error, template_name='glamr/errors/500.html')  # noqa: E501

@@ -21,11 +21,6 @@ CRISPY_TEMPLATE_PACK = 'bootstrap4'
 # override mibios' urls since glamr has it's own
 ROOT_URLCONF = 'mibios.glamr.urls0'
 
-# Allow the template loading machinery to find and use glamr's error view
-# templates.  Normally, if DIRS is empty, mibios' error templates will be found
-# first.
-TEMPLATES[0]['DIRS'].insert(0, 'mibios/glamr/templates/')
-
 # swappable models (these are strings "<app_name>.<model_name>")
 OMICS_SAMPLE_MODEL = 'glamr.Sample'
 OMICS_DATASET_MODEL = 'glamr.Dataset'
