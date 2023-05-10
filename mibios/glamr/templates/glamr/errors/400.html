@@ -4,5 +4,5 @@
 {% block content %}
 <h2>Bad Request (400)</h2>
 <p>Sorry, that didn't work.  Feel free to contact the site maintainer and let them know how you got here.</p>
-[<a href="{{ request.META.SCRIPT_NAME }}">home page</a>]
+[<a href="{% url 'frontpage' %}">home page</a>]
 {% endblock %}
