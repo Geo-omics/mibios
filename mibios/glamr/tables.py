@@ -246,6 +246,7 @@ class SingleColumnRelatedTable(Table):
         verbose_name='Related records',
         linkify=lambda record: get_record_url(record),
         empty_values=(),  # triggers render_objects()
+        orderable=False,
     )
 
     def render_objects(self, record):
