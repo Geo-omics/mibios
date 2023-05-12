@@ -1156,8 +1156,7 @@ class SampleListView(ExportMixin, SingleTableView):
 
 class SampleView(RecordView):
     model = get_sample_model()
-    # template_name = 'glamr/sample_detail.html'
-    template_name = 'glamr/detail.html'
+    template_name = 'glamr/sample_detail.html'
     fields = [
         'dataset',
         'sample_name',

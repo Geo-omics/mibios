@@ -4,6 +4,7 @@
 <nav aria-label="breadcrumb">
   <ol class="breadcrumb">
       <li class="breadcrumb-item"><a href="{% url 'frontpage' %}">Home</a></li>
+      {%block extra_breadcrumbs%}{%endblock%}
       <li class="breadcrumb-item active" aria-current="page">{{ object|meta:"verbose_name"|capfirst}} (detail)</li>
   </ol>
 </nav>
