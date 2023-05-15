@@ -799,8 +799,14 @@ class RecordView(DetailView):
         f = field
         if f.one_to_many or f.many_to_many:
             name = f.related_model._meta.verbose_name_plural
-            # value is count of related objects!
-            value = getattr(self.object, f.get_accessor_name()).count()
+            # make value the count of related objects!
+            try:
+                # trying as m2m relation (other side of declared field)
+                rel_attr = f.get_accessor_name()
+            except AttributeError:
+                # this is the m2m field
+                rel_attr = f.name
+            value = getattr(self.object, rel_attr).count()
             if value == 0:
                 # Let's not show zeros
                 value = ''
