@@ -1158,7 +1158,7 @@ class OverViewSamplesView(SingleTableView):
         return ctx
 
 
-class SampleListView(ExportMixin, SingleTableView):
+class SampleListView(MapMixin, ExportMixin, SingleTableView):
     """ List of samples belonging to a given dataset  """
     model = get_sample_model()
     template_name = 'glamr/sample_list.html'
