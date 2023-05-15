@@ -32,13 +32,12 @@
 </div>
 {% endif %}{# result_stats #}
 
-<div class="m-2">
-    {% include "glamr/map.html"%}
-</div>
 
 {% if search_radius == 'dataset' %}
+    <div class="m-2">{% include "glamr/map.html"%}</div>
     {% include "glamr/result_list_dataset.html" %}
 {% elif search_radius == 'sample' %}
+    <div class="m-2">{% include "glamr/map.html"%}</div>
     {% include "glamr/result_list_sample.html" %}
 {% else %}
     {% include "glamr/result_list_generic.html" %}
