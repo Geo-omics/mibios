@@ -1,4 +1,5 @@
 {% extends "glamr/base.html" %}
+{% load django_tables2 %}
 {% load static %}
 {% load glamr_extras %}
 {% block content %}
@@ -16,7 +17,7 @@
     {% include "glamr/map.html"%}
 </div>
 
-<h3>Search results ({{ object_list | length }}) for {{ view.model|meta:"verbose_name_plural" }} with filter:</h3>
+<h3>Showing {{object_list|length}} {%if object_list|length == 1%}{{view.model|meta:"verbose_name"}}{%else%}{{view.model|meta:"verbose_name_plural"}}{%endif%} with:</h3>
 <ul>
 {% for k, v in filter_items %}
 <li>{{k}}: {{v}}</li>
@@ -24,13 +25,7 @@
 </ul>
 [<a href="?export">download</a>]
 
-{% if filter_model == 'dataset' %}
-    {% include "glamr/filter_list_dataset.html" %}
-{% elif filter_model == 'sample' %}
-    {% include "glamr/filter_list_sample.html" %}
-{% else %}
-    {% include "glamr/filter_list_generic.html" %}
-{% endif %}
+{% render_table table %}
 
 {% else %}{# object_list #}
 <h3>No results</h3>

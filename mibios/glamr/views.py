@@ -275,12 +275,25 @@ class ModelTableMixin(ExportMixin):
     """
     Mixin for SingleTableView
 
+    To view a table with model-specific customization if available or fall-back
+    to generic table.
+
     Improves columns for relation fields.  The inheriting view must set
     self.model
     """
     model = None  # model needs to be set by inheriting class
-    table_class = None  # triggers the model-based table class creation
     exclude = ['id']  # do not display these fields
+
+    table_class = None
+    """ The table class can be set by an implementing class, if it remains
+    None, then the class will be picked from the TABLE_CLASSES dictionary or as
+    a last resort the factory will create a class based on the model.
+    """
+
+    TABLE_CLASSES = {
+        Dataset: tables.DatasetTable,
+        Sample: tables.SampleTable,
+    }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -299,14 +312,23 @@ class ModelTableMixin(ExportMixin):
 
         # Some model have dedicated tables, everything else gets a table from
         # the factory at SingleTableMixin
-        match self.model._meta.model_name:
-            case 'dataset':
-                return tables.DatasetTable
-            case 'sample':
-                return tables.SampleTable
-            case _:
-                self._add_extra_columns = True
-                return super().get_table_class()
+        try:
+            return self.TABLE_CLASSES[self.model]
+        except KeyError:
+            self._add_extra_columns = True
+            return super().get_table_class()
+
+    def customize_queryset(self, qs):
+        """
+        Run model-specific methods on the queryset
+
+        Anything non-generic that a custom table needs should go in here.
+        Otherwise model-agnostic views, that implement this mixin, should call
+        this method in get_queryset().
+        """
+        if self.model is Dataset:
+            qs = qs.annotate(sample_count=Count('sample', distinct=True))
+        return qs
 
     def _get_improved_columns(self):
         """ make replacements to linkify FK + accession columns """
@@ -352,10 +374,13 @@ class MapMixin():
     def get_sample_queryset(self):
         """
         Return a Sample queryset of the samples to be displayed on the map.
-
-        This must be implemented by inheriting classes
         """
-        raise NotImplementedError('Inheriting view must implement this method')
+        if self.model is Sample:
+            return self.get_queryset()
+        elif self.model is Dataset:
+            return Sample.objects.filter(dataset__in=self.get_queryset())
+        else:
+            return Sample.objects.none()
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
@@ -1016,10 +1041,6 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
 
         return ctx
 
-    def get_sample_queryset(self):
-        qs = Sample.objects.filter(dataset__in=self.get_queryset())
-        return qs
-
 
 class ReferenceView(RecordView):
     model = models.Reference
@@ -1245,11 +1266,7 @@ class TableView(BaseFilterMixin, ModelTableMixin, SingleTableView):
     def get_queryset(self):
         self.conf.q = [self.q]
         qs = self.conf.get_queryset()
-
-        if self.model == models.Dataset:
-            qs = qs.annotate(sample_count=Count('sample')).order_by("-sample_count")  # noqa:E501
-
-        return qs
+        return self.customize_queryset(qs)
 
     def setup(self, request, *args, **kwargs):
         super().setup(request, *args, **kwargs)
@@ -1390,34 +1407,19 @@ class FilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
         return
 
     def get_queryset(self):
+        # By the usual calling order set_filter() is already run by
+        # get_context_data(), but just to cover the inordinary, call it here
+        # again:
         self.set_filter()
-        return self.conf.get_queryset()
-
-    def get_sample_queryset(self):
-        if self.model is Sample:
-            return self.get_queryset()
-        if self.model is Dataset:
-            return Sample.objects.filter(dataset__in=self.get_queryset())
-        else:
-            # TODO
-            return Sample.objects.none()
+        return self.customize_queryset(self.conf.get_queryset())
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         self.set_filter()
-
         ctx['filter_items'] = [
             (k.replace('__', ' -> '), v)
             for k, v in self.conf.filter.items()
-        ]
-
-        if self.model is Sample:
-            ctx['filter_model'] = "sample"
-        elif self.model is Dataset:
-            ctx['filter_model'] = "dataset"
-        else:
-            ctx['filter_model'] = "generic"
-
+        ] + [('', i) for i in self.conf.q]
         return ctx
 
 
