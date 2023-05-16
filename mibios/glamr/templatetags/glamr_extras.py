@@ -77,6 +77,8 @@ def capfirstsmart(value):
     "pH average" -> "pH average"
     "average pH" -> "Average pH"
     """
+    if value == '':
+        return value
     return capfirst(value) if value.split(maxsplit=1)[0].islower() else value
 
 
