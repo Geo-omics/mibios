@@ -425,7 +425,7 @@ class UniqueWordManager(Loader):
                 # cf. PostgreSQL documentation F.35.5.
                 f"INSERT INTO {table} (word) "
                 f"SELECT word FROM "
-                f"ts_stat('SELECT to_tsvector(''simple'', text) FROM "
+                f"ts_stat('SELECT to_tsvector(''simple'', regexp_replace(text, ''[-~\\./\\+0-9]+'', '' '', 1, 0)) FROM "  # noqa: E501
                 f"{searchable_table}')"
             )
 
