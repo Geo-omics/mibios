@@ -57,4 +57,5 @@ RUN ln -s /glamr-django-secret-key/django-secret-key secret.key
 RUN manage_mibios collectstatic --no-input
 
 EXPOSE 3032/tcp
+HEALTHCHECK CMD echo | curl --silent telnet://127.0.0.1:9191 | grep -q accepting
 CMD sh -c "exec $APP_BASE_DIR/start-webapp"
