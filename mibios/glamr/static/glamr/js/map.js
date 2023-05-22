@@ -9,9 +9,13 @@ const map = L.map("map", {
 	scrollWheelZoom: false 
 });
 L.control.scale().addTo(map);
+
+// load data and variables passed to the script
 const map_points = JSON.parse(
   document.currentScript.nextElementSibling.textContent
 );
+const data = document.currentScript.dataset;
+const fit_map_to_points = data.fit_map_to_points;
 
 // leaflet legend help from https://gis.stackexchange.com/questions/133630/adding-leaflet-legend
 var legend = L.control({position: 'bottomright'});
@@ -60,3 +64,9 @@ for (var i in map_points) {
 }
 
 var group = L.featureGroup(markers).addTo(map);
+
+// set map zoom/bounds using the points we added instead of the default
+// showing the Great Lakes, intended for the frontpage
+if(fit_map_to_points){
+        map.fitBounds(group.getBounds());
+}
