@@ -385,6 +385,7 @@ class MapMixin():
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['map_points'] = self.get_map_points()
+        ctx['fit_map_to_points'] = True
         return ctx
 
     def get_map_points(self):
@@ -989,6 +990,8 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
         ctx['dataset_totalcount'] = Dataset.objects.count()
         ctx['filtered_dataset_totalcount'] = self.filter.qs.distinct().count()
         ctx['sample_totalcount'] = Sample.objects.count()
+
+        ctx['fit_map_to_points'] = False  # showing the Great Lakes
 
         # Compile data for dataset summary: A list of the rows of the table,
         # for each cell it's a tuple of URL query string and value (text or

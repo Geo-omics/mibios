@@ -9,11 +9,11 @@
   </ol>
 </nav>
 
-{% block map%}{%if map_points%}{%include 'glamr/map.html'%}{%endif%}{%endblock%}
-
 {% block detail_header %}
 <h3>{{ object_model_verbose_name|capfirstsmart }}: {{ object }}</h3>
 {% endblock %}
+
+{% block map%}{%if map_points%}{%include 'glamr/map.html'%}{%endif%}{%endblock%}
 
 <div class="card mb-2 mt-2">
         <div style="display: flex; flex-direction: row" class="card-header">
