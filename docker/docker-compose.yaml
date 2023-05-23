@@ -17,7 +17,7 @@ services:
     restart: always
     volumes:
       # manage collectstatic writes here
-      - static:/glamr/static:rw
+      - static:/glamr-webapp/static:rw
   database:
     image: glamr.database
     restart: always
