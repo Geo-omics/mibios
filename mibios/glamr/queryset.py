@@ -4,7 +4,8 @@ from operator import attrgetter
 
 from django.contrib.postgres.search import SearchQuery, TrigramDistance
 from django.db import connections
-from django.db.models import Count
+from django.db.models import Count, Window
+from django.db.models.functions import FirstValue, Length
 
 import pandas
 
@@ -177,11 +178,121 @@ class SearchableQuerySet(QuerySet):
 
 
 class UniqueWordQuerySet(QuerySet):
-    def suggest(self, query, limit=20):
-        qs = self \
-            .annotate(dist=TrigramDistance('word', query)) \
-            .order_by('dist')
+    def suggest_word(self, word, always=False, check_length=1, limit=20):
+        """
+        Suggest spelling for a single word
+
+        Returns a QuerySet.
+
+        If the given word is correctly spelled it is returned alone, without
+        further suggestions, unless the always=True option is used.
+        """
+        qs = self.suggest_word_always(
+            word,
+            check_length=check_length,
+            limit=limit,
+        )
+        if always:
+            return qs
+
+        # If we have an exact match, then return only that, not anything else.
+        # This is almost super clever, it needs raw('...WHERE...') because (I
+        # think) the window expression annotation may not appear in a
+        # subsequent filter.  Otherwise we would just add
+        # filter(least_dist__gt=0.0) (some Django limitation.)
+        qs = qs.annotate(least_dist=Window(expression=FirstValue('dist')))
+        qs_sql, params = qs.query.sql_with_params()
+        qs = self.model.objects.raw(
+            f'SELECT * FROM ({qs_sql}) _ WHERE dist = 0.0 OR least_dist > 0.0',
+            params,
+        )
+        return qs
+
+    def suggest_word_always(self, word, check_length=1, limit=20):
+        """
+        Suggest spelling for a single word
+
+        This method always returns variations, even if word is a perfect match.
+        """
+        qs = self.annotate(dist=TrigramDistance('word', word))
+
+        if isinstance(check_length, int):
+            if check_length >= 0:
+                qs = qs.annotate(length=Length('word')) \
+                    .filter(
+                        length__lte=len(word) + check_length,
+                        length__gte=len(word) - check_length,
+                    )
+        elif check_length:
+            raise ValueError('expect an int or evaluate to False')
+
+        qs = qs.order_by('dist')
+
         if limit:
             return qs[:limit]
         else:
             return qs
+
+    def suggest_phrase(self, txt, check_length=1, limit=20):
+        """
+        Suggest spelling for a phrase
+
+        Returns a dict mapping words to list of closest matches.
+        """
+        # TODO: s/split/???/
+        if isinstance(txt, str):
+            txt = txt.split()
+        suggestions = {word: [] for word in txt}
+        for word in txt:
+            matches = list(self.suggest_word(
+                word,
+                always=False,
+                check_length=check_length,
+                limit=limit,
+            ))
+            if not matches:
+                return []
+            if matches[0].word == word:
+                # spelled correctly
+                pass
+            else:
+                suggestions[word] = [(i.dist, i.word) for i in matches]
+
+        return suggestions
+
+    def suggest(self, txt, check_length=1, limit=20):
+        """
+        Get spelling suggestions
+
+        This is the main entry-point for the whole spelling suggestion feature,
+        usually called on the unfiltered table, as in
+        UniqueWord.objects.all().suggest(...).
+        """
+        if isinstance(txt, str):
+            txt = txt.split()
+        suggestions = self.suggest_phrase(
+            txt,
+            check_length=check_length,
+            limit=limit,
+        )
+        unique_dists = sorted(set((
+            i
+            for _, lst in suggestions.items()
+            for i, _ in lst
+        )))
+        if not unique_dists:
+            # all spelled correctly
+            return suggestions
+
+        # limit to most-similar matches
+        limited = [(i, []) for i, _ in suggestions.items()]
+        total = 0
+        while total < limit:
+            if unique_dists:
+                cur = unique_dists.pop(0)
+            for (_, lim_lst), (_, full_lst) in zip(limited, suggestions.items()):  # noqa:E501
+                if full_lst and full_lst[0][0] <= cur:
+                    lim_lst.append(full_lst.pop(0)[1])
+                    total += 1
+
+        return dict(limited)

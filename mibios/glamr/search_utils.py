@@ -109,10 +109,16 @@ def update_spellfix(spellfix_ext_path=None):
 
 
 def get_suggestions(query):
-    """ get top 20 spelling suggestions """
+    """
+    Get spelling suggestions
+
+    Returns a dict mapping each word of the query to a list of suggestions.  An
+    empty such list indicates the word is spelled correctly.
+    """
     match get_connection().vendor:
         case 'sqlite':
-            return get_suggestions_sqlite(query)
+            # single word spell-checking only
+            return {query: get_suggestions_sqlite(query)}
         case 'postgresql':
             return UniqueWord.objects.all().suggest(query)
         case _:

@@ -535,27 +535,69 @@ class SearchMixin(SearchFormMixin):
 
         Depending on the search's success, this methods sets the view's
         search_result and suggestions attributes.
+
+        Returns a Searchable queryset.  Sets self.suggestions as a side-effect.
         """
         self.process_search_form()
         if not self.query:
             return
-        self.search_result = models.Searchable.objects.search(
+
+        # first search
+        search_result = models.Searchable.objects.search(
             query=self.query,
             models=[self.model._meta.model_name] if self.model else [],
             abundance=self.check_abundance,
         )
-        if not self.search_result:
-            self.suggestions = get_suggestions(self.query)
-            if not self.suggestions:
-                messages.add_message(
-                    self.request, messages.INFO,
-                    'search: did not find anything'
+
+        if search_result:
+            query_words = {i: True for i in self.query.split()}
+        else:
+            # get and process spelling suggestions
+            suggs = get_suggestions(self.query)
+            orig_phrase = suggs.keys()
+            suggestions = {}
+            query_words = {}
+            urlpath = reverse('search_result', kwargs=self.kwargs)
+            for idx, (word, match_list) in enumerate(suggs.items()):
+                if match_list:
+                    # word is misspelled
+                    query_words[word] = False
+                    suggestions[word] = []
+                    for i in match_list:
+                        alt_query = list(orig_phrase)
+                        alt_query[idx] = i
+                        alt_query = '+'.join(alt_query)
+                        url = f'{urlpath}?query={alt_query}'
+                        suggestions[word].append((i, url))
+                else:
+                    # word is good
+                    query_words[word] = True
+                    continue
+            self.suggestions = suggestions
+
+            if any(query_words.values()):
+                # re-do search with correctly spelled portion of query
+                new_query = [i for i, good in query_words.items() if good]
+                search_result = models.Searchable.objects.search(
+                    query=' '.join(new_query),
+                    models=[self.model._meta.model_name] if self.model else [],
+                    abundance=self.check_abundance,
                 )
+
+        if not search_result and not self.suggestions:
+            messages.add_message(
+                self.request, messages.INFO,
+                'search: did not find anything'
+            )
+
+        self.query_words = query_words
+        return search_result
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         # add context to display search results:
         ctx['query'] = self.query
+        ctx['query_words'] = self.query_words
         ctx['verbose_field_name'] = self.verbose_field_name
         if self.search_result and self.model is None:
             # issue results statistics unless a single model was searched
@@ -1338,20 +1380,21 @@ class ToManyFullListView(ModelTableMixin, ToManyListView):
         self.exclude.append(self.field.remote_field.name)
 
 
-class ResultListView(SearchMixin, MapMixin, ListView):
-    template_name = 'glamr/result_list.html'
-
+class SearchResultMixin(MapMixin):
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['suggestions'] = self.suggestions
         return ctx
 
-    def result_to_list(self, result):
+    def search_result_as_list(self):
         """
         Helper to turn SearchMixin.search_result into a ListView.object_list
         """
+        if not self.search_result:
+            return []
+
         res = []
-        for model, items_per_field in result.items():
+        for model, items_per_field in self.search_result.items():
             model_name = model._meta.model_name
             items = {
                 pk: (field, text)
@@ -1370,14 +1413,10 @@ class ResultListView(SearchMixin, MapMixin, ListView):
         return res
 
     def get_queryset(self):
-        self.search()
-        if self.search_result:
-            return self.result_to_list(self.search_result)
-        else:
-            return []
+        self.search_result = self.search()
+        return self.search_result_as_list()
 
     def get_sample_queryset(self):
-
         sample_pks = set()
         for _, result_items in self.search_result.get(Sample, {}).items():
             for _, pk in result_items:
@@ -1389,6 +1428,10 @@ class ResultListView(SearchMixin, MapMixin, ListView):
                 .values_list('pk', flat=True)
             )
         return Sample.objects.filter(pk__in=sample_pks)
+
+
+class SearchResultListView(SearchResultMixin, SearchMixin, ListView):
+    template_name = 'glamr/result_list.html'
 
 
 class FilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,

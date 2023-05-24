@@ -12,14 +12,36 @@
 {% include "glamr/search_form_simple.html" %}
 <br/>
 
-{% if object_list %}
+{% if suggestions %}
+    <p>Tried searching for "{{query}}"
+    <ul>
+    {% for bad, alternatives in suggestions.items %}
+        <li><del>{{bad}}</del>? Did you mean:
+            {% for good, alturl in alternatives %}<a href="{{alturl}}">{{good}}</a> {%endfor%}?
+        </li>
+    {% endfor %}
+    </ul></p>
+{% endif %}{# suggestions #}
+
 <h3>
-    {% if search_model %}
-    Searching {{search_model|meta:"verbose_name_plural"}}
+    {% if object_list %}
+        {% if search_model %}
+        Searching {{search_model|meta:"verbose_name_plural"}}
+        {% else %}
+        Global search
+        {% endif %}
+        for <small>"
+        {% for word, good in query_words.items %}
+            {%if not good%}<del>{%endif%}
+            {{ word }}
+            {%if not good%}</del>{%endif%}
+        {%endfor%}
+        "</small> returned {{ object_list | length }} records:
+
     {% else %}
-    Global search
+        No results for <small>"{{ query_words.keys|join:" " }}"</small>
+        {% if search_model %}among {{search_model|meta:"verbose_name_plural"}}{% endif %}
     {% endif %}
-    for <small>"{{ query }}"</small> returned {{ object_list | length }} records:
 </h3>
 
 {% if result_stats %}
@@ -32,30 +54,17 @@
 </div>
 {% endif %}{# result_stats #}
 
-
-{% if search_radius == 'dataset' %}
-    <div class="m-2">{% include "glamr/map.html"%}</div>
-    {% include "glamr/result_list_dataset.html" %}
-{% elif search_radius == 'sample' %}
-    <div class="m-2">{% include "glamr/map.html"%}</div>
-    {% include "glamr/result_list_sample.html" %}
-{% else %}
-    {% include "glamr/result_list_generic.html" %}
+{% if object_list %}
+    {% if search_radius == 'dataset' %}
+        <div class="m-2">{% include "glamr/map.html"%}</div>
+        {% include "glamr/result_list_dataset.html" %}
+    {% elif search_radius == 'sample' %}
+        <div class="m-2">{% include "glamr/map.html"%}</div>
+        {% include "glamr/result_list_sample.html" %}
+    {% else %}
+        {% include "glamr/result_list_generic.html" %}
+    {% endif %}
 {% endif %}
-
-{% else %}{# object_list #}
-<h3>No results for <small>"{{ query }}"</small>
-    {% if search_model %}among {{search_model|meta:"verbose_name_plural"}}{% endif %}
-</h3>
-{% if suggestions %}
-<h4>Maybe you meant:</h4>
-<ul>
-{% for item in suggestions %}
-<li><a href="{% url 'search_result' model=search_radius %}?query={{item}}">{{item}}</a></li>
-{% endfor %}
-</ul>
-{% endif %}{# suggestions #}
-{% endif %}{# object_list #}
 
 {% endblock %}{# content #}
 
