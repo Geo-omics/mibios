@@ -34,6 +34,7 @@ from .forms import QBuilderForm, QLeafEditForm, SearchForm
 from .search_fields import ADVANCED_SEARCH_MODELS, SEARCH_FIELDS
 from .search_utils import get_suggestions
 from .url_utils import fast_reverse
+from .utils import split_query
 
 
 log = getLogger(__name__)
@@ -512,6 +513,7 @@ class SearchMixin(SearchFormMixin):
         self.check_abundance = False
         self.search_result = {}
         self.suggestions = []
+        self.last_resort = False
 
     def process_search_form(self):
         """
@@ -550,18 +552,18 @@ class SearchMixin(SearchFormMixin):
         )
 
         if search_result:
-            query_words = {i: True for i in self.query.split()}
+            real_query = {i: True for i in self.query.split()}
         else:
             # get and process spelling suggestions
             suggs = get_suggestions(self.query)
             orig_phrase = suggs.keys()
             suggestions = {}
-            query_words = {}
+            real_query = {}
             urlpath = reverse('search_result', kwargs=self.kwargs)
             for idx, (word, match_list) in enumerate(suggs.items()):
                 if match_list:
                     # word is misspelled
-                    query_words[word] = False
+                    real_query[word] = False
                     suggestions[word] = []
                     for i in match_list:
                         alt_query = list(orig_phrase)
@@ -571,18 +573,47 @@ class SearchMixin(SearchFormMixin):
                         suggestions[word].append((i, url))
                 else:
                     # word is good
-                    query_words[word] = True
+                    real_query[word] = True
                     continue
             self.suggestions = suggestions
 
-            if any(query_words.values()):
+            if any(real_query.values()):
                 # re-do search with correctly spelled portion of query
-                new_query = [i for i, good in query_words.items() if good]
+                new_query = [i for i, good in real_query.items() if good]
+                # but only if there are non-negated words left
+                if any((i for i in new_query if not i.startswith('-'))):
+                    search_result = models.Searchable.objects.search(
+                        query=' '.join(new_query),
+                        models=[self.model._meta.model_name] if self.model else [],  # noqa:E501
+                        abundance=self.check_abundance,
+                    )
+
+        if not search_result:
+            # check if there is an explicit AND in the query
+            splitq = split_query(self.query, keep_quotes=True)
+            query = []
+            for n, word in enumerate(splitq):
+                if 0 < n < len(splitq) - 1 and word.casefold() == 'and':
+                    # AND occurs in middle of phrase
+                    logical = True
+                    break
+                if word.startswith('-'):
+                    logical = True
+                    break
+                query.append(word)
+            else:
+                logical = False
+
+            if len(query) > 1 and not logical:
+                # Go for last resort!
+                real_query = {i: True for i in query}
+                query = ' OR '.join(query)
                 search_result = models.Searchable.objects.search(
-                    query=' '.join(new_query),
+                    query=query,
                     models=[self.model._meta.model_name] if self.model else [],
                     abundance=self.check_abundance,
                 )
+                self.last_resort = True
 
         if not search_result and not self.suggestions:
             messages.add_message(
@@ -590,14 +621,15 @@ class SearchMixin(SearchFormMixin):
                 'search: did not find anything'
             )
 
-        self.query_words = query_words
+        self.real_query = real_query
         return search_result
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         # add context to display search results:
         ctx['query'] = self.query
-        ctx['query_words'] = self.query_words
+        ctx['real_query'] = self.real_query
+        ctx['last_resort'] = self.last_resort
         ctx['verbose_field_name'] = self.verbose_field_name
         if self.search_result and self.model is None:
             # issue results statistics unless a single model was searched

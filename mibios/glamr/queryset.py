@@ -9,8 +9,9 @@ from django.db.models.functions import FirstValue, Length
 
 import pandas
 
-from . import GREAT_LAKES
 from mibios.umrad.manager import QuerySet
+from . import GREAT_LAKES
+from .utils import split_query
 
 
 class DatasetQuerySet(QuerySet):
@@ -128,6 +129,7 @@ class SearchableQuerySet(QuerySet):
         models=[],
         fields=[],
         lookup=None,
+        search_type='websearch',
     ):
         """
         Full-text search
@@ -152,7 +154,7 @@ class SearchableQuerySet(QuerySet):
 
         # use postgres full-text search if possible
         if connections[self.db].vendor == 'postgresql' and lookup is None:
-            f['searchvector'] = SearchQuery(query, search_type='websearch')
+            f['searchvector'] = SearchQuery(query, search_type=search_type)
         else:
             # sqlite etc. or specific lookup requested
             if lookup is None:
@@ -239,11 +241,17 @@ class UniqueWordQuerySet(QuerySet):
 
         Returns a dict mapping words to list of closest matches.
         """
-        # TODO: s/split/???/
         if isinstance(txt, str):
-            txt = txt.split()
+            auto_mode = True
+            txt = split_query(txt, keep_quotes=True)
+        else:
+            auto_mode = False
+
         suggestions = {word: [] for word in txt}
         for word in txt:
+            if auto_mode and word.startswith(('-', "'", '"')):
+                # auto mode: don't check quoted text or negated words
+                continue
             matches = list(self.suggest_word(
                 word,
                 always=False,
@@ -252,7 +260,7 @@ class UniqueWordQuerySet(QuerySet):
             ))
             if not matches:
                 return []
-            if matches[0].word == word:
+            if matches[0].dist == 0.0:
                 # spelled correctly
                 pass
             else:
@@ -268,8 +276,6 @@ class UniqueWordQuerySet(QuerySet):
         usually called on the unfiltered table, as in
         UniqueWord.objects.all().suggest(...).
         """
-        if isinstance(txt, str):
-            txt = txt.split()
         suggestions = self.suggest_phrase(
             txt,
             check_length=check_length,
