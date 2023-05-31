@@ -501,11 +501,6 @@ class ContigLoader(ContigLikeLoader):
         return sample.get_metagenome_path() / 'assembly' \
             / f'{sample.sample_id}_READSvsCONTIGS.rpkm'
 
-    def trim_id(self, value, obj):
-        """ Pre-processor to trim tracking id off, e.g. deadbeef_123 => 123 """
-        _, _, value = value.partition('_')
-        return value.upper()
-
     def calc_rpkm(self, value, obj):
         """ calculate rpkm based on total post-QC read-pairs """
         return (1_000_000_000 * int(obj.reads_mapped)
@@ -517,7 +512,7 @@ class ContigLoader(ContigLikeLoader):
                 / int(obj.length) / self.sample.read_count)
 
     rpkm_spec = BBMap_RPKM_Spec(
-        ('#Name', 'contig_id', trim_id),
+        ('#Name', 'contig_id'),
         ('Length', 'length'),
         ('Bases', 'bases'),
         ('Coverage', 'coverage'),
@@ -648,8 +643,9 @@ class GeneLoader(ContigLikeLoader):
         """
         Pre-processor to get just the gene id from prodigal fasta header
         """
-        # deadbeef_123_1 # bla bla bla => 123_1
-        return value.split(maxsplit=1)[0].partition('_')[2]
+        # deadbeef_123_1 # bla bla bla => deadbeef_123_1
+        value, _, _ = value.partition(' ')
+        return value
 
     def calc_rpkm(self, value, obj):
         """ calculate rpkm based on total post-QC read-pairs """
