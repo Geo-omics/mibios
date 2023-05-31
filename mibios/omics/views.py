@@ -1,7 +1,10 @@
 from django.http import Http404, HttpResponse
 
+from django_tables2 import SingleTableView
+
 from . import get_sample_model
 from .models import TaxonAbundance
+from .tables import SampleStatusTable
 
 
 def krona(request, sample_pk, stats_field):
@@ -38,3 +41,10 @@ def krona(request, sample_pk, stats_field):
         raise Http404('no abundance data for sample or error with krona')
 
     return HttpResponse(html)
+
+
+class SampleStatusView(SingleTableView):
+    template_name = 'omics/sample_status.html'
+    table_class = SampleStatusTable
+    model = get_sample_model()
+    table_pagination = False

@@ -14,6 +14,7 @@ from django.urls import include, path
 from django.views import defaults
 
 from mibios import urls as mibios_urls
+from mibios.omics import urls as omics_urls
 from mibios.omics.views import krona
 from . import views
 
@@ -41,6 +42,7 @@ urlpatterns = [
 
 if settings.INTERNAL_DEPLOYMENT:
     urlpatterns.append(path('tables/', include(mibios_urls)))
+    urlpatterns.append(path('omics/', include(omics_urls)))
     urlpatterns.append(path('server-error/', views.test_server_error))
 
 
