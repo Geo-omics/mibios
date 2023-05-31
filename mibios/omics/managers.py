@@ -794,8 +794,9 @@ class SampleManager(Manager):
                         f'{index} is {head[index]} but {column} is expected'
                     )
 
-            seen = []
+            good_seen = []
             samp_id_seen = set()
+            changed = 0
             unchanged = 0
             notfound = 0
             nosuccess = 0
@@ -838,16 +839,16 @@ class SampleManager(Manager):
                         raise RuntimeError('{sample_id}: bad sample type')
 
                     updateable = ['analysis_dir']
-                    changed = []
+                    change_set = []
                     for attr in updateable:
                         val = locals()[attr]
                         if getattr(obj, attr) != val:
                             setattr(obj, attr, val)
-                            changed.append(attr)
-                    if changed:
+                            change_set.append(attr)
+                    if change_set:
                         need_save = True
-                        save_info = (f'update: {obj} changed: '
-                                     f'{", ".join(changed)}')
+                        save_info = (f'update: {obj} change_set: '
+                                     f'{", ".join(change_set)}')
                     else:
                         unchanged += 1
 
@@ -856,9 +857,12 @@ class SampleManager(Manager):
                     obj.full_clean()
                     obj.save()
                     log.info(save_info)
+                    changed += 1
 
-                seen.append(obj.pk)
+                good_seen.append(obj.pk)
 
+        log.info(f'Summary:\n  samples listed: {len(samp_id_seen)}\n  '
+                 f'samples updated: {changed}')
         if notfound:
             log.warning(
                 f'Samples missing from database (or hidden): {notfound}'
@@ -871,10 +875,16 @@ class SampleManager(Manager):
             log.info(f'Data for {unchanged} samples are already in the DB and '
                      f'remain unchanged')
 
-        not_in_src = self.exclude(pk__in=seen)
-        if not_in_src.exists():
-            log.warning(f'Have {not_in_src.count()} extra samples in DB not '
-                        f'found in {source_file}')
+        missing_or_bad = self.exclude(pk__in=good_seen)
+        if missing_or_bad.exists():
+            log.warning(f'The DB has {missing_or_bad.count()} samples for '
+                        f'which are missing from {source_file} or which had '
+                        f'to be skipped')
+
+        missing = self.exclude(sample_id__in=samp_id_seen)
+        if missing.exists():
+            log.warning(f'The DB has {missing.count()} samples not at all '
+                        f'listed in {source_file}')
 
     def status(self):
         if not self.exists():
