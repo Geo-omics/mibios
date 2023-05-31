@@ -490,7 +490,7 @@ class ContigLikeLoader(SequenceLikeLoader):
 class ContigLoader(ContigLikeLoader):
     """ Manager for the Contig model """
     fasta_load_flag = 'contig_fasta_loaded'
-    abundance_load_flag = 'contigs_abundance_loaded'
+    abundance_load_flag = 'contig_abundance_loaded'
     reads_mapped_sample_attr = 'reads_mapped_contigs'
 
     def get_fasta_path(self, sample):
@@ -631,7 +631,7 @@ class FuncAbundanceLoader(BulkLoader, SampleLoadMixin):
 class GeneLoader(ContigLikeLoader):
     """ Manager for the Gene model """
     fasta_load_flag = 'gene_fasta_loaded'
-    abundance_load_flag = 'contigs_abundance_loaded'
+    abundance_load_flag = 'gene_abundance_loaded'
     reads_mapped_sample_attr = 'reads_mapped_genes'
 
     def get_fasta_path(self, sample):
