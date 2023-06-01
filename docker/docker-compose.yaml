@@ -18,6 +18,9 @@ services:
     volumes:
       # manage collectstatic writes here
       - static:/glamr-webapp/static:rw
+    # environment:
+      # DJANGO_DEBUG: "true"
+      # DJANGO_ENABLE_TEST_URLS: "true"
   database:
     image: glamr.database
     restart: always

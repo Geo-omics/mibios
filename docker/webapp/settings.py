@@ -1,7 +1,8 @@
 """
 Django settings specific for glarm test site on alpena
 """
-from pathlib import Path
+import os
+
 from mibios.glamr.settings import *
 
 
@@ -69,3 +70,9 @@ STATICFILES_DIRS = ['static_var']
 FORCE_SCRIPT_NAME = '/glamr'
 
 LOGGING['loggers']['django.template'] = {'handlers': ['null'], 'propagate': False, }
+
+# env override
+if os.environ.get('DJANGO_ENABLE_TEST_URLS') == 'true':
+    ENABLE_TEST_URLS = True
+if os.environ.get('DJANGO_DEBUG') == 'true':
+    DEBUG = True
