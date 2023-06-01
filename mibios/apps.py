@@ -56,14 +56,15 @@ class MibiosConfig(apps.AppConfig):
 
         # register datasets
         for app_conf in registry.apps.values():
+            module_name = app_conf.name + '.dataset'
             try:
-                registry.add_dataset_module(
-                    app_conf.name + '.dataset',
-                    app_conf.label,
-                )
+                registry.add_dataset_module(module_name, app_conf.label)
             except ImportError as e:
-                log.debug(f'Failed registering datasets from: {app_conf} {e}')
-                pass
+                if e.args[0] == f"No module named '{module_name}'":
+                    pass
+                else:
+                    log.debug(f'Failed registering datasets for {app_conf}: '
+                              f'{e.__class__.__name__}: {e}')
 
         # register table view plugins
         for app_conf in registry.apps.values():
