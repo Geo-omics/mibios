@@ -14,7 +14,7 @@ from django.urls import reverse
 from django.utils.functional import classproperty
 from django.utils.html import format_html
 from django.views.generic import DetailView
-from django.views.generic.base import TemplateView
+from django.views.generic.base import TemplateView, View
 from django.views.generic.list import ListView
 
 from mibios import get_registry
@@ -1591,3 +1591,13 @@ def record_view(*args, **kwargs):
 
 def test_server_error(request):
     raise RuntimeError('you were asking for it')
+
+
+class MiniTestView(View):
+    def get(self, request, *args, **kwargs):
+        resp = HttpResponse('ok')
+        return resp
+
+
+class BaseTestView(TemplateView):
+    template_name = 'glamr/base.html'

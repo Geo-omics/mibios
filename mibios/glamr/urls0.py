@@ -43,7 +43,13 @@ urlpatterns = [
 if settings.INTERNAL_DEPLOYMENT:
     urlpatterns.append(path('tables/', include(mibios_urls)))
     urlpatterns.append(path('omics/', include(omics_urls)))
-    urlpatterns.append(path('server-error/', views.test_server_error))
+
+if settings.ENABLE_TEST_URLS:
+    urlpatterns += [
+        path('errortest/', views.test_server_error),
+        path('minitest/', views.MiniTestView.as_view()),
+        path('basetest/', views.BaseTestView.as_view()),
+    ]
 
 
 # The default template names are without path, so take up the global name space

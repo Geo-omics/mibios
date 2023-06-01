@@ -43,3 +43,6 @@ MESSAGE_TAGS = {
 # Set to True to expose extra, non-public functionality via the web-frontend,
 # leave it at False for public-facing deployments
 INTERNAL_DEPLOYMENT = False
+
+# Set to True to enable URLs for testing
+ENABLE_TEST_URLS = False
