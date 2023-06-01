@@ -1,5 +1,6 @@
 from collections import defaultdict
 from functools import partial
+from inspect import trace
 from itertools import islice
 from logging import getLogger
 from operator import attrgetter, length_hint
@@ -324,14 +325,37 @@ class BaseLoader(DjangoManager):
                 first_lineno=start + 2 if self.spec.has_header else 1,
                 **kwargs
             )
-        except Exception:
+        except Exception as e:
             # cleanup progress printing (if any)
             try:
                 get_last_timer().cancel()
                 print()
             except Exception:
                 pass
-            raise
+
+            if isinstance(e, InputFileError):
+                print(f'Error in input file: {e}')
+                fi = trace(context=2)[-1]  # get FrameInfo obj
+                print(f'Origin: {fi.filename}:{fi.function}():{fi.lineno}')
+                print('Code context:')
+                print(*fi.code_context, sep='')
+                print('Local variables:')
+                for k, v in reversed(fi.frame.f_locals.items()):
+                    # Let's be careful here, only print simple variables and
+                    # lengths for collections, anything else may ask for
+                    # trouble
+                    if isinstance(v, (int, float, type(None), bool)):
+                        print(f'  {k}: {v}')
+                    if isinstance(v, str):
+                        print(f'  {k}: "{v}"')
+                    elif hasattr(v, '__len__'):
+                        print(f'  {k}: {type(v)} of length {len(v)}')
+                    else:
+                        pass
+                fi.frame.clear()
+                return
+            else:
+                raise
 
         if diff_info:
             change_set, unchanged_count, new_count, missing_objs = diff_info
@@ -455,7 +479,7 @@ class BaseLoader(DjangoManager):
                     # the first field
                     if update:
                         # first field MUST identify the object, the value's
-                        # type must match the obj pool's keys
+                        # type must match that of the obj pool's keys
                         if value is None:
                             row_skip_count += 1
                             break  # skips line
@@ -464,7 +488,7 @@ class BaseLoader(DjangoManager):
                         if value in obj_pool:
                             obj = obj_pool[value]
                             if obj is None:
-                                raise RuntimeError(
+                                raise InputFileError(
                                     f'duplicate key value: {value} at line '
                                     f'{lineno}'
                                 )
