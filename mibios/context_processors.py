@@ -1,5 +1,5 @@
 from .utils import getLogger
-from .views import BaseMixin
+from .views import BasicBaseMixin
 
 
 log = getLogger(__name__)
@@ -27,7 +27,7 @@ def base(request):
         # the base context should be static, so only build it once, intended to
         # be failsafe because this is used for error views
         try:
-            _base_context = BaseMixin().get_context_data()
+            _base_context = BasicBaseMixin().get_context_data()
         except Exception as e:
             try:
                 log.warning(
