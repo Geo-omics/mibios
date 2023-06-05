@@ -238,6 +238,7 @@ class BaseLoader(DjangoManager):
         sep=None,
         skip_on_error=0,
         update=False,
+        strict_update=False,
         bulk=False,
         validate=False,
         diff=False,
@@ -387,9 +388,19 @@ class BaseLoader(DjangoManager):
         self.spec.setup(loader=self, **kwargs)
 
     @atomic_dry
-    def _load_rows(self, rows, sep='\t', template={},
-                   skip_on_error=0, validate=False, update=False,
-                   bulk=True, first_lineno=None, diff=False):
+    def _load_rows(
+        self,
+        rows,
+        sep='\t',
+        template={},
+        skip_on_error=0,
+        validate=False,
+        update=False,
+        strict_update=False,
+        bulk=True,
+        first_lineno=None,
+        diff=False,
+    ):
         """
         Do the data loading, called by load()
 
@@ -496,6 +507,12 @@ class BaseLoader(DjangoManager):
                             obj_is_new = False
                             # the value is already set, go to next field please
                             continue
+                        elif strict_update:
+                            raise InputFileError(
+                                f'strict update violation at line {lineno}: '
+                                f'record with ID value "{value}" does not '
+                                f'exist in DB'
+                            )
                         else:
                             obj = self.model(**template)
                             obj_is_new = True
