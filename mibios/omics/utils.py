@@ -1,3 +1,5 @@
+from operator import methodcaller
+
 from django.apps import apps as django_apps
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -152,3 +154,16 @@ class parse_fastq:
         except StopIteration:
             # got a header but further lines missing
             raise ValueError('file ends with incomplete record')
+
+
+def call_each(iterable, method_name, *args, **kwargs):
+    """
+    Call a method while iterating
+
+    The method will be called and then the object is yield.  There are no means
+    to retrieve the return values of the method calls.
+    """
+    callmeth = methodcaller(method_name, *args, **kwargs)
+    for obj in iterable:
+        callmeth(obj)
+        yield obj

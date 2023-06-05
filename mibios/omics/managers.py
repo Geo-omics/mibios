@@ -35,7 +35,7 @@ from mibios.umrad.manager import BulkLoader, Manager
 from mibios.umrad.utils import CSV_Spec, atomic_dry
 
 from . import get_sample_model
-from .utils import get_fasta_sequence
+from .utils import call_each, get_fasta_sequence
 
 
 log = getLogger(__name__)
@@ -311,7 +311,7 @@ class SequenceLikeLoader(SampleLoadMixin, BulkLoader):
 
         objs = self.from_sample_fasta(sample, start=start, limit=limit)
         if validate:
-            objs = ((i for i in objs if i.full_clean() or True))
+            objs = call_each(objs, 'full_clean')
 
         if bulk:
             self.bulk_create(objs)
