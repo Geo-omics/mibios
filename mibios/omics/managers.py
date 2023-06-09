@@ -26,6 +26,8 @@ import subprocess
 import tempfile
 
 from django.conf import settings
+from django.db.models import Prefetch
+from django.db.transaction import atomic
 from django.utils.module_loading import import_string
 
 from mibios.models import QuerySet
@@ -36,6 +38,8 @@ from mibios.umrad.utils import CSV_Spec, atomic_dry
 
 from . import get_sample_model
 from .utils import call_each, get_fasta_sequence
+
+from mibios.umrad.utils import ProgressPrinter as PP
 
 
 log = getLogger(__name__)
@@ -751,81 +755,114 @@ class GeneLoader(ContigLikeLoader):
         return dict(contig_id_map=dict(qs.iterator()))
 
     @atomic_dry
-    def assign_gene_lca(self, sample):
+    def assign_gene_lca(self, sample, done_ok=True, redo=False):
         """
-        assign / pre-compute taxa and LCAs to genes via uniref100 hits
+        assign / pre-compute taxa and LCAs to genes of a single sample
 
         This also populates Gene.lca / Gene.besthit fields
         """
+        if sample.tax_abund_ok:
+            if not done_ok:
+                raise RuntimeError(
+                    f'Gene LCAs already loaded {self.model}/{sample}'
+                )
+            if not redo:
+                return
+
         Alignment = import_string('mibios.omics.models.Alignment')
 
         print('Fetching uniref100/taxa...', end='', flush=True)
+        taxa_pref = Prefetch(
+            'taxa',
+            queryset=TaxNode.objects.only('id', 'parent_id'),
+            to_attr='taxa_all',
+        )
         qs = UniRef100.objects \
             .filter(gene_hit__sample=sample) \
-            .prefetch_related('taxa') \
+            .prefetch_related(taxa_pref) \
+            .only('pk') \
             .distinct()
-        u2t = {i.pk: i.taxa.all() for i in qs.iterator()}
-        print(f'{len(u2t)} [OK]')
+        u2t = {}
+        taxa_all_uniq = {}
+        for urobj in qs:
+            # De-duplicate related taxnode instances:  Many uniref100 records
+            # share taxa, but prefetch_related will populate the list of
+            # related object (here taxnodes) with dedicated instances for each
+            # primary object (here the uniref100 objects.)
+            for i in range(len(urobj.taxa_all)):
+                taxnode = urobj.taxa_all[i]
+                cached = taxa_all_uniq.get(taxnode.pk, None)
+                if cached is None:
+                    # keeper
+                    taxa_all_uniq[taxnode.pk] = taxnode
+                else:
+                    # replace instance
+                    urobj.taxa_all[i] = cached
+            u2t[urobj.pk] = urobj.taxa_all
+        print(f' unirefs:{len(u2t)} taxa:{len(taxa_all_uniq)} [OK]')
+        del qs, taxa_all_uniq, urobj, taxnode, cached
 
         hits = Alignment.objects.filter(gene__sample=sample)
         hits = hits.select_related('gene').order_by('gene')
+        hits = hits.only('score', 'ref_id', 'gene__id')
+
         lca_cache = {}
         genes = []
-
-        def gene_taxa_links():
-            """
-            generate pk pairs (gene, taxnode) to make Gene<->TaxNode m2m links
-
-            As a side-effect this also sets besthit and lca for each gene that
-            has a hit.
-            """
-            for gene, grp in groupby(hits.iterator(), key=lambda x: x.gene):
-                # get all taxa for all hits, some UR100 may not have taxa
-                taxa = {}
-                best = None
-                for align in grp:
-                    if best is None or align.score > best.score:
-                        best = align
-                    for taxnode in u2t.get(align.ref_id, []):
-                        if taxnode.pk in taxa:
-                            continue
-                        else:
-                            taxa[taxnode.pk] = taxnode
-                            yield (gene.pk, taxnode.pk)
-
-                gene.besthit_id = best.ref_id
-                if taxa:
-                    node_pks = frozenset(taxa.keys())
-                    try:
-                        lca = lca_cache[node_pks]
-                    except KeyError:
-                        node, *others = taxa.values()
-                        lca = node.get_lca_lineage(*others, full=True)
-                        lca_cache[node_pks] = lca
-                    if lca:
-                        gene.lca = lca[-1]
+        pk_pairs = []
+        pp = PP('genes processed (taxnodes, LCAs, besthit)')
+        for gene, grp in pp(groupby(hits, key=lambda x: x.gene)):
+            # get all taxa for all hits, some UR100 may not have taxa
+            taxa = {}
+            best = None
+            for align in grp:
+                if best is None or align.score > best.score:
+                    best = align
+                for taxnode in u2t.get(align.ref_id, []):
+                    if taxnode.pk in taxa:
+                        continue
                     else:
-                        # LCA is root
-                        gene.lca = None
+                        taxa[taxnode.pk] = taxnode
+                        pk_pairs.append((gene.pk, taxnode.pk))
+
+            gene.besthit_id = best.ref_id
+            if taxa:
+                node_pks = frozenset(taxa.keys())
+                try:
+                    lca = lca_cache[node_pks]
+                except KeyError:
+                    node, *others = taxa.values()
+                    lca = node.get_lca_lineage(*others, full=True)
+                    lca_cache[node_pks] = lca
+                if lca:
+                    gene.lca = lca[-1]
                 else:
-                    # some genes here have hits but no taxa, so no LCA (=root)
+                    # LCA is root
                     gene.lca = None
-                genes.append(gene)
+            else:
+                # some genes here have hits but no taxa, so no LCA (=root)
+                gene.lca = None
+            genes.append(gene)
+        del u2t, lca_cache, hits
 
         Through = self.model._meta.get_field('taxa').remote_field.through
         delcount, _ = Through.objects.filter(gene__sample=sample).delete()
         if delcount:
             print(f'Deleted {delcount} existing gene-taxnode links')
-        objs = (Through(gene_id=i, taxnode_id=j) for i, j in gene_taxa_links())
+
+        # Storing the gene<->taxnode m2m relation:
+        objs = (Through(gene_id=i, taxnode_id=j) for i, j in pk_pairs)
         self.bulk_create_wrapper(Through.objects.bulk_create)(objs)
-        if True:  # tricking flake8, undefined name in inner function above
-            del lca_cache, u2t
+        del pk_pairs
 
         # update lca field for all genes incl. the unknowns
         self.fast_bulk_update(genes, fields=['lca', 'besthit'])
-        print('Erasing lca for genes without any hits... ', end='', flush=True)
-        num_unknown = self.filter(hits=None).update(lca=None)
-        print(f'{num_unknown} [OK]')
+        no_lcas = self.filter(sample=sample, hits=None).exclude(lca=None)
+        if no_lcas.exists():
+            # If this was an update there might be old LCAs but no hits now.
+            print('Erasing lca field for genes without any hits (in case of '
+                  'changes) ... ', end='', flush=True)
+            num_unknown = no_lcas.update(lca=None)
+            print(f'{num_unknown} [OK]')
 
 
 class SampleManager(Manager):
