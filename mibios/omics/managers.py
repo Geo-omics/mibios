@@ -13,7 +13,7 @@ Assumes that UMRAD and sample meta-data is loaded
     Alignment.loader.load_sample(s)
     Gene.loader.assign_gene_lca(s)
     Contig.loader.assign_contig_lca(s)
-    TaxonAbundance.loader.load_sample(s)
+    TaxonAbundance.objects.populate_sample(s)
 """
 
 from itertools import groupby, islice
@@ -82,7 +82,13 @@ class SampleLoadMixin:
     """ sample is set by load_sample() for use in per-field helper methods """
 
     @atomic_dry
-    def load_sample(self, sample, **kwargs):
+    def load_sample(self, sample, done_ok=True, redo=False, use_template=True,
+                    **kwargs):
+        if use_template:
+            template = {'sample': sample}
+        else:
+            template = {}
+
         if 'flag' in kwargs:
             flag = kwargs.pop('flag')
             if flag is None:
@@ -91,14 +97,27 @@ class SampleLoadMixin:
         else:
             flag = self.load_flag_attr
 
-        if flag and not kwargs.get('update', False) and getattr(sample, flag):
-            raise RuntimeError(f'data already loaded: {flag} -> {sample}')
+        if flag:
+            update = kwargs.get('update', False)
+            done = getattr(sample, flag)
+            if done and done_ok and not redo:
+                # nothing to do
+                return
+
+            if done and not done_ok:
+                raise RuntimeError(f'already loaded: {flag}->{sample}')
+
+            if done and redo and not update:
+                # have to delete records for sample
+                print('Deleting... ', end='', flush=True)
+                dels = self.model.objects.filter(**template).delete()
+                print(dels, '[OK]')
 
         if 'file' not in kwargs:
             kwargs.update(file=self.get_file(sample))
 
         self.sample = sample
-        self.load(template={'sample': sample}, **kwargs)
+        self.load(template=template, **kwargs)
         # ensure subsequent calls of manager methods never get wrong sample:
         self.sample = None
 
@@ -212,11 +231,28 @@ class AlignmentLoader(BulkLoader, SampleLoadMixin):
         ('score',),
     )
 
-    def load_sample(self, sample, file=None, **kwargs):
+    @atomic_dry
+    def load_sample(self, sample, done_ok=True, redo=False, **kwargs):
+        # The Alignment has no sample field, so some things a special here:
+        # 1. need special deletion for redo (so have to do all the checks here)
+        # 2. don't use the template
+        done = getattr(self, 'load_flag_attr')
+        if done and done_ok and not redo:
+            # nothing to do
+            return
+
+        if done and not done_ok:
+            raise RuntimeError(f'Alignments already loaded: {sample}')
+
+        if done and redo and not kwargs.get('update', False):
+            print('Deleting... ', end='', flush=True)
+            dels = self.model.objects.filter(gene__sample=sample).delete()
+            print(dels, '[OK]')
+
         self.gene_id_map = dict(sample.gene_set.values_list('gene_id', 'pk'))
-        if file is None:
-            file = self.get_file(sample)
-        super().load(file=file, **kwargs)
+        # Our model has no sample field, so don't use the normal template
+        super().load_sample(sample, use_template=False, done_ok=done_ok,
+                            redo=False, **kwargs)
 
 
 class CompoundAbundanceLoader(BulkLoader, SampleLoadMixin):
@@ -297,17 +333,25 @@ class SequenceLikeLoader(SampleLoadMixin, BulkLoader):
 
     @atomic_dry
     def load_fasta_sample(self, sample, start=0, limit=None, bulk=True,
-                          validate=False):
+                          validate=False, done_ok=True, redo=False):
         """
         import sequence data for one sample
 
         limit - limit to that many contigs, for testing only
         """
-        if getattr(sample, self.fasta_load_flag):
-            raise RuntimeError(
-                f'data already loaded - update not supported: '
-                f'{self.fasta_load_flag} -> {sample}'
-            )
+        done = getattr(sample, self.fasta_load_flag)
+        if done:
+            if done_ok:
+                if redo:
+                    self.delete_fasta_sample()
+                else:
+                    # nothing to do
+                    return
+            else:
+                raise RuntimeError(
+                    f'data already loaded - update not supported: '
+                    f'{self.fasta_load_flag} -> {sample}'
+                )
 
         objs = self.from_sample_fasta(sample, start=start, limit=limit)
         if validate:
@@ -321,6 +365,16 @@ class SequenceLikeLoader(SampleLoadMixin, BulkLoader):
 
         setattr(sample, self.fasta_load_flag, True)
         sample.save()
+
+    @atomic
+    def delete_fasta_sample(self, sample):
+        """
+        Counterpart of load_fasta_sample but will delete more, abundance etc.
+        """
+        print(f'Deleting {self.model._meta.model_name} ', end='', flush=True)
+        info = self.model.filter(sample=sample).delete()
+        print(info, '[OK]')
+        setattr(sample, self.fasta_load_flag, False)
 
     def from_sample_fasta(self, sample, start=0, limit=None):
         """
@@ -387,7 +441,8 @@ class ContigLikeLoader(SequenceLikeLoader):
     """ rpkm_spec must be set in inheriting classes """
 
     @atomic_dry
-    def load_abundance_sample(self, sample, file=None, **kwargs):
+    def load_abundance_sample(self, sample, file=None, done_ok=True,
+                              redo=False, **kwargs):
         """
         Load data from bbmap *.rpkm files
 
@@ -396,38 +451,50 @@ class ContigLikeLoader(SequenceLikeLoader):
         if file is None:
             file = self.get_rpkm_path(sample)
 
-        # read header data
-        reads = None
-        mapped = None
-        with open(file) as ifile:
-            print(f'Reading from {ifile.name} ...')
-            while True:
-                pos = ifile.tell()
-                line = ifile.readline()
-                if line.startswith('#Name\t') or not line.startswith('#'):
-                    # we're past the preamble
-                    ifile.seek(pos)
-                    break
-                key, _, data = line.strip().partition('\t')
-                if key == '#Reads':
-                    reads = int(data)
-                elif key == '#Mapped':
-                    mapped = int(data)
+        # BEGIN read header data #
+        done = getattr(sample, self.abundance_load_flag)
+        if done and done_ok and not redo:
+            # nothing to do
+            return
 
-        if reads is None or mapped is None:
-            raise RuntimeError('Failed parsing (mapped) read counts')
+        if done and not done_ok:
+            raise RuntimeError(
+                f'already loaded: {self}/{self.model} -> {sample}'
+            )
 
-        if sample.read_count is not None and sample.read_count != reads:
-            print(f'Warning: overwriting existing read count with'
-                  f'different value: {sample.read_count}->{reads}')
-        sample.read_count = reads
+        if done and redo or not done:
+            reads = None
+            mapped = None
+            with open(file) as ifile:
+                print(f'Reading from {ifile.name} ...')
+                while True:
+                    pos = ifile.tell()
+                    line = ifile.readline()
+                    if line.startswith('#Name\t') or not line.startswith('#'):
+                        # we're past the preamble
+                        ifile.seek(pos)
+                        break
+                    key, _, data = line.strip().partition('\t')
+                    if key == '#Reads':
+                        reads = int(data)
+                    elif key == '#Mapped':
+                        mapped = int(data)
 
-        mapped_old_val = getattr(sample, self.reads_mapped_sample_attr)
-        if mapped_old_val is not None and mapped_old_val != mapped:
-            print(f'Warning: overwriting existing mapped read count with'
-                  f'different value: {mapped_old_val}->{mapped}')
-        setattr(sample, self.reads_mapped_sample_attr, mapped)
-        sample.save()
+            if reads is None or mapped is None:
+                raise RuntimeError('Failed parsing (mapped) read counts')
+
+            if sample.read_count is not None and sample.read_count != reads:
+                print(f'Warning: overwriting existing read count with'
+                      f'different value: {sample.read_count}->{reads}')
+            sample.read_count = reads
+
+            mapped_old_val = getattr(sample, self.reads_mapped_sample_attr)
+            if mapped_old_val is not None and mapped_old_val != mapped:
+                print(f'Warning: overwriting existing mapped read count with'
+                      f'different value: {mapped_old_val}->{mapped}')
+            setattr(sample, self.reads_mapped_sample_attr, mapped)
+            sample.save()
+        # END read header data #
 
         self.load_sample(
             sample,
@@ -525,12 +592,20 @@ class ContigLoader(ContigLikeLoader):
     )
 
     @atomic_dry
-    def assign_contig_lca(self, sample):
+    def assign_contig_lca(self, sample, done_ok=True, redo=False):
         """
         assign / pre-compute taxa and LCAs to contigs via genes
 
         This populates the Contig.lca/taxa fields
         """
+        if sample.tax_abund_ok:
+            if not done_ok:
+                raise RuntimeError(
+                    f'Contig LCAs already loaded {self.model}/{sample}'
+                )
+            if not redo:
+                return
+
         Gene = import_string('mibios.omics.models.Gene')
         genes = Gene.objects.filter(sample=sample)
         # genes = genes.exclude(hits=None)
@@ -923,12 +998,21 @@ class TaxonAbundanceManager(Manager):
     ok_field_name = 'tax_abund_ok'
 
     @atomic_dry
-    def populate_sample(self, sample, validate=False):
+    def populate_sample(self, sample, validate=False, done_ok=True,
+                        redo=False):
         """
         populate the taxon abundance table for a single sample
 
         This requires that the sample's genes' LCAs have been set.
         """
+        if sample.tax_abund_ok:
+            if not done_ok:
+                raise RuntimeError(
+                    f'tax abundance already loaded {self.model}/{sample}'
+                )
+            if not redo:
+                return
+
         qs = self.filter(sample=sample)
         if qs.exists():
             print('Deleting existing data... ', end='', flush=True)

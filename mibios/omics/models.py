@@ -212,12 +212,48 @@ class AbstractSample(Model):
 
         Assumes no existing data
         """
-        Contig.loader.load_sample(self)
-        Gene.loader.load_sample(self)
-        FuncAbundance.loader.load_sample(self)
-        CompoundAbundance.loader.load_sample(self)
-        TaxonAbundance.objects.load_sample(self)
+        match self.sample_type:
+            case self.AMPLICON:
+                self.load_amplicon_data()
+            case self.METAGENOME:
+                self.load_metagenomic_data()
+            case self.METATRANS:
+                self.load_metatranscriptomic_data()
+            case _:
+                raise ValueError('invalid sample_type')
         set_rollback(dry_run)
+
+    def load_amplicon_data(self):
+        raise NotImplementedError
+
+    def load_metagenomic_data(self, done_ok=True, redo=False, dry_run=False):
+        """
+        Convenience method to load all metagenomic data for sample
+
+        :param bool done_ok:
+            Set to False to ensure that data has not been loaded already.  By
+            default, existing data remain of are re-loaded/updated if redo is
+            True.
+        :param bool redo:
+            If True, then any existing metagenomic data for this sample is
+            updated or deleted and then re-loaded.  The default is to keep the
+            data from previous runs and skip steps whenever possible.
+        """
+        kw = dict(done_ok=done_ok, redo=redo, dry_run=dry_run)
+        print(f'Loading metagenomic data for {self.sample_id} "{self}" ...')
+        Contig.loader.load_fasta_sample(self, **kw)
+        Gene.loader.load_fasta_sample(self, **kw)
+        Contig.loader.load_abundance_sample(self, **kw)
+        Gene.loader.load_abundance_sample(self, **kw)
+        Alignment.loader.load_sample(self, **kw)
+        Gene.loader.assign_gene_lca(self)
+        Contig.loader.assign_contig_lca(self)
+        TaxonAbundance.objects.populate_sample(self, **kw)
+        # FuncAbundance.loader.load_sample(self)
+        # CompoundAbundance.loader.load_sample(self)
+
+    def load_metatranscriptomic_data(self):
+        raise NotImplementedError
 
     def get_fastq_prefix(self):
         """
