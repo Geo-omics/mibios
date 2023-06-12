@@ -806,6 +806,8 @@ def save_import_diff(
     change_set=[],
     unchanged_count=None,
     new_count=None,
+    new_pk_min=None,
+    new_pk_max=None,
     missing_objs=[],
     path=None,
     dry_run=False,
@@ -846,6 +848,10 @@ def save_import_diff(
 
     with opath.open('w') as ofile:
         ofile.write(f'=== {now} ===\nSummary:   {summary}\n')
+        if new_pk_min is not None or new_pk_max is not None:
+            ofile.write(
+                f'New objects pk range (incl.): {new_pk_min} - {new_pk_max}\n'
+            )
         if change_set:
             ofile.write('Changed fields as "pk id field: old -> new, ...":\n')
         for pk, record_id, items in change_set:

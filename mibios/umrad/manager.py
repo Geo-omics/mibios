@@ -687,6 +687,9 @@ class BaseLoader(DjangoManager):
                         print(f'ERROR: {type(e)}: {e} while saving object: {i}'
                               f'\n{vars(i)=}')
                         raise
+            if diff_stats:
+                diff['new_pk_min'] = new_objs[0].pk
+                diff['new_pk_max'] = new_objs[-1].pk
         if diff_stats:
             diff['new_count'] = len(new_objs)
         del new_objs
