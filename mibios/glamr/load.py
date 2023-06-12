@@ -78,10 +78,16 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
 
         return tuple((getattr(ref, i) for i in id_lookups))
 
+    def clean_ref_id(self, value, obj):
+        """ handle some too-human temposrary field content """
+        if value == 'TBD':
+            return None
+        return value
+
     spec = CSV_Spec(
         ('dataset', 'dataset_id', ensure_id),
         # ('Primary_pub', 'reference', get_reference_ids),
-        ('Primary_pub', 'reference.reference_id'),
+        ('Primary_pub', 'reference.reference_id', 'clean_ref_id'),
         ('primary_pub_title', None),
         ('NCBI_BioProject', 'bioproject'),
         ('JGI_Project_ID', 'jgi_project'),
