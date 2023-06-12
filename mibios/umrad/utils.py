@@ -801,15 +801,22 @@ def make_int_in_filter(lookup_name, integers):
     return q
 
 
-def save_import_diff(model, changes, unchanged_count, new_count, missing_objs,
-                     path=None, dry_run=False):
+def save_import_diff(
+    model,
+    change_set=[],
+    unchanged_count=None,
+    new_count=None,
+    missing_objs=[],
+    path=None,
+    dry_run=False,
+):
     """
     Save change set to disk, called by Loader.load()
     """
     if path is None:
         path = settings.IMPORT_DIFF_DIR
 
-    summary = (f'new: {new_count},  changed: {len(changes)},  unchanged: '
+    summary = (f'new: {new_count},  changed: {len(change_set)},  unchanged: '
                f'{unchanged_count},  missing: {len(missing_objs)}')
     print('Summary:', summary)
     now = datetime.now()
@@ -839,7 +846,9 @@ def save_import_diff(model, changes, unchanged_count, new_count, missing_objs,
 
     with opath.open('w') as ofile:
         ofile.write(f'=== {now} ===\nSummary:   {summary}\n')
-        for pk, record_id, items in changes:
+        if change_set:
+            ofile.write('Changed fields as "pk id field: old -> new, ...":\n')
+        for pk, record_id, items in change_set:
             items = [
                 f'{field}: {fmt(old)}  ->  {fmt(new)}'
                 for field, old, new in items

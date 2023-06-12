@@ -40,7 +40,7 @@ class MetaDataLoader(Loader):
         validate=True,
         bulk=False,
         update=True,
-        diff=True,
+        diff_stats=True,
     )
 
 

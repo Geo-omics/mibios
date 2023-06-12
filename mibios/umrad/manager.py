@@ -241,7 +241,7 @@ class BaseLoader(DjangoManager):
         strict_update=False,
         bulk=False,
         validate=False,
-        diff=False,
+        diff_stats=False,
     )
     # Inheriting classes can set default kwargs for load() here.  In __init__()
     # anything missing is set from _DEFAULT_LOAD_KWARGS above, which inheriting
@@ -319,7 +319,7 @@ class BaseLoader(DjangoManager):
             return
 
         try:
-            diff_info = self._load_rows(
+            diff = self._load_rows(
                 row_it,
                 template=template,
                 dry_run=dry_run,
@@ -358,21 +358,15 @@ class BaseLoader(DjangoManager):
             else:
                 raise
 
-        if diff_info:
-            change_set, unchanged_count, new_count, missing_objs = diff_info
-            if new_count or change_set or missing_objs:
+        if diff:
+            if diff['new_count'] or diff['change_set'] or diff['missing_objs']:
                 try:
                     diff_dir = settings.IMPORT_DIFF_DIR
                 except AttributeError:
                     diff_dir = ''
 
                 if diff_dir:
-                    save_import_diff(
-                        self.model,
-                        change_set, unchanged_count,
-                        new_count, missing_objs,
-                        dry_run=dry_run,
-                    )
+                    save_import_diff(self.model, **diff, dry_run=dry_run)
                 else:
                     print('WARNING: IMPORT_DIFF_DIR not configured - not '
                           'saving import diff')
@@ -399,14 +393,14 @@ class BaseLoader(DjangoManager):
         strict_update=False,
         bulk=True,
         first_lineno=None,
-        diff=False,
+        diff_stats=False,
     ):
         """
         Do the data loading, called by load()
 
-        If diff=True and data loading proceeds normally, then the return value
-        is a tuple of several diff statistics.  If diff=False or in rare cases,
-        e.g. empty inpiut file we return None.
+        If diff_stats=True and data loading proceeds normally, then the return
+        value is a dict with diff statistics.  If diff_stats=False or in rare
+        cases, e.g. empty input file we return None.
         """
         fields = self.spec.fields
         model_name = self.model._meta.model_name
@@ -611,7 +605,7 @@ class BaseLoader(DjangoManager):
                 print(f'WARNING: {len(missing_objs)} existing {model_name} '
                       f'records missing from input data')
             del obj_pool
-            if not diff:
+            if not diff_stats:
                 del missing_objs
 
         sleep(0.2)  # let the progress meter finish before printing warnings
@@ -640,10 +634,13 @@ class BaseLoader(DjangoManager):
 
         update_fields = [i.name for i in fields if not i.many_to_many]
 
-        if diff:
-            change_set = []
-            unchanged_count = 0
-            new_count = len(new_objs)
+        if diff_stats:
+            diff = {
+                'missing_objs': missing_objs,
+                'change_set': [],
+                'unchanged_count': 0,
+                'new_count': len(new_objs),
+            }
             # retrieve old objects again
             upd_q = make_int_in_filter('pk', [i.pk for i in upd_objs])
             old_objs = self.filter(upd_q)
@@ -658,11 +655,11 @@ class BaseLoader(DjangoManager):
                     if old_value != upd_value:
                         items.append((j, old_value, upd_value))
                 if items:
-                    change_set.append(
+                    diff['change_set'].append(
                         (i.pk, getattr(i, fields[0].name), items)
                     )
                 else:
-                    unchanged_count += 1
+                    diff['unchanged_count'] += 1
             del upd_q, old_objs, old_value, upd_value, items
 
         if upd_objs:
@@ -690,6 +687,8 @@ class BaseLoader(DjangoManager):
                         print(f'ERROR: {type(e)}: {e} while saving object: {i}'
                               f'\n{vars(i)=}')
                         raise
+        if diff_stats:
+            diff['new_count'] = len(new_objs)
         del new_objs
 
         if m2m_data:
@@ -710,8 +709,8 @@ class BaseLoader(DjangoManager):
 
         sleep(1)  # let progress meter finish before returning
 
-        if diff:
-            return change_set, unchanged_count, new_count, missing_objs
+        if diff_stats:
+            return diff
 
     def _update_m2m(self, field_name, m2m_data, update=False):
         """
