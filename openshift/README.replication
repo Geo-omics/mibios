@@ -1,7 +1,63 @@
 # Postgres logical replication setup
 # on primary:
 create publication pub_basic_for_public_website for table glamr_dataset, glamr_reference, glamr_sample, glamr_searchable, glamr_uniqueword;
+create publication pub_full_for_public_website for table
+ncbi_taxonomy_citation,
+ncbi_taxonomy_citation_node,
+ncbi_taxonomy_deletednode,
+ncbi_taxonomy_division,
+ncbi_taxonomy_gencode,
+ncbi_taxonomy_host,
+ncbi_taxonomy_mergednodes,
+ncbi_taxonomy_taxname,
+ncbi_taxonomy_taxnode,
+ncbi_taxonomy_taxnode_ancestors,
+ncbi_taxonomy_typematerial,
+ncbi_taxonomy_typematerialtype,
+omics_alignment,
+omics_binmax,
+omics_binmet93,
+omics_binmet97,
+omics_binmet99,
+omics_checkm,
+omics_compoundabundance,
+omics_contig,
+omics_contig_taxa,
+omics_funcabundance,
+omics_gene,
+omics_gene_taxa,
+omics_ncrna,
+omics_protein,
+omics_readlibrary,
+omics_rnacentral,
+omics_rnacentralrep,
+omics_taxonabundance,
+umrad_compoundname,
+umrad_compoundrecord,
+umrad_compoundrecord_names,
+umrad_compoundrecord_others,
+umrad_funcrefdbentry,
+umrad_funcrefdbentry_names,
+umrad_functionname,
+umrad_location,
+umrad_reactioncompound,
+umrad_reactionrecord,
+umrad_reactionrecord_others,
+umrad_reactionrecord_uniprot,
+umrad_uniprot,
+umrad_uniref100,
+umrad_uniref100_binding,
+umrad_uniref100_function_names,
+umrad_uniref100_function_refs,
+umrad_uniref100_reactions,
+umrad_uniref100_subcellular_locations,
+umrad_uniref100_taxa;
 
 # on secondary:
-create subscription sub_basic_to_primary connection 'dbname=glamr host=vondamm.earth.lsa.umich.edu user=public_db_subscriber password=******* port=54321' publication pub_basic_for_public_website
+psql glamr
+glamr-# CREATE SUBSCRIPTION sub_basic_to_primary CONNECTION 'dbname=glamr host=vondamm.earth.lsa.umich.edu user=public_db_subscriber password=******* port=54321' PUBLICATION pub_basic_for_public_website;
+glamr-# CREATE SUBSCRIPTION sub_full_to_primary CONNECTION 'dbname=glamr host=vondamm.earth.lsa.umich.edu user=public_db_subscriber password=******* port=54321' PUBLICATION pub_full_for_public_website;
+
+# Note 1: may need to add "WITH (create_slot = false)" to CREATE SUBSCRIPTION if the slot exists already on the primary (e.g. vondamm)
+# Note 2: No idea how to get the password for the subscriber role, have to reset the password and use the new one
 
