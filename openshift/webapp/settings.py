@@ -1,6 +1,7 @@
 """
 Django settings specific for glarm test site on alpena
 """
+from os import environ
 from pathlib import Path
 from mibios.glamr.settings import *
 
@@ -42,7 +43,7 @@ MEDIA_URL = '/media/'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'glamr',
+        'NAME': environ.get('GLAMR_DB_NAME', 'glamr-public'),
         'USER': 'glamr_django',
         'HOST': 'database.gdick-web-app.svc.cluster.local',
         'PORT': '5432',

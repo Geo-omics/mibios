@@ -1,0 +1,10 @@
+#!/bin/bash
+set -eu
+
+/usr/lib/postgresql/15/bin/initdb
+/usr/lib/postgresql/15/bin/postgres --config-file=/etc/postgresql/15/main/postgresql.conf &
+sleep 10
+createuser glamr_django
+createdb -O glamr_django glamr-public-a
+createdb -O glamr_django glamr-public-b
+wait

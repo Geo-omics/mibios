@@ -1,5 +1,5 @@
 FROM image-registry.openshift-image-registry.svc:5000/openshift/debian:bookworm-slim
-FROM debian:bookworm-slim
+# FROM debian:bookworm-slim
 
 ARG POSTGRES_BASE=/var/local/postgresql
 ARG DEBIAN_FRONTEND=noninteractive 
@@ -26,8 +26,7 @@ RUN apt-get update && apt-get install --assume-yes --no-install-recommends --qui
     dnsutils \
     pipebench \
     postgresql-15 \
-    procps \
-    screen
+    procps
 
 # replace data directory, normally that is /var/lib/postgres/15/main, which
 # already has a initialized DB from package installation, we leave that in
@@ -35,23 +34,35 @@ RUN apt-get update && apt-get install --assume-yes --no-install-recommends --qui
 # configuration alone.  The new place needs to have something mounted via
 # docker-compose's volumes directive or docker-run's --volume option that
 # contains a ready-to-use database or have initdb run manually.
-ENV PGDATA=$POSTGRES_BASE/pgdata_mnt/data
-COPY pg_hba.conf /etc/postgresql/15/main/
-USER postgres
+ENV PGDATA=/tmp/pgdata
+COPY start-testdb /
+COPY pg_hba.conf /etc/postgresql/15/main/pg_hba.conf
 RUN echo "data_directory = '$PGDATA'" >> /etc/postgresql/15/main/conf.d/local.conf
 # network: database is our hostname via docker-compose, so we'll be listening at our IP address:
 RUN echo "listen_addresses = '0.0.0.0'" >> /etc/postgresql/15/main/conf.d/local.conf
 RUN echo "client_encoding = 'UTF8'" >> /etc/postgresql/15/main/conf.d/local.conf
 RUN echo "max_wal_size = 10GB" >> /etc/postgresql/15/main/conf.d/local.conf
+# RUN echo "shared_buffers = 10GB" >> /etc/postgresql/15/main/conf.d/local.conf
+#RUN echo "work_mem = 100MB" >> /etc/postgresql/15/main/conf.d/local.conf
+#RUN echo "maintenance_work_mem = 10GB" >> /etc/postgresql/15/main/conf.d/local.conf
+#RUN echo "effective_io_concurrency = 50" >> /etc/postgresql/15/main/conf.d/local.conf
+#RUN echo "max_worker_processes = 20" >> /etc/postgresql/15/main/conf.d/local.conf
+#RUN echo "max_parallel_maintenance_workers = 10" >> /etc/postgresql/15/main/conf.d/local.conf
+#RUN echo "max_parallel_workers_per_gather = 10" >> /etc/postgresql/15/main/conf.d/local.conf
+#RUN echo "max_parallel_workers = 30" >> /etc/postgresql/15/main/conf.d/local.conf
 #RUN echo "ssl_cert_file = '$POSTGRES_BASE/server.crt'" >> /etc/postgresql/15/main/conf.d/local.conf
 #RUN echo "ssl_key_file = '$POSTGRES_BASE/server.key'" >> /etc/postgresql/15/main/conf.d/local.conf
 # allow DB access from webapp between containers
 ##RUN echo "host glamr glamr_django glamr.gdick-web-app.svc.cluster.local trust" >> /etc/postgresql/15/main/pg_hba.conf
-##RUN echo "host glamr glamr_django localhost trust" >> /etc/postgresql/15/main/pg_hba.conf
+RUN echo "host glamr-public-test glamr_django localhost trust" >> /etc/postgresql/15/main/pg_hba.conf
+RUN echo "host all all localhost trust" >> /etc/postgresql/15/main/pg_hba.conf
 # allow SSL+password for development:
 #RUN echo "hostssl all all all scram-sha-256" >> /etc/postgresql/15/main/pg_hba.conf
+
+USER postgres
+RUN mkdir -v -p -m 700 $PGDATA
 
 EXPOSE 5432/tcp
 HEALTHCHECK CMD pg_isready
 STOPSIGNAL SIGINT
-CMD ["/usr/lib/postgresql/15/bin/postgres", "--config-file=/etc/postgresql/15/main/postgresql.conf"]
+CMD ["/start-testdb"]
