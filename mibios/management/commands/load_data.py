@@ -94,11 +94,11 @@ class Command(BaseCommand):
         except DryRunRollback:
             self.stderr.write('dry run rollback')
         else:
-            self.stdout.write('Cleanup: deleting input files... ', ending='')
+            self.stderr.write('Cleanup: deleting input files... ', ending='')
             for i in data_files:
                 i.unlink()
             job_listing.unlink()
-            self.stdout.write('[Done]')
+            self.stderr.write('[Done]')
 
     def add_from_file(self, path):
         """ load data into one table from given path """
