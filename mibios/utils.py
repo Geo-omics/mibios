@@ -341,3 +341,40 @@ def get_db_connection_info():
         params = ' '.join(params)
         info[i.alias] = f'{i.display_name} ({params})'
     return info
+
+
+def sort_models_by_fk_relations(models):
+    """
+    Get list of models sorted by FK dependency
+
+    Enforces a partial order on the given models.  Models with foreign key
+    fields go after any FK's related model.  The returned list may contain
+    additional models that are discovered by following foreign key
+    relations and which were not in the original list.
+
+    It is assumed that no cycles via FK relations are encountered and nothing
+    is done to detect such cycles.  Expect some infinite recursion in this
+    case.
+    """
+    models = list(models)
+    in_order = []
+    while models:
+        m = models.pop()
+        fwd_new = set((
+            i.related_model for i in m._meta.get_fields()
+            if i.many_to_one
+            # TODO: one_to_one?  (but need a test case)
+            # but skip the following:
+            and not m == i.related_model  # FK on self
+            and i.related_model is not None  # GenericFK
+            and i.related_model not in in_order  # already seen
+        ))
+        if fwd_new:
+            fwd_new_sorted = sort_models_by_fk_relations(fwd_new)
+        else:
+            fwd_new_sorted = []
+        in_order = in_order + fwd_new_sorted + [m]
+        for i in fwd_new_sorted:
+            if i in models:
+                models.remove(i)
+    return in_order

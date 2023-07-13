@@ -1,9 +1,13 @@
+from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic
 
 from psycopg2.sql import SQL, Identifier
 
+from django.apps import apps
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connections
+from django.db.models import Model
 from django.db.transaction import atomic
 
 from .dump_data import MODE_ADD, MODE_REPLACE, MODE_UPDATE
@@ -11,6 +15,44 @@ from .dump_data import MODE_ADD, MODE_REPLACE, MODE_UPDATE
 
 class DryRunRollback(Exception):
     pass
+
+
+@dataclass
+class DumpFile:
+    path: Path
+    mode: str = None
+    db_table: str = None
+    model: Model = None
+    slice_num: int = None
+
+    _table2model = {
+        i._meta.db_table: i
+        for i in apps.get_models(include_auto_created=True)
+    }
+
+    def __post_init__(self):
+        name_parts = self.path.name.split('.')
+        if len(name_parts) == 3:
+            slice_num = name_parts[1]
+        else:
+            slice_num = 1
+
+        if self.db_table is None:
+            self.db_table = name_parts[0]
+            if not self.db_table:
+                raise ValueError('db_table part is empty string')
+
+        if self.model is None:
+            try:
+                self.model = self._table2model[self.db_table]
+            except KeyError:
+                raise LookupError(f'no model with db table "{self.db_table}"')
+
+        if self.slice_num is None:
+            try:
+                self.slice_num = int(slice_num)
+            except ValueError as e:
+                raise ValueError('failed parsing filename') from e
 
 
 class Command(BaseCommand):
@@ -54,71 +96,73 @@ class Command(BaseCommand):
                 raise CommandError('In replication mode only a single input '
                                    'file is accepted.')
             job_listing = Path(file_args[0])
-            modes = []
-            data_files = []
+            dumps = []
             with job_listing.open() as ifile:
                 for line in ifile:
                     mode, name = line.split()
-                    modes.append(mode)
-                    infile = job_listing.parent / name
-                    if not infile.is_file():
-                        raise CommandError('no such file: {infile}')
-                    data_files.append(infile)
+                    dump = DumpFile(job_listing.parent / name)
+                    if not dump.path.is_file():
+                        raise CommandError('no such file: {dump.path}')
+                    dump.mode = mode
+                    dumps.append(dump)
         else:
-            modes = [mode] * len(file_args)
-            data_files = [Path(i) for i in file_args]
+            dumps = [DumpFile(path=Path(i), mode=mode) for i in file_args]
 
         self.conn = connections['default']
+
         try:
             with atomic():
-                if MODE_REPLACE in modes:
-                    self.do_truncate(*(
-                        f for m, f
-                        in zip(modes, data_files)
-                        if m == MODE_REPLACE)
+                if MODE_REPLACE in [i.mode for i in dumps]:
+                    self.do_truncate(
+                        *(i for i in dumps if i.mode == MODE_REPLACE)
                     )
 
-                for mode, infile in zip(modes, data_files):
-                    self.stdout.write(f'{infile} ...', ending='')
+                with self.conn.cursor() as cur:
+                    cur.execute('SET session_replication_role = replica')
+
+                for i in dumps:
+                    self.stdout.write(f'{i.path.name} ...', ending='')
                     self.stdout.flush()
-                    if mode == MODE_UPDATE:
-                        total, changed = self.update_from_file(infile)
-                        self.stdout.write(f'  {changed}/{total} [OK]\n')
-                    elif mode == MODE_ADD or mode == MODE_REPLACE:
-                        rowcount = self.add_from_file(infile)
-                        self.stdout.write(f'  {rowcount} [OK]\n')
+                    t0 = monotonic()
+                    if i.mode == MODE_UPDATE:
+                        total, changed = self.update_from_file(i)
+                        result_info = f'{changed}/{total}'
+                    elif i.mode == MODE_ADD or i.mode == MODE_REPLACE:
+                        total = self.add_from_file(i)
+                        result_info = f'{total}'
                     else:
                         raise ValueError('bad mode')
+                    t1 = monotonic()
+                    rate = f' ({total / (t1 - t0):.0f}/s)' if total else ''
+                    self.stdout.write(f'  {result_info}{rate} [OK]\n')
                 if dry_run:
                     raise DryRunRollback
         except DryRunRollback:
             self.stderr.write('dry run rollback')
         else:
             self.stderr.write('Cleanup: deleting input files... ', ending='')
-            for i in data_files:
-                i.unlink()
+            for i in dumps:
+                i.path.unlink()
             job_listing.unlink()
             self.stderr.write('[Done]')
 
-    def add_from_file(self, path):
-        """ load data into one table from given path """
-        table_name, _, _ = Path(path).name.partition('.')
-
-        with open(path) as ifile:
+    def add_from_file(self, dump):
+        """ load data into one table from given dump file """
+        with open(dump.path) as ifile:
             head = ifile.readline().split()
         columns = SQL(',').join((Identifier(i) for i in head))
 
         sql = SQL('COPY {table_name} ({columns}) FROM STDIN WITH HEADER')
-        sql = sql.format(table_name=Identifier(table_name), columns=columns)
-        with open(path) as ifile, self.conn.cursor() as cur:
+        sql = sql.format(table_name=Identifier(dump.db_table), columns=columns)
+        with dump.path.open() as ifile, self.conn.cursor() as cur:
+            cur.execute('show session_replication_role')
             cur.copy_expert(sql, ifile)
             return cur.rowcount
 
-    def update_from_file(self, path):
-        """ update a table from given path """
-        table_name, _, _ = path.name.partition('.')
-        tmp_table = 'tmp_' + table_name
-        with path.open() as ifile:
+    def update_from_file(self, dump):
+        """ update a table from given dump file """
+        tmp_table = 'tmp_' + dump.db_table
+        with dump.path.open() as ifile:
             head = ifile.readline().split()
         columns = SQL(', ').join((Identifier(i) for i in head))
         excl_cols = SQL(', ').join((
@@ -126,7 +170,7 @@ class Command(BaseCommand):
             for i in head
         ))
 
-        table_name = Identifier(table_name)
+        table_name = Identifier(dump.db_table)
         tmp_table = Identifier(tmp_table)
 
         sql0 = SQL('CREATE TEMPORARY TABLE {tmp_table} (LIKE {table_name})')
@@ -144,7 +188,7 @@ class Command(BaseCommand):
                            columns=columns, excl_cols=excl_cols)
         sql3 = sql3.format(tmp_table=tmp_table)
 
-        with open(path) as ifile, self.conn.cursor() as cur:
+        with dump.path.open() as ifile, self.conn.cursor() as cur:
             cur.execute(sql0)
             cur.copy_expert(sql1, ifile)
             total_rows = cur.rowcount
@@ -156,13 +200,12 @@ class Command(BaseCommand):
 
         return total_rows, new_or_changed_rows
 
-    def do_truncate(self, *infiles):
-        table_names = [Path(i).name.partition('.')[0] for i in infiles]
-        tables = SQL(', ').join((Identifier(i) for i in table_names))
+    def do_truncate(self, *dumps):
+        tables = SQL(', ').join((Identifier(i.db_table) for i in dumps))
         sql = SQL('TRUNCATE {tables} CASCADE')
         sql = sql.format(tables=tables)
 
-        table_names = ', '.join(table_names)
+        table_names = ', '.join((i.db_table for i in dumps))
         self.stdout.write(
             f'Erasing all data in: {table_names} + cascade', ending=''
         )
