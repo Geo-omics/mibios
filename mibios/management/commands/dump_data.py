@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from io import SEEK_END
 from pathlib import Path
 import argparse
 from subprocess import Popen, PIPE
@@ -193,20 +194,19 @@ class Command(DumpBaseCommand):
                     slice_size = None
                     break
 
+        lastpk = -1
         slice_num = 1
         while True:
+
             if slice_size is None:
-                sl = slice(None)
                 infix = ''
+                qs = model.objects.all()
             else:
-                sl = slice(
-                    (slice_num - 1) * slice_size,
-                    slice_num * slice_size,
-                )
                 infix = '.' + str(slice_num)
+                qs = model.objects.filter(pk__gt=lastpk).order_by('pk')
+                qs = qs[:slice_size]
 
             opath = self.out_dir / f'{model._meta.db_table}{infix}.tab'
-            qs = model.objects.order_by('pk')[sl]
 
             self.stdout.write(f'{model._meta.model_name} ', ending='')
             self.stdout.flush()
@@ -233,3 +233,59 @@ class Command(DumpBaseCommand):
                 break
 
             slice_num += 1
+            lastpk = self.get_last_row_id(opath)
+
+    def get_last_row_id(self, path):
+        """
+        Get the last row id in given dump file
+
+        Assumes the row id (of type integer) is the first <tab> separated
+        colum.  It expects there to be a header row.
+        """
+        # This method implements an equivalent to "tail -n1 | cut -f1" in a
+        # shell.  It works by reading a small amount of data at the end of the
+        # file and trying to divide that into two or more lines, in which case
+        # we've got the last line to work with.  If not, then we go back but
+        # double the amount of data read.  In the worst case we don't find any
+        # newlines but will read the whole file three times over (twice during
+        # the doubling phase, and if, for the last doubling, we start reading
+        # at position 1, there will be another final read of almost the entire
+        # file from position 0.)
+        INITIAL_READ_SIZE = 1000
+        with path.open() as ifile:
+            end = ifile.seek(0, SEEK_END)
+            pos = max(0, end - INITIAL_READ_SIZE)
+            while True:
+                ifile.seek(pos)
+
+                lineno = None
+                line = None
+                for lineno, line in enumerate(ifile):
+                    pass
+
+                if lineno is None:
+                    # empty file
+                    raise RuntimeError(f'empty file: {path}')
+
+                if lineno == 0:
+                    if pos == 0:
+                        # file has only a single line, assuming this is the
+                        # header and there is no data row
+                        raise RuntimeError(
+                            f'file has only a single line: {path}'
+                        )
+
+                    # didn't get complete last line, doubling seek distance
+                    # from end, but don't go past 0
+                    pos = max(0, pos - (end - pos))
+                    continue
+
+                rowid = line.split()[0]
+
+                try:
+                    return int(rowid)
+                except ValueError:
+                    raise RuntimeError(
+                        f'failed parsing rowid: {path=} {pos=} {lineno=} '
+                        f'{rowid=} {line=}'
+                    )
