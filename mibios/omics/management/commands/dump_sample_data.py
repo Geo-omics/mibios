@@ -1,13 +1,16 @@
+from time import monotonic
+
 from django.core.management.base import CommandError
 from django.db import connections
 from django.db.transaction import atomic
 
+from mibios.management.commands import WriteMixin
 from mibios.management.commands.dump_data import DumpBaseCommand, MODE_ADD
 from mibios.omics import get_sample_model
 from mibios.omics.models import Alignment, Contig, Gene
 
 
-class Command(DumpBaseCommand):
+class Command(WriteMixin, DumpBaseCommand):
     help = 'dump omics data for given sample(s)'
 
     def add_arguments(self, parser):
@@ -41,6 +44,10 @@ class Command(DumpBaseCommand):
 
         with connections['default'].cursor() as cur:
             for i in qsets:
-                self.stdout.write(f'{i.model._meta.model_name} ', ending='')
+                self.info(f'{i.model._meta.model_name}... ', end='')
+                t0 = monotonic()
                 self.dump_from_queryset(cur, i)
-                self.stdout.write(f'{cur.rowcount} [OK]\n')
+                t1 = monotonic()
+                rate = cur.rowcount / (t1 - t0)
+                self.info(f'{cur.rowcount} row ({rate:.0f}/s) ', end='')
+                self.success('[OK]')
