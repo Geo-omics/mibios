@@ -12,7 +12,7 @@ from django.db import connections
 from django.db.transaction import atomic
 
 from mibios.utils import sort_models_by_fk_relations
-
+from . import WriteMixin
 
 COMMAND_LOCK = 'DUMP_FILE_UPLOAD_IN_PROGRESS'
 DB_SIGNAL = 'REPLICATE_THIS'
@@ -136,7 +136,7 @@ class DumpBaseCommand(BaseCommand):
         self.dumpfiles.append((self.mode, opath.name))
 
 
-class Command(DumpBaseCommand):
+class Command(WriteMixin, DumpBaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -187,9 +187,8 @@ class Command(DumpBaseCommand):
         if slice_size:
             for i in model._meta.get_fields():
                 if i.many_to_one and i.related_model is model:
-                    self.stdout.write(
-                        f'Overriding slicing of {model}!',
-                        style_func=self.style.WARNING,
+                    self.warn(
+                        f'Overriding slicing of {model._meta.model_name}!'
                     )
                     slice_size = None
                     break
@@ -208,14 +207,13 @@ class Command(DumpBaseCommand):
 
             opath = self.out_dir / f'{model._meta.db_table}{infix}.tab'
 
-            self.stdout.write(f'{model._meta.model_name} ', ending='')
-            self.stdout.flush()
+            self.info(f'{model._meta.model_name} ', end='')
             t0 = monotonic()
             self.dump_from_queryset(cursor, qs, opath)
             t1 = monotonic()
             count = cursor.rowcount
             rate = f' ({count / (t1 - t0):.0f}/s)' if count else ''
-            self.stdout.write(f'{count}{rate}', ending='')
+            self.info(f'{count} rows{rate} ', end='')
 
             # Empty tables are written out as a single file with no
             # rows (maybe just a header), whether or not we do slices.
@@ -225,9 +223,9 @@ class Command(DumpBaseCommand):
             # will have zero row count and will be deleted.
             if slice_num > 1 and cursor.rowcount == 0:
                 opath.unlink()
-                self.stdout.write('[no further slice]\n')
+                self.notice('[no further slice]')
             else:
-                self.stdout.write('[OK]\n')
+                self.success('[OK]')
 
             if slice_size is None or cursor.rowcount < slice_size:
                 break

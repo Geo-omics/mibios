@@ -10,6 +10,7 @@ from django.db import connections
 from django.db.models import Model
 from django.db.transaction import atomic
 
+from . import WriteMixin
 from .dump_data import MODE_ADD, MODE_REPLACE, MODE_UPDATE
 
 
@@ -55,7 +56,7 @@ class DumpFile:
                 raise ValueError('failed parsing filename') from e
 
 
-class Command(BaseCommand):
+class Command(WriteMixin, BaseCommand):
     help = 'load data from postgres text format'
 
     def add_arguments(self, parser):
@@ -110,6 +111,9 @@ class Command(BaseCommand):
 
         self.conn = connections['default']
 
+        with self.conn.cursor() as cur:
+            cur.execute('SET session_replication_role = replica')
+
         try:
             with atomic():
                 if MODE_REPLACE in [i.mode for i in dumps]:
@@ -117,34 +121,31 @@ class Command(BaseCommand):
                         *(i for i in dumps if i.mode == MODE_REPLACE)
                     )
 
-                with self.conn.cursor() as cur:
-                    cur.execute('SET session_replication_role = replica')
-
                 for i in dumps:
-                    self.stdout.write(f'{i.path.name} ...', ending='')
-                    self.stdout.flush()
+                    self.info(f'{i.path.name} ...', end='')
                     t0 = monotonic()
                     if i.mode == MODE_UPDATE:
                         total, changed = self.update_from_file(i)
-                        result_info = f'{changed}/{total}'
+                        result_info = f'{changed}/{total} rows'
                     elif i.mode == MODE_ADD or i.mode == MODE_REPLACE:
                         total = self.add_from_file(i)
-                        result_info = f'{total}'
+                        result_info = f'{total} rows'
                     else:
                         raise ValueError('bad mode')
                     t1 = monotonic()
                     rate = f' ({total / (t1 - t0):.0f}/s)' if total else ''
-                    self.stdout.write(f'  {result_info}{rate} [OK]\n')
+                    self.info(f'  {result_info}{rate} ', end='')
+                    self.success('[OK]')
                 if dry_run:
                     raise DryRunRollback
         except DryRunRollback:
             self.stderr.write('dry run rollback')
         else:
-            self.stderr.write('Cleanup: deleting input files... ', ending='')
+            self.info('Cleanup: deleting input files... ', end='')
             for i in dumps:
                 i.path.unlink()
             job_listing.unlink()
-            self.stderr.write('[Done]')
+            self.success('[Done]')
 
     def add_from_file(self, dump):
         """ load data into one table from given dump file """
@@ -155,7 +156,6 @@ class Command(BaseCommand):
         sql = SQL('COPY {table_name} ({columns}) FROM STDIN WITH HEADER')
         sql = sql.format(table_name=Identifier(dump.db_table), columns=columns)
         with dump.path.open() as ifile, self.conn.cursor() as cur:
-            cur.execute('show session_replication_role')
             cur.copy_expert(sql, ifile)
             return cur.rowcount
 
@@ -201,14 +201,13 @@ class Command(BaseCommand):
         return total_rows, new_or_changed_rows
 
     def do_truncate(self, *dumps):
-        tables = SQL(', ').join((Identifier(i.db_table) for i in dumps))
+        db_tables = set((i.db_table for i in dumps))  # de-dup sliced dumps
+        tables_list_sql = SQL(', ').join((Identifier(i) for i in db_tables))
         sql = SQL('TRUNCATE {tables} CASCADE')
-        sql = sql.format(tables=tables)
+        sql = sql.format(tables=tables_list_sql)
 
-        table_names = ', '.join((i.db_table for i in dumps))
-        self.stdout.write(
-            f'Erasing all data in: {table_names} + cascade', ending=''
-        )
+        tables_list_str = ', '.join(db_tables)
+        self.info(f'Erasing all data in: {tables_list_str} + cascade', end='')
         with self.conn.cursor() as cur:
             cur.execute(sql)
-        self.stdout.write(' [OK]')
+        self.success(' [OK]')
