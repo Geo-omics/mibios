@@ -21,6 +21,12 @@ MODE_ADD = 'add'
 MODE_REPLACE = 'replace'
 MODE_UPDATE = 'update'
 
+MODE_OVERRIDES = {
+        ('contenttypes', 'contenttype'): MODE_REPLACE,
+        ('glamr', 'uniqueword'): MODE_REPLACE,
+        ('glamr', 'searchable'): MODE_REPLACE,
+}
+
 
 class DumpBaseCommand(BaseCommand):
     """
@@ -117,9 +123,10 @@ class DumpBaseCommand(BaseCommand):
         query, params = queryset.query.sql_with_params()
         sql = f'COPY ({query}) TO STDOUT HEADER'
         sql = cursor.mogrify(sql, params)
+        model = queryset.model
 
         if out_path is None:
-            opath = self.out_dir / queryset.model._meta.db_table
+            opath = self.out_dir / model._meta.db_table
         else:
             opath = Path(out_path)
 
@@ -133,7 +140,11 @@ class DumpBaseCommand(BaseCommand):
             with opath.open('w') as ofile:
                 cursor.copy_expert(sql, ofile, 1024 * 1024)
 
-        self.dumpfiles.append((self.mode, opath.name))
+        mode = MODE_OVERRIDES.get(
+            (model._meta.app_label, model._meta.model_name),
+            self.mode
+        )
+        self.dumpfiles.append((mode, opath.name))
 
 
 class Command(WriteMixin, DumpBaseCommand):
@@ -178,6 +189,7 @@ class Command(WriteMixin, DumpBaseCommand):
 
         if dep_sort:
             models = sort_models_by_fk_relations(models)
+
         # do the dumping
         with connections['default'].cursor() as cur:
             for i in models:

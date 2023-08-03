@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
@@ -74,6 +75,14 @@ class Command(WriteMixin, BaseCommand):
             help='Dry run, do not actually commit anything to the database.'
         )
         parser.add_argument(
+            '--single-transaction',
+            action='store_true',
+            dest='single',
+            help='Load all data in a single transaction.  By default we don\'t'
+                 ' do transactions unless some dump files are loaded in '
+                 '"replace" mode.'
+        )
+        parser.add_argument(
             '--replicate',
             action='store_true',
             help='Load data deposited by dump_data --replicate'
@@ -90,7 +99,7 @@ class Command(WriteMixin, BaseCommand):
         )
 
     def handle(self, *args, file_args=None, mode=None, dry_run=False,
-               replicate=False, **options):
+               replicate=False, single=None, **options):
 
         if replicate:
             if len(file_args) > 1:
@@ -100,6 +109,9 @@ class Command(WriteMixin, BaseCommand):
             dumps = []
             with job_listing.open() as ifile:
                 for line in ifile:
+                    if line.startswith('#') or not line.strip():
+                        # ignore comments or empty lines
+                        continue
                     mode, name = line.split()
                     dump = DumpFile(job_listing.parent / name)
                     if not dump.path.is_file():
@@ -115,26 +127,27 @@ class Command(WriteMixin, BaseCommand):
             cur.execute('SET session_replication_role = replica')
 
         try:
-            with atomic():
+            with atomic() if single or dry_run else nullcontext():
                 if MODE_REPLACE in [i.mode for i in dumps]:
                     self.do_truncate(
                         *(i for i in dumps if i.mode == MODE_REPLACE)
                     )
 
                 for i in dumps:
-                    self.info(f'{i.path.name} ...', end='')
-                    t0 = monotonic()
-                    if i.mode == MODE_UPDATE:
-                        total, changed = self.update_from_file(i)
-                        result_info = f'{changed}/{total} rows'
-                    elif i.mode == MODE_ADD or i.mode == MODE_REPLACE:
-                        total = self.add_from_file(i)
-                        result_info = f'{total} rows'
-                    else:
-                        raise ValueError('bad mode')
-                    t1 = monotonic()
-                    rate = f' ({total / (t1 - t0):.0f}/s)' if total else ''
-                    self.info(f'  {result_info}{rate} ', end='')
+                    with nullcontext() if single else atomic():
+                        self.info(f'{i.path.name} ...', end='')
+                        t0 = monotonic()
+                        if i.mode == MODE_UPDATE:
+                            total, changed = self.update_from_file(i)
+                            result_info = f'{changed}/{total} rows'
+                        elif i.mode == MODE_ADD or i.mode == MODE_REPLACE:
+                            total = self.add_from_file(i)
+                            result_info = f'{total} rows'
+                        else:
+                            raise ValueError('bad mode')
+                        t1 = monotonic()
+                        rate = f' ({total / (t1 - t0):.0f}/s)' if total else ''
+                        self.info(f'  {result_info}{rate} ', end='')
                     self.success('[OK]')
                 if dry_run:
                     raise DryRunRollback
@@ -153,9 +166,11 @@ class Command(WriteMixin, BaseCommand):
             head = ifile.readline().split()
         columns = SQL(',').join((Identifier(i) for i in head))
 
+        sql0 = SQL('SET CONSTRAINTS ALL DEFERRED')
         sql = SQL('COPY {table_name} ({columns}) FROM STDIN WITH HEADER')
         sql = sql.format(table_name=Identifier(dump.db_table), columns=columns)
         with dump.path.open() as ifile, self.conn.cursor() as cur:
+            cur.execute(sql0)
             cur.copy_expert(sql, ifile)
             return cur.rowcount
 
@@ -173,30 +188,31 @@ class Command(WriteMixin, BaseCommand):
         table_name = Identifier(dump.db_table)
         tmp_table = Identifier(tmp_table)
 
-        sql0 = SQL('CREATE TEMPORARY TABLE {tmp_table} (LIKE {table_name})')
-        sql1 = SQL('COPY {tmp_table} ({columns}) FROM STDIN WITH HEADER')
-        sql2 = SQL('INSERT INTO {table_name} as t OVERRIDING SYSTEM VALUE '
+        sql0 = SQL('SET CONSTRAINTS ALL DEFERRED')
+        sql1 = SQL('CREATE TEMPORARY TABLE {tmp_table} (LIKE {table_name})')
+        sql2 = SQL('COPY {tmp_table} ({columns}) FROM STDIN WITH HEADER')
+        sql3 = SQL('INSERT INTO {table_name} as t OVERRIDING SYSTEM VALUE '
                    'SELECT * FROM {tmp_table} '
                    'ON CONFLICT (id) DO UPDATE '
                    'SET ({columns}) = ROW ({excl_cols}) '
                    'WHERE (t.*) IS DISTINCT FROM (excluded.*)')
-        sql3 = SQL('DROP TABLE {tmp_table}')
+        sql4 = SQL('DROP TABLE {tmp_table}')
 
-        sql0 = sql0.format(tmp_table=tmp_table, table_name=table_name)
-        sql1 = sql1.format(tmp_table=tmp_table, columns=columns)
-        sql2 = sql2.format(table_name=table_name, tmp_table=tmp_table,
+        sql1 = sql1.format(tmp_table=tmp_table, table_name=table_name)
+        sql2 = sql2.format(tmp_table=tmp_table, columns=columns)
+        sql3 = sql3.format(table_name=table_name, tmp_table=tmp_table,
                            columns=columns, excl_cols=excl_cols)
-        sql3 = sql3.format(tmp_table=tmp_table)
-
-        with dump.path.open() as ifile, self.conn.cursor() as cur:
-            cur.execute(sql0)
-            cur.copy_expert(sql1, ifile)
-            total_rows = cur.rowcount
+        sql4 = sql4.format(tmp_table=tmp_table)
 
         with self.conn.cursor() as cur:
-            cur.execute(sql2)
-            new_or_changed_rows = cur.rowcount
+            cur.execute(sql0)
+            cur.execute(sql1)
+            with dump.path.open() as ifile:
+                cur.copy_expert(sql2, ifile)
+            total_rows = cur.rowcount
             cur.execute(sql3)
+            new_or_changed_rows = cur.rowcount
+            cur.execute(sql4)
 
         return total_rows, new_or_changed_rows
 
