@@ -463,8 +463,8 @@ class SearchFormMixin:
         ctx['models_and_fields'] = [
             (
                 model_name,
-                self.model_class[model_name]._meta.verbose_name,
-                fields[:7],
+                self.model_class[model_name]._meta.verbose_name_plural,
+                fields[:7] + (['...'] if len(fields) > 7 else []),
             )
             for app, app_data in SEARCH_FIELDS.items()
             for model_name, fields in app_data.items()

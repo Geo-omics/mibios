@@ -4,12 +4,13 @@
         switch (document.getElementById('search_dropdown').value) {
             {% for name, verbose, fields in models_and_fields %}
         case "{{ name }}":
-            document.getElementById('search_form').action = "{% url 'search_result' model=name %}"; break;
-            document.getElementById('search_box').placeholder = "Search for {{ verbose|capfirstsmart }} by {{ fields|join:', ' }}, etc"; break;
+            document.getElementById('search_form').action = "{% url 'search_result' model=name %}";
+            document.getElementById('query_text').placeholder = "Search for {{ verbose|capfirstsmart }} by {{ fields|join:', ' }}";
+            break;
             {% endfor %}
         default:
-            document.getElementById('search_form').action = "{% url 'search_result' model='global' %}"; break;
-            document.getElementById('search_box').placeholder = "Search globally for anything";
+            document.getElementById('search_form').action = "{% url 'search_result' model='global' %}";
+            document.getElementById('query_text').placeholder = "Microcystis, HABs, Lake Erie";
             break;
         }
     }
@@ -26,7 +27,7 @@
             </select>
             <button class="btn btn-primary" type="submit" values="Submit">Search</button>
         </div>
-        <input type="text" name="query" id="search_box" placeholder="Search for anythying ..." required id="id_query" class="form-control" onload="changeSelection()">
+        <input type="text" name="query" placeholder="Microcystis, HABs, Lake Erie" required id="query_text" class="form-control" onload="changeSelection()">
         <div class="input-group-append">
             <button class="btn btn-outline-primary" type="button" data-toggle="collapse" data-target="#search-help-detail" aria-expanded="false" aria-controls="search-help-detail">
                 <i class="bi bi-info-circle"></i>
