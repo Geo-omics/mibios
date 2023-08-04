@@ -15,13 +15,13 @@
     }
 </script>
 
-<form id="search_form" action="{% url 'search_result' model=search_radius %}" method="get">
+<form id="search_form" action="{% url 'search_result' model=search_model_name %}" method="get">
     <div class="input-group mb-3">
         <div class="input-group-prepend">
             <select class="btn btn-outline-primary dropdown-toggle" name="model" id="search_dropdown" onchange="changeSelection()">
                 <option {% if not search_model %}selected{% endif %} value="global">Search for...</option>
                 {% for name, verbose, _ in models_and_fields %}
-                    <option {% if search_radius == name %}selected{% endif %} value="{{ name }}">{{ verbose|capfirstsmart }}</option>
+                    <option {% if search_model_name == name %}selected{% endif %} value="{{ name }}">{{ verbose|capfirstsmart }}</option>
                 {% endfor %}
             </select>
             <button class="btn btn-primary" type="submit" values="Submit">Search</button>

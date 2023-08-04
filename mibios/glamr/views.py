@@ -428,8 +428,19 @@ class SearchFormMixin:
 
     Use via including search_form_simple.html in your template.
     """
-    model = None  # model class to restrict search to
-    ALL_MODELS_URL_PART = 'global'  # url path part indicating global search
+
+    search_model = None
+    """ Model class to restrict search to.  Implementing classes may override
+    this.  It may get the special value ANY_MODEL, which is distinct from None.
+    None indicates that the value of the model attribute shall be used.
+    """
+
+    model = None
+    """ Typically set by the implementing class or via request.  Here only used
+    to set the search_model if search_model is not set otherwise. """
+
+    ANY_MODEL = object()
+    ANY_MODEL_URL_PART = 'global'  # url path part indicating global search
     form_class = SearchForm
 
     _model_class = None
@@ -459,11 +470,13 @@ class SearchFormMixin:
             for model_name, fields in app_data.items()
         ]
 
-        ctx['search_model'] = self.model
-        if self.model:
-            ctx['search_radius'] = self.model._meta.model_name
+        search_model = self.search_model or self.model
+        if search_model in [self.ANY_MODEL, None]:
+            ctx['search_model'] = None
+            ctx['search_model_name'] = self.ANY_MODEL_URL_PART
         else:
-            ctx['search_radius'] = self.ALL_MODELS_URL_PART
+            ctx['search_model'] = search_model
+            ctx['search_model_name'] = search_model._meta.model_name
         return ctx
 
 
@@ -497,15 +510,16 @@ class SearchMixin(SearchFormMixin):
     def setup(self, request, *args, **kwargs):
         super().setup(request, *args, **kwargs)
         try:
-            model = kwargs['model']
+            model_name = kwargs['model']
         except KeyError as e:
             raise ValueError('expect model name passed from url conf') from e
 
-        if model == self.ALL_MODELS_URL_PART:
+        if model_name == self.ANY_MODEL_URL_PART:
             self.model = None
+            self.search_model = self.ANY_MODEL
         else:
             try:
-                self.model = self.model_class[model]
+                self.model = self.model_class[model_name]
             except KeyError as e:
                 raise Http404('bad model name / is not searchable') from e
 
@@ -998,6 +1012,7 @@ class DatasetView(MapMixin, RecordView):
 
 class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
     model = models.Dataset
+    search_model = SearchFormMixin.ANY_MODEL
     template_name = 'glamr/frontpage.html'
     table_class = tables.DatasetTable
 
@@ -1046,7 +1061,7 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
                 'Database connection failure: almost nothing will work, sorry',
             )
             ctx['db_is_good'] = False
-            ctx['search_radius'] = 'global'
+            ctx['search_model_name'] = self.ANY_MODEL_URL_PART
         else:
             ctx['db_is_good'] = True
 
