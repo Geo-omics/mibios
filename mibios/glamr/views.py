@@ -1,3 +1,4 @@
+from itertools import groupby
 from logging import getLogger
 
 from django_tables2 import Column, SingleTableView, TemplateColumn
@@ -11,6 +12,7 @@ from django.db.models import Count, Field, Prefetch, URLField
 from django.http import Http404, HttpResponse
 from django.urls import reverse
 from django.utils.functional import classproperty
+from django.utils.html import format_html
 from django.views.generic import DetailView
 from django.views.generic.base import TemplateView
 from django.views.generic.list import ListView
@@ -405,6 +407,7 @@ class MapMixin():
             'id', 'sample_name', 'latitude', 'longitude', 'sample_type',
             'dataset_id', 'collection_timestamp', 'sample_id', 'biosample',
         )
+        qs = qs.order_by('longitude', 'latitude')
 
         dataset_pks = set((i['dataset_id'] for i in qs))
         datasets = Dataset.objects.filter(pk__in=dataset_pks)
@@ -413,14 +416,43 @@ class MapMixin():
         dataset_name = {i.pk: str(i) for i in datasets}
 
         map_data = []
-        for item in qs:
-            # add in sample url
-            item['sample_url'] = fast_reverse('sample', args=[item['id']])
+        by_coords = groupby(qs, key=lambda x: (x['longitude'], x['latitude']))
+        for coords, grp in by_coords:
+            grp = list(grp)
 
-            # add in dataset info
+            # take only the first sample at these coordinates
+            item = grp[0]
+
+            item['sample_url'] = fast_reverse('sample', args=[item['id']])
             item['dataset_url'] = fast_reverse('dataset', args=[item['dataset_id']])  # noqa:E501
             item['dataset_name'] = dataset_name[item['dataset_id']]
             del item['dataset_id']
+
+            if len(grp) > 1:
+                # Add a link to the other samples at these coordinates.  We try
+                # to keep existing filters in place but if that fails we link
+                # to all samples at this location.
+                if hasattr(self, 'conf'):
+                    if self.conf.model is Dataset:
+                        cnf = self.conf.shift('sample', reverse=True)
+                    elif self.conf.model is Sample:
+                        cnf = self.conf
+                    else:
+                        cnf = DataConfig(Sample)
+                else:
+                    cnf = DataConfig(Sample)
+                others_cnf = cnf.add_filter(
+                    longitude=item['longitude'],
+                    latitude=item['latitude'],
+                )
+                item['others'] = format_html(
+                    '<br>and {} other '
+                    '<a href="{}?{}">samples at these coordinates</a>',
+                    len(grp) - 1,
+                    reverse('filter_result', kwargs=dict(model='sample')),
+                    others_cnf.url_query(),
+                )
+
             map_data.append(item)
 
         return map_data

@@ -46,6 +46,8 @@ for (var i in map_points) {
 
                 var collection_timestamp = new Date(map_points[i].collection_timestamp)
                 var sample_date = "Collection Date: " + collection_timestamp.toLocaleDateString(0,{year:'numeric', month:'2-digit', day: '2-digit'})
+                var others = "";
+                if (map_points[i].others) {others=map_points[i].others;}
 
                 var iconType = "amplicon-icon";
                 if(map_points[i].sample_type == "metagenome"){
@@ -58,7 +60,7 @@ for (var i in map_points) {
                 var iconMarker = L.divIcon({className: iconType});
 
                 var marker = L.marker(lat_long,{icon: iconMarker})
-                marker.bindPopup(sample_url + "<br/>" + sample_date + "<br/>" + sample_type + dataset_url).openPopup();
+                marker.bindPopup(sample_url + "<br/>" + sample_date + "<br/>" + sample_type + dataset_url + others).openPopup();
                 markers.push(marker);
 	}
 }
