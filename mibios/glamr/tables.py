@@ -1,7 +1,7 @@
 from django.urls import reverse
 from django.utils.html import escape, format_html, mark_safe
 
-from django_tables2 import Column, Table, TemplateColumn
+from django_tables2 import Column, Table as Table0, TemplateColumn
 
 from mibios.glamr import models as glamr_models
 from mibios.omics import models as omics_models
@@ -33,6 +33,12 @@ def get_record_url(*args):
             'expect either a model instance or model/-name and pk pair'
         )
     return reverse('record', kwargs={'model': model_name, 'pk': pk})
+
+
+class Table(Table0):
+    def __init__(self, *args, view=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.view = view
 
 
 class CompoundAbundanceTable(Table):
@@ -231,8 +237,20 @@ class DatasetTable(Table):
         if record.sample_count <= 0:
             return mark_safe('<div class="btn btn-primary disabled mb-1">No samples</div>')  # noqa: E501
 
-        url = record.get_samples_url()
-        return mark_safe(f'<a href="{url}" class="btn btn-primary mb-1">{record.sample_count} available samples</a>')  # noqa: E501
+        if hasattr(self.view, 'conf'):
+            conf = self.view.conf.shift('sample', reverse=True)
+            conf.filter['dataset_id'] = record.pk
+            url = reverse('filter_result', kwargs=dict(model='sample'))
+            url = url + '?' + conf.url_query()
+        else:
+            url = record.get_samples_url()
+
+        return format_html(
+            '<a href="{url}" class="btn btn-primary mb-1">'
+            '{count} samples</a>',
+            url=url,
+            count=record.sample_count,
+        )
 
 
 def get_sample_url(sample):

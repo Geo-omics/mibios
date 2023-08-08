@@ -305,6 +305,7 @@ class ModelTableMixin(ExportMixin):
         kw['exclude'] = self.exclude
         if self._add_extra_columns:
             kw['extra_columns'] = self._get_improved_columns()
+        kw['view'] = self
         return kw
 
     def get_table_class(self):
@@ -379,7 +380,10 @@ class MapMixin():
         if self.model is Sample:
             return self.get_queryset()
         elif self.model is Dataset:
-            return Sample.objects.filter(dataset__in=self.get_queryset())
+            if hasattr(self, 'conf'):
+                return self.conf.shift('sample', reverse=True).get_queryset()
+            else:
+                return Sample.objects.filter(dataset__in=self.get_queryset())
         else:
             return Sample.objects.none()
 

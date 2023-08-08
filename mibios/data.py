@@ -3,12 +3,11 @@ Module for data abstraction
 """
 from decimal import Decimal
 from pathlib import Path
-from urllib.parse import urlparse
 
 from django import forms
 from django.http.request import QueryDict
 from django.utils.text import slugify
-from django.urls import resolve, reverse
+from django.urls import reverse
 
 from . import (get_registry, QUERY_FILTER, QUERY_EXCLUDE, QUERY_NEGATE,
                QUERY_SHOW, QUERY_COUNT, QUERY_SEARCH, QUERY_Q)
@@ -564,7 +563,7 @@ class DataConfig:
 
         return complex_qlist, filter
 
-    def shift(self, *fields):
+    def shift(self, *fields, reverse=False):
         """
         Shift to a related model
 
@@ -572,6 +571,12 @@ class DataConfig:
             name of relational field or the field object itself.  If multiple
             fields are given, the config instance is shifted multiple times in
             the order of the given fields.
+
+        :param bool reverse:
+            Reverse mode allows to undo a previous shift.  By default, shifting
+            back to the previous model along the same relation creates a detour
+            (back-and-forth.)  Setting this to True has no effect if the shift
+            is not such a back-and-forth.
 
         Shifting must be one relation hop at a time.  A new config instance
         will be returned.
@@ -606,9 +611,9 @@ class DataConfig:
 
         # conf is the new, shifted config, but the _shift_lookups methods are
         # still called on the old config
-        conf.filter = self._shift_lookups(field, **self.filter)
+        conf.filter = self._shift_lookups(field, reverse, **self.filter)
         conf.excludes = [
-            self._shift_lookups(field, **i)
+            self._shift_lookups(field, reverse, **i)
             for i in self.excludes
         ]
 
@@ -622,7 +627,7 @@ class DataConfig:
         else:
             return conf
 
-    def _shift_lookups(self, field, **lookups):
+    def _shift_lookups(self, field, reverse, **lookups):
         """
         Helper to shift filters and excludes
 
@@ -634,7 +639,12 @@ class DataConfig:
 
         ret = dict()
         for k, v in lookups.items():
-            k = field.remote_field.name + '__' + k
+            if reverse and k.split('__')[0] == field.name:
+                # remove left-most component
+                _, _, k = k.partition('__')
+            else:
+                # prepend new component
+                k = field.remote_field.name + '__' + k
             ret[k] = v
 
         return ret
