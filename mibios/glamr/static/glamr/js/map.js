@@ -63,5 +63,11 @@ var group = L.featureGroup(markers).addTo(map);
 // set map zoom/bounds using the points we added instead of the default
 // showing the Great Lakes, intended for the frontpage
 if(fit_map_to_points){
-        map.fitBounds(group.getBounds());
+    var maxzoom = null;
+    if (markers.length <= 1) {
+        // for single points zoom out a bit, else the fitBounds zooms in
+        // all the way, usually showing just water
+        maxzoom = 8;
+    }
+    map.fitBounds(group.getBounds(), {maxZoom: maxzoom});
 }
