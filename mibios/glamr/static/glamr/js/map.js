@@ -49,14 +49,7 @@ for (var i in map_points) {
                 var others = "";
                 if (map_points[i].others) {others=map_points[i].others;}
 
-                var iconType = "amplicon-icon";
-                if(map_points[i].sample_type == "metagenome"){
-                        iconType = "metagenome-icon";
-                }
-                else if(map_points[i].sample_type == "metatranscriptome"){
-                        iconType="metatranscriptome-icon"
-                }
-
+                var iconType = map_points[i].types_at_location + "-icon";
                 var iconMarker = L.divIcon({className: iconType});
 
                 var marker = L.marker(lat_long,{icon: iconMarker})

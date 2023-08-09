@@ -402,6 +402,8 @@ class MapMixin():
         Returns a dict str->str to be turned into json in the template.
         """
         qs = self.get_sample_queryset()
+        qs = qs.exclude(longitude='')
+        qs = qs.exclude(latitude='')
         qs = qs.select_related('dataset')
         qs = qs.values(
             'id', 'sample_name', 'latitude', 'longitude', 'sample_type',
@@ -427,6 +429,15 @@ class MapMixin():
             item['dataset_url'] = fast_reverse('dataset', args=[item['dataset_id']])  # noqa:E501
             item['dataset_name'] = dataset_name[item['dataset_id']]
             del item['dataset_id']
+
+            # types_at_location: construct a CSS selector prefix for the map
+            # marker/icon.  The map javascript will add '-icon'.  Assumes that
+            # any possible selector is defined in the loaded style sheet.  If
+            # no sample in the group has a sample_type then we put in an empty
+            # string, resulting in a (hopefully) invalid selector in which case
+            # no marker will be displayed.
+            stypes = set((i['sample_type'] for i in grp if i['sample_type']))
+            item['types_at_location'] = '-'.join(sorted(stypes))
 
             if len(grp) > 1:
                 # Add a link to the other samples at these coordinates.  We try

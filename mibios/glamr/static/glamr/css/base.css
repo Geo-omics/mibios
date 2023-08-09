@@ -37,22 +37,58 @@
 	flex-direction: column;
 }
 
+:root {
+    --col-amplicon: #D81B60;
+    --col-metagenome: #1E88E5;
+    --col-metatranscriptome: #FFC107;
+    --col-multi-type-border: var(--bs-gray-600);
+}
+
+/* sample type markers/icons: 3 types make 7 combinations, selectors with
+ * multiple types must have the types in alphabetical order */
 .amplicon-icon {
-	background: #D81B60;
+	background: var(--col-amplicon);
 	border: 1px solid rgba(255,255,255,0.5);
 	border-radius: 7px;
 }
 
 .metagenome-icon {
-	background: #1E88E5;
+	background: var(--col-metagenome);
 	border: 1px solid rgba(255,255,255,0.5);
 	border-radius: 7px;
 }
 
 .metatranscriptome-icon {
-	background: #FFC107;
+	background: var(--col-metatranscriptome);
 	border: 1px solid rgba(255,255,255,0.5);
 	border-radius: 7px;
+}
+
+.amplicon-metagenome-icon {
+    /* conic-gradient: list start and end color/angle (or %) pairs but 0 and
+     * 360/100% are implicit) -- not using any actual gradient but keeping
+     * colors solid */
+    background: conic-gradient(var(--col-amplicon) 180deg, var(--col-metagenome) 180deg);
+    border: 1px solid var(--col-multi-type-border);
+    border-radius: 7px;
+}
+
+.amplicon-metatranscriptome-icon {
+    background: conic-gradient(var(--col-amplicon) 180deg, var(--col-metatranscriptome) 180deg);
+    border: 1px solid var(--col-multi-type-border);
+    border-radius: 7px;
+}
+
+.metagenome-metatranscriptome-icon {
+    background: conic-gradient(var(--col-metagenome) 180deg, var(--col-metatranscriptome) 180deg);
+    border: 1px solid var(--col-multi-type-border);
+    border-radius: 7px;
+}
+
+.amplicon-metagenome-metatranscriptome-icon {
+    background: conic-gradient(var(--col-amplicon) 120deg, var(--col-metagenome) 120deg, var(--col-metagenome) 240deg, var(--col-metatranscriptome) 240deg);
+    border: 1px solid var(--col-multi-type-border);
+    border-radius: 7px;
 }
 
 .legend {
@@ -62,13 +98,13 @@
 }
 
 .amplicon-legend {
-	color: #D81B60;
+	color: var(--col-amplicon);
 }
 
 .metagenome-legend {
-	color: #1E88E5;
+	color: var(--col-metagenome);
 }
 
 .metatranscriptome-legend {
-	color: #FFC107;
+	color: var(--col-metatranscriptome);
 }
