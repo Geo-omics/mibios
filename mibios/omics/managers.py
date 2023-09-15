@@ -86,12 +86,13 @@ class SampleLoadMixin:
     """ sample is set by load_sample() for use in per-field helper methods """
 
     @atomic_dry
-    def load_sample(self, sample, done_ok=True, redo=False, use_template=True,
-                    **kwargs):
-        if use_template:
+    def load_sample(self, sample, template=None, sample_filter=None,
+                    done_ok=True, redo=False, **kwargs):
+        if template is None:
             template = {'sample': sample}
-        else:
-            template = {}
+
+        if sample_filter is None:
+            sample_filter = template
 
         if 'flag' in kwargs:
             flag = kwargs.pop('flag')
@@ -114,7 +115,7 @@ class SampleLoadMixin:
             if done and redo and not update:
                 # have to delete records for sample
                 print('Deleting... ', end='', flush=True)
-                dels = self.model.objects.filter(**template).delete()
+                dels = self.model.objects.filter(**sample_filter).delete()
                 print(dels, '[OK]')
 
         if 'file' not in kwargs:
@@ -237,26 +238,17 @@ class AlignmentLoader(BulkLoader, SampleLoadMixin):
 
     @atomic_dry
     def load_sample(self, sample, done_ok=True, redo=False, **kwargs):
-        # The Alignment has no sample field, so some things a special here:
-        # 1. need special deletion for redo (so have to do all the checks here)
-        # 2. don't use the template
-        done = getattr(self, 'load_flag_attr')
-        if done and done_ok and not redo:
-            # nothing to do
-            return
-
-        if done and not done_ok:
-            raise RuntimeError(f'Alignments already loaded: {sample}')
-
-        if done and redo and not kwargs.get('update', False):
-            print('Deleting... ', end='', flush=True)
-            dels = self.model.objects.filter(gene__sample=sample).delete()
-            print(dels, '[OK]')
-
+        print('Compiling gene IDs... ', end='', flush=True)
         self.gene_id_map = dict(sample.gene_set.values_list('gene_id', 'pk'))
+        print(f' {len(self.gene_id_map)} [OK]')
+
         # Our model has no sample field, so don't use the normal template
-        super().load_sample(sample, use_template=False, done_ok=done_ok,
-                            redo=False, **kwargs)
+        super().load_sample(sample,
+                            template={},
+                            sample_filter=dict(gene__sample=sample),
+                            done_ok=done_ok,
+                            redo=redo,
+                            **kwargs)
 
 
 class CompoundAbundanceLoader(BulkLoader, SampleLoadMixin):
