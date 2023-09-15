@@ -238,6 +238,17 @@ class AlignmentLoader(BulkLoader, SampleLoadMixin):
 
     @atomic_dry
     def load_sample(self, sample, done_ok=True, redo=False, **kwargs):
+        # To save a ton of time and space at the Loader's fkmap step, add
+        # filter to only get the needed subset of the unirefs.  A bit hackish
+        # as it sidesteps the spec.
+        infile = self.get_file(sample)
+        print(f'Reading distinct unirefs from {infile}...', end='', flush=True)
+        with infile.open() as ifile:
+            # get 3rd column, unique values
+            urefs = {line.split()[2].upper() for line in ifile}
+        self.spec.fkmap_filters['ref'] = {'accession__in': urefs}
+        print(f' [{len(urefs)} OK]')
+
         print('Compiling gene IDs... ', end='', flush=True)
         self.gene_id_map = dict(sample.gene_set.values_list('gene_id', 'pk'))
         print(f' {len(self.gene_id_map)} [OK]')

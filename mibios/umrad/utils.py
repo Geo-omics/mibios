@@ -377,6 +377,7 @@ class InputFileSpec:
         self.path = None
         self.has_header = None
         self.fk_attrs = {}
+        self.fkmap_filters = {}
 
     def setup(self, loader, column_specs=None, path=None):
         """

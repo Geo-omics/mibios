@@ -432,15 +432,19 @@ class BaseLoader(DjangoManager):
             fk2pythons[i.name] = \
                 [i.related_model._meta.get_field(j).to_python for j in lookups]
 
+            f = self.spec.fkmap_filters.get(i.name, {})
+
             print(f'Retrieving {i.related_model._meta.verbose_name} data, '
+                  f'{"filtered, " if f else ""}'
                   f'indexing by ({",".join(lookups)}) ...',
                   end='', flush=True)
             fkmap[i.name] = {
                 tuple(a): pk for *a, pk
-                in i.related_model.objects.values_list(*lookups, 'pk')
-                    .iterator()
+                in i.related_model.objects.filter(**f)
+                    .values_list(*lookups, 'pk')
             }
             print(f'[{len(fkmap[i.name])} OK]')
+        del f
 
         pp = ProgressPrinter(f'{model_name} rows read from file')
         new_objs = []  # will be created
