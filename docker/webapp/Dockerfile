@@ -49,7 +49,7 @@ RUN adduser --system --home=$APP_BASE_DIR --group $APP_USER
 RUN adduser $APP_USER root
 
 WORKDIR ${APP_BASE_DIR}
-COPY settings.py start-webapp uwsgitop ./
+COPY settings.py start-webapp ./
 RUN chmod ugo+rwx+t $APP_BASE_DIR
 USER $APP_USER:$APP_GROUP
 RUN mkdir static_var
