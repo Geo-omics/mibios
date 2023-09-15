@@ -640,11 +640,12 @@ class BaseLoader(DjangoManager):
 
         if diff_stats:
             diff = {
-                'missing_objs': missing_objs,
                 'change_set': [],
                 'unchanged_count': 0,
                 'new_count': len(new_objs),
             }
+            if update:
+                diff['missing_objs'] = missing_objs
             # retrieve old objects again
             upd_q = make_int_in_filter('pk', [i.pk for i in upd_objs])
             old_objs = self.filter(upd_q)
