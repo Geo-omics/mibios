@@ -955,7 +955,7 @@ class BaseLoader(DjangoManager):
         get_pool_key = attrgetter(*pool_key_fields)
         # so the key is either a scalar value or a tuple of values
         obj_pool = {}
-        for i in self.filter(**template).iterator():
+        for i in self.filter(**template):
             key = get_pool_key(i)
             if key in obj_pool:
                 # Field should be unique, but maybe nulls are allowed, anyways,
