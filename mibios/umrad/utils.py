@@ -121,7 +121,7 @@ class ProgressPrinter():
             self,
             template=DEFAULT_TEMPLATE,
             interval=DEFAULT_INTERVAL,
-            output_file=sys.stdout,
+            output_file=None,
             show_rate=True,
             length=None,
     ):
@@ -130,9 +130,9 @@ class ProgressPrinter():
 
         self.template, self.template_var = self._init_template(template)
         self.interval = interval
-        self.output_file = output_file
+        self.output_file = output_file or sys.stdout
         self.show_rate = show_rate
-        self.to_terminal = output_file.isatty()
+        self.to_terminal = self.output_file.isatty()
         self.length = length
         self.it = None
         self.timer = None
