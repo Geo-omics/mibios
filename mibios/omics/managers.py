@@ -35,12 +35,10 @@ from mibios.ncbi_taxonomy.models import TaxNode
 from mibios.umrad.models import UniRef100
 from mibios.umrad.manager import BulkLoader, Manager
 from mibios.umrad.utils import CSV_Spec, atomic_dry
+from mibios.umrad.utils import ProgressPrinter as PP
 
 from . import get_sample_model
 from .utils import call_each, get_fasta_sequence
-
-from mibios.umrad.utils import ProgressPrinter as PP
-
 
 log = getLogger(__name__)
 
@@ -542,21 +540,20 @@ class ContigLikeLoader(SequenceLikeLoader):
         qs = (self
               .filter(sample=sample)
               .exclude(lca=None)
-              .select_related('lca')
               .order_by('-lca__rank', 'lca'))
         stats = {}
-        for lca, objs in groupby(qs.iterator(), key=lambda x: x.lca):
+        for lca_id, objs in groupby(qs.iterator(), key=lambda x: x.lca_id):
             objs = list(objs)
 
             # weighted fpkm averages
             wmedian_fpkm = median((i.fpkm for i in objs for _ in range(i.length)))  # noqa:E501
 
-            stats[lca] = {}
-            stats[lca]['wmedian_fpkm'] = wmedian_fpkm
-            stats[lca]['count'] = len(objs)
-            stats[lca]['length'] = sum((i.length for i in objs))
-            stats[lca]['reads_mapped'] = sum((i.reads_mapped for i in objs))
-            stats[lca]['frags_mapped'] = sum((i.frags_mapped for i in objs))
+            stats[lca_id] = {}
+            stats[lca_id]['wmedian_fpkm'] = wmedian_fpkm
+            stats[lca_id]['count'] = len(objs)
+            stats[lca_id]['length'] = sum((i.length for i in objs))
+            stats[lca_id]['reads_mapped'] = sum((i.reads_mapped for i in objs))
+            stats[lca_id]['frags_mapped'] = sum((i.frags_mapped for i in objs))
 
         return stats
 
@@ -1061,6 +1058,8 @@ class TaxonAbundanceManager(Manager):
 
         Contig = import_string('mibios.omics.models.Contig')
         Gene = import_string('mibios.omics.models.Gene')
+        TaxNode = import_string('mibios.ncbi_taxonomy.models.TaxNode')
+
         print('Compiling stats for contigs... ', end='', flush=True)
         contig_stats = Contig.loader.abundance_stats(sample)
         print(f'{len(contig_stats)} [OK]')
@@ -1071,7 +1070,10 @@ class TaxonAbundanceManager(Manager):
         # taxa for which we have stats don't quite overlap genes vs. contigs,
         # but we'll create an object for each taxon and fill in default values
         # (0.0) for each statistics that is missing
-        taxa = set(contig_stats.keys()).union(gene_stats.keys())
+        tax_ids = set(contig_stats.keys()).union(gene_stats.keys())
+        print(f'Retrieving {len(tax_ids)} taxa... ', end='', flush=True)
+        taxa = TaxNode.objects.filter(pk__in=tax_ids)
+        print('[OK]')
 
         def fpkm(count, length):
             """
@@ -1087,8 +1089,8 @@ class TaxonAbundanceManager(Manager):
         objs = []
         empty_dict = {}  # stand-in so getting the default works
         for taxon in taxa:
-            cont_st = contig_stats.get(taxon, empty_dict)
-            gene_st = gene_stats.get(taxon, empty_dict)
+            cont_st = contig_stats.get(taxon.pk, empty_dict)
+            gene_st = gene_stats.get(taxon.pk, empty_dict)
 
             len_contigs = cont_st.get('length', 0)
             len_genes = gene_st.get('length', 0)
