@@ -971,7 +971,7 @@ class SequenceLike(Model):
     history = None
     sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
 
-    fasta_offset = models.PositiveIntegerField(
+    fasta_offset = models.PositiveBigIntegerField(
         **opt,
         help_text='offset of first byte of fasta (or similar) header, if there'
                   ' is one, otherwise first byte of sequence',
