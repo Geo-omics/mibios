@@ -414,6 +414,7 @@ class BaseLoader(DjangoManager):
         # loading info to process FKs
         fkmap = {}  # the (acc,...)->pk mappings
         fk2pythons = {}  # any needed Field.to_python() functions
+        f = None
         for i in fields:
             if not i.many_to_one:
                 continue
