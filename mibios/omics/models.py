@@ -20,6 +20,7 @@ from mibios.umrad.utils import ProgressPrinter
 from . import managers, get_sample_model, sra
 from .amplicon import get_target_genes, quick_analysis, quick_annotation
 from .fields import DataPathField
+from .queryset import SampleQuerySet
 from .utils import get_fasta_sequence
 
 
@@ -154,7 +155,7 @@ class AbstractSample(Model):
         help_text='number of reads mapped to genes',
     )
 
-    objects = managers.SampleManager()
+    objects = managers.SampleManager.from_queryset(SampleQuerySet)
 
     class Meta:
         abstract = True
@@ -238,6 +239,8 @@ class AbstractSample(Model):
             If True, then any existing metagenomic data for this sample is
             updated or deleted and then re-loaded.  The default is to keep the
             data from previous runs and skip steps whenever possible.
+
+        Deprecated: Is replaced by queryset method.
         """
         kw = dict(done_ok=done_ok, redo=redo, dry_run=dry_run)
         print(f'Loading metagenomic data for {self.sample_id} "{self}" ...')
@@ -1393,7 +1396,7 @@ class RNACentralRep(Model):
 
 class Sample(AbstractSample):
     """
-    Placeholder model for (metagenomic?) samples
+    Placeholder model for samples
     """
     class Meta:
         swappable = 'OMICS_SAMPLE_MODEL'
@@ -1405,34 +1408,3 @@ class Dataset(AbstractDataset):
     """
     class Meta:
         swappable = 'OMICS_DATASET_MODEL'
-
-
-def load_helper_metagenome(samples=None):
-    """
-    Load all data
-    """
-    if samples is None:
-        Sample = get_sample_model()
-        samples = Sample.objects.filter(
-            sample_type='metagenome',
-            metag_pipeline_reg=True,
-            gene_alignment_hits_loaded=False,
-        )
-
-    print(f'{samples.count()} samples to go...')
-    for i in samples:
-        if not Alignment.loader.get_file(i).is_file():
-            print(f'No m8 file: {i} skipping...')
-            continue
-        if not i.contig_fasta_loaded:
-            Contig.loader.load_fasta_sample(i)
-        if not i.gene_fasta_loaded:
-            Gene.loader.load_fasta_sample(i)
-
-        with atomic():
-            Alignment.loader.load_sample(i)
-            Gene.loader.assign_gene_lca(i)
-            Contig.loader.assign_contig_lca(i)
-            i.gene_alignment_hits_loaded = True
-            i.save()
-        print(f'Sample {i} done!')

@@ -1029,6 +1029,54 @@ class SampleManager(Manager):
                 sep='\t'
             )
 
+    def get_metagenomic_loader_script(self):
+        """
+        Gets 'script' to load metagenomic data
+
+        This is a list of pairs (progress_flag, functions) where functions
+        means either a single callable that takes a sample as argument or a
+        list of such callables.
+        """
+        Alignment = import_string('mibios.omics.models.Alignment')
+        Contig = import_string('mibios.omics.models.Contig')
+        Gene = import_string('mibios.omics.models.Gene')
+        TaxonAbundance = import_string('mibios.omics.models.TaxonAbundance')
+
+        return [
+            ('contig_fasta_loaded', Contig.loader.load_fasta_sample),
+            ('gene_fasta_loaded', Gene.loader.load_fasta_sample),
+            ('contig_abundance_loaded', Contig.loader.load_abundance_sample),
+            ('gene_abundance_loaded', Gene.loader.load_abundance_sample),
+            ('gene_alignment_hits_loaded', [
+                Alignment.loader.load_sample,
+                Gene.loader.assign_gene_lca,
+                Contig.loader.assign_contig_lca,
+            ]),
+            ('tax_abund_ok', TaxonAbundance.objects.populate_sample),
+        ]
+
+    def get_blocklist(self):
+        """
+        Return PKs of blocked samples
+
+        Blocked samples are those for which something is wrong with the omics
+        data.  Beyond meta-data no other data should be loaded.
+        """
+        if not settings.SAMPLE_BLOCKLIST:
+            return []
+
+        blocklist = []
+        with open(settings.SAMPLE_BLOCKLIST) as ifile:
+            for line in ifile:
+                line = line.strip()
+                if line.startswith('#'):
+                    continue
+                blocklist.append(line)
+
+        # assumes the block list has valid sample_id values, if not this will
+        # fail silently
+        return self.filter(sample_id__in=blocklist)
+
 
 class TaxonAbundanceManager(Manager):
     """ loader manager for the TaxonAbundance model """

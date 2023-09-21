@@ -9,6 +9,7 @@ from django.db.models.functions import FirstValue, Length
 
 import pandas
 
+from mibios.omics.queryset import SampleQuerySet as OmicsSampleQuerySet
 from mibios.umrad.manager import QuerySet
 from . import GREAT_LAKES
 from .utils import split_query
@@ -68,7 +69,7 @@ class DatasetQuerySet(QuerySet):
         return df
 
 
-class SampleQuerySet(QuerySet):
+class SampleQuerySet(OmicsSampleQuerySet):
     def basic_counts(self, *fields, exclude_blanks=True):
         """
         Count samples by given combination of categories
@@ -224,7 +225,7 @@ class UniqueWordQuerySet(QuerySet):
                     .filter(
                         length__lte=len(word) + check_length,
                         length__gte=len(word) - check_length,
-                    )
+                )
         elif check_length:
             raise ValueError('expect an int or evaluate to False')
 
