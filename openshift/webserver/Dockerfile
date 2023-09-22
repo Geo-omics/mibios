@@ -19,8 +19,9 @@ RUN apt-get update && apt-get upgrade --assume-yes --quiet && apt-get install --
 RUN mkdir -p /var/run/apache2 \
              /var/run/apache2/lock
 
-COPY start.sh /start.sh
 COPY apache24.conf /etc/apache2/conf-available/glamr.conf
+COPY robots.txt /var/www/html/
+COPY start.sh /start.sh
 
 RUN    a2enmod proxy \
     && a2enmod proxy_uwsgi \
@@ -40,7 +41,5 @@ RUN      sed -i 's/80/8080/' /etc/apache2/sites-enabled/000-default.conf \
       && sed -i 's/APACHE_LOCK_DIR=\/var\/lock\/apache2$SUFFIX/APACHE_LOCK_DIR=\/var\/run\/apache2\/lock\/apache2$SUFFIX/' /etc/apache2/envvars
 
 USER 1001
-
 EXPOSE 8080/tcp
-
 CMD ["/bin/bash", "/start.sh"]
