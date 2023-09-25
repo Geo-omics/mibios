@@ -121,12 +121,6 @@ class ReferenceLoader(MetaDataLoader):
 
     def check_skip(self, value, obj):
         """ Pre-processor to determine if row needs to be skipped """
-        if value == 'paper_17':
-            return self.spec.SKIP_ROW
-
-        if value == 'Koeppel et al. 2022':
-            return self.spec.SKIP_ROW
-
         if not value:
             return self.spec.SKIP_ROW
 
