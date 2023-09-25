@@ -229,6 +229,9 @@ class SampleLoader(BoolColMixin, MetaDataLoader):
         # consider row blank
         return self.spec.SKIP_ROW
 
+    def set_status_flag(self, value, obj):
+        return True
+
     # re for yyyy or yyyy-mm (year or year/month only) timestamp formats
     partial_date_pat = re.compile(r'^([0-9]{4})(?:-([0-9]{2})?)$')
 
@@ -318,6 +321,7 @@ class SampleLoader(BoolColMixin, MetaDataLoader):
 
     spec = SampleInputSpec(
         ('SampleID', 'sample_id', check_empty),  # A
+        (CSV_Spec.CALC_VALUE, 'meta_data_loaded', set_status_flag),
         # id_fixed B  --> ignore
         # sample_input_complete C  --> ignore
         ('SampleName', 'sample_name'),  # D
@@ -354,8 +358,7 @@ class SampleLoader(BoolColMixin, MetaDataLoader):
     @atomic_dry
     def load_meta(self, **kwargs):
         """ samples meta data """
-        template = dict(meta_data_loaded=True)
-        return self.load(template=template, **kwargs)
+        return self.load(**kwargs)
 
 
 class SearchableManager(Loader):
