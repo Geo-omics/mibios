@@ -1,3 +1,5 @@
+import traceback
+
 from django.conf import settings
 from django.db.transaction import atomic
 
@@ -86,6 +88,7 @@ class SampleQuerySet(QuerySet):
         for num, sample in enumerate(samples):
             print(f'{len(samples) - num} samples to go...')
             stage = 1
+            abort_sample = False
             for flag, funcs in script:
                 if callable(funcs):
                     funcs = [funcs]
@@ -106,13 +109,44 @@ class SampleQuerySet(QuerySet):
                             file_copy=settings.METAGENOMIC_LOADING_LOG,
                         )
                         with timestamper:
-                            fn(sample)
+                            try:
+                                fn(sample)
+                            except Exception as e:
+                                # If we're contigured to write a log file, then
+                                # print the stack to a special FAIL.log file
+                                # and continue with the next sample. This
+                                # assumes the error is caused not by a regular
+                                # bug but by occasional unusual data for
+                                # individual samples.
+                                path = settings.METAGENOMIC_LOADING_LOG
+                                if not path:
+                                    raise
+                                path, _, _ = path.rpartition('.')
+                                path = f'{path}.{sample.sample_id}.FAIL.log'
+                                msg = (f'FAIL: {e.__class__.__name__} {e} on '
+                                       f'{sample.sample_id} at {fn=}')
+                                print(msg)
+                                with open(path, 'w') as ofile:
+                                    ofile.write(msg + '\n')
+                                    traceback.print_exc(file=ofile)
+                                print(f'see traceback at {ofile.name}')
+                                # skip to next sample, do not set the flag,
+                                # fn() is assumed to have rolled back any
+                                # its own changes to the DB
+                                abort_sample = True
+                                break
                         stage += 1
+
+                    if abort_sample:
+                        break
 
                     if not getattr(sample, flag):
                         # not all functions will set the progress flag
                         setattr(sample, flag, True)
                         sample.save()
 
-            print(f'Sample {sample} done!', end='  ')
+            if abort_sample:
+                print(f'Aborting {sample.sample_id}/{sample}!', end=' ')
+            else:
+                print(f'Sample {sample.sample_id}/{sample} done!', end=' ')
         print()
