@@ -4,9 +4,10 @@ import re
 from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import FieldDoesNotExist
-from django.db import connections
+from django.db import connections, transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
+from django.utils.module_loading import import_string
 
 from mibios.omics.managers import SampleManager as OmicsSampleManager
 from mibios.omics.models import AbstractSample
@@ -456,3 +457,20 @@ class SampleManager(OmicsSampleManager):
 
     def with_privates(self):
         return super().get_queryset()
+
+    def load_all_meta_data(self, dry_run=False):
+        """
+        Convenience method -- load/update all meta data
+
+        Loads all reference/dataset/sample data
+        load meta data assuming empty DB -- reference implementation
+        """
+        Reference = import_string('mibios.glamr.models.Reference')
+        Dataset = import_string('mibios.glamr.models.Dataset')
+        with transaction.atomic():
+            Reference.loader.load()
+            Dataset.loader.load()
+            self.model.loader.load_meta()
+            # Sample.objects.sync()
+            if dry_run:
+                transaction.set_rollback(True)

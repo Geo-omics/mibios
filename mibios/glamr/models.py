@@ -424,17 +424,3 @@ class UniqueWord(models.Model):
 
     def __str__(self):
         return self.word
-
-
-def load_meta_data(dry_run=False):
-    """
-    load meta data assuming empty DB -- reference implementation
-    """
-    dbalias = router.db_for_write(Sample)
-    with transaction.atomic(using=dbalias):
-        Reference.loader.load()
-        Dataset.loader.load()
-        Sample.loader.load_meta()
-        # Sample.objects.sync()
-        if dry_run:
-            transaction.set_rollback(True, dbalias)
