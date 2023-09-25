@@ -446,7 +446,13 @@ class DatasetManager(Manager):
     def get_queryset(self):
         return super().get_queryset().filter(private=False)
 
+    def with_privates(self):
+        return super().get_queryset()
+
 
 class SampleManager(OmicsSampleManager):
     def get_queryset(self):
         return super().get_queryset().filter(dataset__private=False)
+
+    def with_privates(self):
+        return super().get_queryset()
