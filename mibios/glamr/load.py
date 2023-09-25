@@ -155,17 +155,26 @@ class SampleInputSpec(CSV_Spec):
 
         specs = []
         with (settings.GLAMR_META_ROOT / self.UNITS_SHEET).open() as ifile:
-            ifile.readline()  # ignore header
+            # First: what columns do we want?
+            header = ifile.readline().rstrip('\n').split('\t')
+            col_name_col = header.index('Column_name')
+            field_name_col = header.index('django_field_name')
             for line in ifile:
-                col_name, *_, field_name, _ = line.rstrip('\n').split('\t')
+                row = line.rstrip('\n').split('\t')
+                col_name = row[col_name_col]
+                field_name = row[field_name_col]
                 if not field_name:
                     if col_name in base_spec:
                         raise RuntimeError('field name missing in meta data')
-                    # row does not related to a existing field
+                    # row does not relate to a existing field
                     continue
                 if col_name in base_spec:
                     if base_spec[col_name][1] != field_name:
-                        raise RuntimeError(f'fieldname mismatch at {col_name}')
+                        raise RuntimeError(
+                            f'fieldname mismatch for "{col_name}": '
+                            f'{base_spec[col_name][1]=} != {field_name=}\n'
+                            f'{line=}'
+                        )
                     # merge spec item
                     spec_item = base_spec.pop(col_name)
                 else:
