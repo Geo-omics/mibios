@@ -1,9 +1,11 @@
-from django_tables2 import Table
+from django_tables2 import A, Column, Table
 
 from . import get_sample_model
 
 
 class SampleStatusTable(Table):
+    sample_id = Column(linkify=('sample', [A('pk')]))
+
     class Meta:
         model = get_sample_model()
         fields = [
