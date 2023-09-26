@@ -880,6 +880,8 @@ class SampleManager(Manager):
             source_file = self.get_file()
 
         with open(source_file) as f:
+            print(f'Reading {source_file} ...')
+
             # check assumptions on columns
             SAMPLE_ID = 0
             STUDY_ID = 1
@@ -942,9 +944,12 @@ class SampleManager(Manager):
                     continue
                 else:
                     if obj.dataset.dataset_id != dataset:
-                        raise RuntimeError('{sample_id}: bad dataset')
+                        raise RuntimeError(f'{sample_id}: bad dataset')
                     if obj.sample_type != sample_type:
-                        raise RuntimeError('{sample_id}: bad sample type')
+                        raise RuntimeError(
+                            f'{sample_id}: bad sample type: {obj.sample_type=}'
+                            f' {sample_type=}'
+                        )
 
                     updateable = ['analysis_dir']
                     change_set = []
