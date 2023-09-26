@@ -1,11 +1,12 @@
 """
 GLAMR-specific modeling
 """
+from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.indexes import GinIndex, GistIndex
 from django.contrib.postgres.search import SearchVectorField
-from django.db import models, router, transaction
+from django.db import models
 from django.urls import reverse
 
 from mibios.omics.models import AbstractDataset, AbstractSample
@@ -103,8 +104,13 @@ class Dataset(AbstractDataset):
             # remove last word and add [...]
             scheme = ' '.join(scheme.split(' ')[:-1]) + '[\u2026]'
 
-        return ' - '.join(filter(None, [scheme, ref])) or self.short_name \
+        s = ' - '.join(filter(None, [scheme, ref])) or self.short_name \
             or super().__str__()
+
+        if settings.INTERNAL_DEPLOYMENT:
+            s = f'{s} ({self.dataset_id})'
+
+        return s
 
     URL_TEMPLATES = {
         'bioproject': 'https://www.ncbi.nlm.nih.gov/bioproject/{}',
@@ -186,6 +192,8 @@ class Reference(Model):
             value = value[:maxlen]
             # rm last word, add ellipsis
             value = ' '.join(value.split(' ')[:-1]) + '[\u2026]"'
+        if settings.INTERNAL_DEPLOYMENT:
+            value = f'{value} ({self.reference_id})'
         return value
 
     def get_absolute_url(self):
@@ -322,8 +330,11 @@ class Sample(AbstractSample):
         default_manager_name = 'objects'
 
     def __str__(self):
-        return self.sample_name or self.sample_id or self.biosample \
-            or super().__str__()
+        value = self.sample_name or self.biosample or ''
+        if value:
+            if self.sample_id and settings.INTERNAL_DEPLOYMENT:
+                value = f'{value} ({self.sample_id})'
+        return value or self.sample_id or super().__str__()
 
     def format_collection_timestamp(self):
         """
