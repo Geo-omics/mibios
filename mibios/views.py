@@ -98,8 +98,8 @@ class BasicBaseMixin(CuratorMixin, ContextMixin):
             ctx['version_info'][conf.name] = getattr(conf, 'version', None)
         if settings.DEBUG:
             ctx['version_info']['DEBUG'] = 'True'
-            for db_alias, db_info in get_db_connection_info().items():
-                ctx['version_info'][f'DB {db_alias}'] = db_info
+        for db_alias, db_info in get_db_connection_info().items():
+            ctx['version_info'][f'DB {db_alias}'] = db_info
         return ctx
 
     @staticmethod

@@ -6,6 +6,7 @@ import inspect
 import logging
 import time
 
+from django.conf import settings
 import django.db
 
 
@@ -333,12 +334,20 @@ def get_db_connection_info():
     """
     info = {}
     for i in django.db.connections.all():
-        params = i.get_connection_params()
-        params = [
-            f'{k}={v}' for k, v in params.items()
-            if k != 'password'
-        ]
-        params = ' '.join(params)
+        params = dict(i.get_connection_params())
+        try:
+            del params['password']
+        except KeyError:
+            pass
+        if settings.DEBUG:
+            params = [
+                f'{k}={v}' for k, v in params.items()
+                if k != 'password'
+            ]
+            params = ' '.join(params)
+        else:
+            # in production only display DB name
+            params = f'database={params.get("database", "???")}'
         info[i.alias] = f'{i.display_name} ({params})'
     return info
 
