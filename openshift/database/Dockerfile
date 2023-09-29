@@ -1,5 +1,4 @@
 FROM image-registry.openshift-image-registry.svc:5000/openshift/debian:bookworm-slim
-FROM debian:bookworm-slim
 
 ARG POSTGRES_BASE=/var/local/postgresql
 ARG DEBIAN_FRONTEND=noninteractive 

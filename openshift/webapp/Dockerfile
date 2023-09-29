@@ -1,4 +1,4 @@
-FROM debian:bookworm-slim
+FROM image-registry.openshift-image-registry.svc:5000/openshift/debian:bookworm-slim
 ENV APP_BASE_DIR=/glamr-webapp
 ARG APP_USER=webapp
 ARG APP_GROUP=webapp

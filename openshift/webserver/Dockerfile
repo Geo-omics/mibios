@@ -1,4 +1,4 @@
-FROM debian:bookworm-slim
+FROM image-registry.openshift-image-registry.svc:5000/openshift/debian:bookworm-slim
 ARG DEBIAN_FRONTEND=noninteractive
 
 USER root
