@@ -34,7 +34,7 @@ RUN apt-get update && apt-get upgrade --assume-yes --quiet && apt-get install --
     uwsgi \
     uwsgi-plugin-python3
 
-RUN echo "increment for mibios upgrade: 58"
+RUN echo "increment for mibios upgrade: 60"
 # this is Debian's pip so the below cmd line with --b-s-p will install mibios
 # (and nothing else) under /usr/local
 # Also, currently, just "pip install" would install for python3.10, hence

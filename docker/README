@@ -5,6 +5,7 @@ To build container images, run:
 docker build --tag glamr.apache2 apache2/
 docker build --tag glamr.webapp webapp/
 docker build --tag glamr.database database/
+docker build --tag glamr.public-db-stage public-db-stage/
 
 To (re-)start the containers run, e.g.:
 
