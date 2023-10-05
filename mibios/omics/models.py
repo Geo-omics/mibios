@@ -15,6 +15,7 @@ from mibios.umrad.model_utils import (
     digits, opt, ch_opt, fk_req, fk_opt, uniq_opt, Model,
 )
 from mibios.umrad.models import CompoundRecord, FuncRefDBEntry, UniRef100
+from mibios.umrad.manager import Manager
 from mibios.umrad.utils import ProgressPrinter
 
 from . import managers, get_sample_model, sra
@@ -155,7 +156,7 @@ class AbstractSample(Model):
         help_text='number of reads mapped to genes',
     )
 
-    objects = managers.SampleManager.from_queryset(SampleQuerySet)
+    objects = Manager.from_queryset(SampleQuerySet)
 
     class Meta:
         abstract = True

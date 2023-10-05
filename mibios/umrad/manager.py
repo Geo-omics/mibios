@@ -1047,6 +1047,16 @@ class Loader(BulkCreateWrapperMixin, BaseLoader.from_queryset(QuerySet)):
     pass
 
 
+class MetaDataLoader(Loader):
+    """ Loader class for small amounts of data with more checks """
+    default_load_kwargs = dict(
+        validate=True,
+        bulk=False,
+        update=True,
+        diff_stats=True,
+    )
+
+
 class BulkLoader(Loader):
     def load(self, bulk=True, validate=False, **kwargs):
         super().load(bulk=bulk, validate=validate, **kwargs)

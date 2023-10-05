@@ -33,7 +33,7 @@ from django.utils.module_loading import import_string
 from mibios.models import QuerySet
 from mibios.ncbi_taxonomy.models import TaxNode
 from mibios.umrad.models import UniRef100
-from mibios.umrad.manager import BulkLoader, Manager
+from mibios.umrad.manager import BulkLoader, Manager, MetaDataLoader
 from mibios.umrad.utils import CSV_Spec, atomic_dry
 from mibios.umrad.utils import ProgressPrinter as PP
 
@@ -865,43 +865,53 @@ class GeneLoader(ContigLikeLoader):
             print(f'{num_unknown} [OK]')
 
 
-class SampleManager(Manager):
-    """ Manager for the Sample """
-    def get_file(self):
-        """ get the metagenomic pipeline import log """
+class SampleLoader(MetaDataLoader):
+    """ Loader manager for Sample """
+    def get_omics_import_file(self):
+        """ get the omics data import log """
         return settings.OMICS_DATA_ROOT / 'data' / 'imported_samples.tsv'
 
     @atomic_dry
-    def update_analysis_status(self, source_file=None, skip_on_error=False):
+    def update_analysis_status(self, source_file=None, skip_on_error=False,
+                               quiet=False):
         """
         Update sample table with analysis status
         """
+        # Input file columns of interest:
+        SAMPLE_ID = 0
+        STUDY_ID = 1
+        TYPE = 3
+        ANALYSIS_DIR = 4
+        SUCCESS = 6
+
+        COLUMN_NAMES = (
+            (SAMPLE_ID, 'SampleID'),
+            (STUDY_ID, 'StudyID'),
+            (TYPE, 'sample_type'),
+            (ANALYSIS_DIR, 'sample_dir'),
+            (SUCCESS, 'import_success'),
+        )
+
+        def err(msg):
+            msg = f'line {lineno}: {msg}'
+            if skip_on_error:
+                log.error(msg)
+            else:
+                raise RuntimeError(msg)
+
+        objs = self.select_related('dataset').in_bulk(field_name='sample_id')
+
         if source_file is None:
-            source_file = self.get_file()
+            source_file = self.get_omics_import_file()
 
         with open(source_file) as f:
             print(f'Reading {source_file} ...')
-
-            # check assumptions on columns
-            SAMPLE_ID = 0
-            STUDY_ID = 1
-            TYPE = 3
-            ANALYSIS_DIR = 4
-            SUCCESS = 6
-            cols = (
-                (SAMPLE_ID, 'SampleID'),
-                (STUDY_ID, 'StudyID'),
-                (TYPE, 'sample_type'),
-                (ANALYSIS_DIR, 'sample_dir'),
-                (SUCCESS, 'import_success'),
-            )
-
             head = f.readline().rstrip('\n').split('\t')
-            for index, column in cols:
+            for index, column in COLUMN_NAMES:
                 if head[index] != column:
                     raise RuntimeError(
                         f'unexpected header in {f.name}: 0-based column '
-                        f'{index} is {head[index]} but {column} is expected'
+                        f'{index} is "{head[index]}" but expected "{column}"'
                     )
 
             good_seen = []
@@ -910,7 +920,7 @@ class SampleManager(Manager):
             unchanged = 0
             notfound = 0
             nosuccess = 0
-            for line in f:
+            for lineno, line in enumerate(f, start=1):
                 row = line.rstrip('\n').split('\t')
                 sample_id = row[SAMPLE_ID]
                 dataset = row[STUDY_ID]
@@ -919,51 +929,57 @@ class SampleManager(Manager):
                 success = row[SUCCESS]
 
                 if not all([sample_id, dataset, sample_type, analysis_dir, success]):  # noqa: E501
-                    raise RuntimeError(f'field is empty in row: {row}')
+                    err(f'field is empty in row: {row}')
+                    continue
 
                 if sample_id in samp_id_seen:
-                    # skip rev line
+                    err(f'Duplicate sample ID: {sample_id}')
                     continue
                 else:
                     samp_id_seen.add(sample_id)
 
                 if success != 'TRUE':
-                    log.info(f'ignoring {sample_id}: no import success')
+                    if not quiet:
+                        log.info(f'ignoring {sample_id}: no import success')
                     nosuccess += 1
                     continue
 
-                need_save = False
                 try:
-                    obj = self.get(
-                        sample_id=sample_id,
-                    )
-                except self.model.DoesNotExist:
-                    # object may be hidden by default manager (private or so)
-                    log.warning(f'no such sample: {sample_id} (skipping)')
+                    obj = objs[sample_id]
+                except KeyError:
+                    log.warning(f'line {lineno}: unknown sample: {sample_id} '
+                                f'(skipping)')
                     notfound += 1
                     continue
-                else:
-                    if obj.dataset.dataset_id != dataset:
-                        raise RuntimeError(f'{sample_id}: bad dataset')
-                    if obj.sample_type != sample_type:
-                        raise RuntimeError(
-                            f'{sample_id}: bad sample type: {obj.sample_type=}'
-                            f' {sample_type=}'
-                        )
 
-                    updateable = ['analysis_dir']
-                    change_set = []
-                    for attr in updateable:
-                        val = locals()[attr]
-                        if getattr(obj, attr) != val:
-                            setattr(obj, attr, val)
-                            change_set.append(attr)
-                    if change_set:
-                        need_save = True
-                        save_info = (f'update: {obj} change_set: '
-                                     f'{", ".join(change_set)}')
-                    else:
-                        unchanged += 1
+                if obj.dataset.dataset_id != dataset:
+                    err(
+                        f'line {lineno}: {obj} dataset changed: '
+                        f'{obj.dataset.dataset_id} -> {dataset}'
+                    )
+                    continue
+
+                if obj.sample_type != sample_type:
+                    err(
+                        f'line {lineno}: {obj} sample type changed: '
+                        f'{obj.sample_type} -> {sample_type}'
+                    )
+                    continue
+
+                updateable = ['analysis_dir']
+                change_set = []
+                for attr in updateable:
+                    val = locals()[attr]
+                    if getattr(obj, attr) != val:
+                        setattr(obj, attr, val)
+                        change_set.append(attr)
+                if change_set:
+                    need_save = True
+                    save_info = (f'update: {obj} change_set: '
+                                 f'{", ".join(change_set)}')
+                else:
+                    need_save = False
+                    unchanged += 1
 
                 if need_save:
                     obj.metag_pipeline_reg = True
@@ -974,8 +990,10 @@ class SampleManager(Manager):
 
                 good_seen.append(obj.pk)
 
-        log.info(f'Summary:\n  samples listed: {len(samp_id_seen)}\n  '
-                 f'samples updated: {changed}')
+        log.info('Summary:')
+        log.info(f'  records read from file: {lineno}')
+        log.info(f'  (unique) samples listed: {len(samp_id_seen)}')
+        log.info(f'  samples updated: {changed}')
         if notfound:
             log.warning(
                 f'Samples missing from database (or hidden): {notfound}'
@@ -985,14 +1003,13 @@ class SampleManager(Manager):
             log.warning(f'Samples not marked "import_success": {nosuccess}')
 
         if unchanged:
-            log.info(f'Data for {unchanged} samples are already in the DB and '
-                     f'remain unchanged')
+            log.info(f'Data for {unchanged} listed samples remain unchanged.')
 
         missing_or_bad = self.exclude(pk__in=good_seen)
         if missing_or_bad.exists():
-            log.warning(f'The DB has {missing_or_bad.count()} samples for '
+            log.warning(f'The DB has {missing_or_bad.count()} samples '
                         f'which are missing from {source_file} or which had '
-                        f'to be skipped')
+                        f'to be skipped for other reasons.')
 
         missing = self.exclude(sample_id__in=samp_id_seen)
         if missing.exists():
@@ -1001,7 +1018,7 @@ class SampleManager(Manager):
 
     def status(self):
         if not self.exists():
-            print('No samples in database yet')
+            print('No samples in database yet.')
             return
 
         print(' ' * 10, 'contigs', 'bins', 'checkm', 'genes', sep='\t')

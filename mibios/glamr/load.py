@@ -9,9 +9,11 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 from django.utils.module_loading import import_string
 
-from mibios.omics.managers import SampleManager as OmicsSampleManager
 from mibios.omics.models import AbstractSample
-from mibios.umrad.manager import InputFileError, Loader, Manager
+from mibios.omics.managers import SampleLoader as OmicsSampleLoader
+from mibios.umrad.manager import (
+    InputFileError, Loader, MetaDataLoader, Manager,
+)
 from mibios.umrad.model_utils import delete_all_objects_quickly
 from mibios.umrad.utils import CSV_Spec, atomic_dry
 
@@ -34,15 +36,6 @@ class BoolColMixin:
                     f'expected TRUE or FALSE (any case) but got: {value}'
                 )
         return value
-
-
-class MetaDataLoader(Loader):
-    default_load_kwargs = dict(
-        validate=True,
-        bulk=False,
-        update=True,
-        diff_stats=True,
-    )
 
 
 class DatasetLoader(BoolColMixin, MetaDataLoader):
@@ -203,7 +196,7 @@ class SampleInputSpec(CSV_Spec):
         super().setup(loader, column_specs=specs, path=path)
 
 
-class SampleLoader(BoolColMixin, MetaDataLoader):
+class SampleLoader(BoolColMixin, OmicsSampleLoader):
     """ loader for Great_Lakes_Omics_Datasets.xlsx """
     empty_values = ['NA', 'Not Listed', 'NF', '#N/A', 'ND', 'not applicable']
 
@@ -451,7 +444,7 @@ class DatasetManager(Manager):
         return super().get_queryset()
 
 
-class SampleManager(OmicsSampleManager):
+class SampleManager(Manager):
     def get_queryset(self):
         return super().get_queryset().filter(dataset__private=False)
 
