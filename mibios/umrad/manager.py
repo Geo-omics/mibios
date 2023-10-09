@@ -306,6 +306,7 @@ class BaseLoader(DjangoManager):
         self.setup_spec(**setup_kw)
 
         row_it = self.spec.iterrows()
+        self.current_lineno = None
 
         if start > 0 or limit is not None:
             if limit is None:
@@ -335,7 +336,7 @@ class BaseLoader(DjangoManager):
                 pass
 
             if isinstance(e, InputFileError):
-                print(f'Error in input file: {e}')
+                print(f'Error in input file, line {self.current_lineno}: {e}')
                 fi = trace(context=2)[-1]  # get FrameInfo obj
                 print(f'Origin: {fi.filename}:{fi.function}():{fi.lineno}')
                 print('Code context:')
@@ -876,6 +877,7 @@ class BaseLoader(DjangoManager):
         """
         get_row_data = self.spec.row_data  # get a local ref
         for i, row in enumerate(rows, start=start):
+            self.current_lineno = i
             self.current_row = row
             self.current_row_data = list(get_row_data(row))
             yield i
