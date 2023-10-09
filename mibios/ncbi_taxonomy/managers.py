@@ -31,6 +31,8 @@ class DumpFile(InputFileSpec):
             # get all fields defined by our model in order
             fields = loader.model.get_fields(skip_auto=True, with_m2m=True).fields  # noqa: E501
             for i in fields:
+                if i.name in loader.spec_skip_fields:
+                    continue
                 if isinstance(i, ForeignObjectRel):
                     # filter out reverse fields
                     continue
@@ -62,6 +64,10 @@ class DumpFile(InputFileSpec):
 
 class Loader(UMRADLoader):
     default_load_kwargs = dict(bulk=True, update=True)
+
+    spec_skip_fields = []
+    """ Fields that don't get loaded via dump file, the spec setup will ignore
+    them """
 
     def setup_spec(self, spec=None, **kwargs):
         if spec is None and self.spec is None:
@@ -96,6 +102,8 @@ class CitationLoader(Loader):
 
 
 class TaxNodeLoader(Loader):
+    spec_skip_fields = ['ancestors']
+
     @atomic_dry
     def load(self, **kwargs):
         super().load(**kwargs)
