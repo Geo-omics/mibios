@@ -200,6 +200,23 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
     """ loader for Great_Lakes_Omics_Datasets.xlsx """
     empty_values = ['NA', 'Not Listed', 'NF', '#N/A', 'ND', 'not applicable']
 
+    def load_all_meta_data(self, dry_run=False):
+        """
+        Convenience method -- load/update all meta data
+
+        Loads all reference/dataset/sample data
+        load meta data assuming empty DB -- reference implementation
+        """
+        Reference = import_string('mibios.glamr.models.Reference')
+        Dataset = import_string('mibios.glamr.models.Dataset')
+        with transaction.atomic():
+            Reference.loader.load()
+            Dataset.loader.load()
+            self.load_meta()
+            self.update_analysis_status(quiet=True, skip_on_error=True)
+            if dry_run:
+                transaction.set_rollback(True)
+
     def get_file(self):
         return settings.GLAMR_META_ROOT / 'Great_Lakes_Omics_Datasets.xlsx - samples.tsv'  # noqa:E501
 
@@ -450,20 +467,3 @@ class SampleManager(Manager):
 
     def with_privates(self):
         return super().get_queryset()
-
-    def load_all_meta_data(self, dry_run=False):
-        """
-        Convenience method -- load/update all meta data
-
-        Loads all reference/dataset/sample data
-        load meta data assuming empty DB -- reference implementation
-        """
-        Reference = import_string('mibios.glamr.models.Reference')
-        Dataset = import_string('mibios.glamr.models.Dataset')
-        with transaction.atomic():
-            Reference.loader.load()
-            Dataset.loader.load()
-            self.model.loader.load_meta()
-            # Sample.objects.sync()
-            if dry_run:
-                transaction.set_rollback(True)
