@@ -455,7 +455,7 @@ class InputFileSpec:
                     else:
                         cur_col_index += 1
 
-                if key is None:
+                if key in (None, self.IGNORE_COLUMN):
                     # ignore this column
                     continue
 
