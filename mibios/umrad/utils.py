@@ -12,6 +12,7 @@ import sys
 import pandas
 
 from django.conf import settings
+from django.core.exceptions import FieldDoesNotExist
 from django.db import router, transaction
 from django.db.models import Q
 
@@ -356,6 +357,11 @@ def chunker(iterable, n):
             yield grp
 
 
+class SpecError(Exception):
+    """ raised on invalid InputFileSpec """
+    pass
+
+
 class InputFileSpec:
     IGNORE_COLUMN = object()
     SKIP_ROW = object()
@@ -392,7 +398,7 @@ class InputFileSpec:
             column_specs = self._spec
 
         if not column_specs:
-            raise ValueError('at least one column needs to be declared')
+            raise SpecError('at least one column needs to be declared')
 
         if path is None:
             path = self.loader.get_file()
@@ -434,8 +440,8 @@ class InputFileSpec:
 
             if colname is self.CALC_VALUE:
                 if key is None:
-                    raise RuntimeError('require key (field name) for for which'
-                                       'to calculate a value')
+                    raise SpecError('require key (field name) for for which'
+                                    'to calculate a value')
 
                 if not self.has_header:
                     col_index.append(self.CALC_VALUE)
@@ -456,8 +462,8 @@ class InputFileSpec:
                 if not self.has_header:
                     col_index.append(cur_col_index)
 
-            col_names.append(colname)
-            keys.append(key)
+            if not isinstance(key, str):
+                raise SpecError(f'expecting a str: {key=} in {spec_line=}')
 
             if '.' in key:
                 field_name, _, attr = key.partition('.')
@@ -465,7 +471,14 @@ class InputFileSpec:
             else:
                 field_name = key
 
-            field = self.model._meta.get_field(field_name)
+            col_names.append(colname)
+            keys.append(key)
+
+            try:
+                field = self.model._meta.get_field(field_name)
+            except FieldDoesNotExist as e:
+                raise SpecError(f'bad spec line: {spec_line}: {e}') from e
+
             fields.append(field)
             field_names.append(field_name)
 
@@ -475,7 +488,7 @@ class InputFileSpec:
                     # automatically attach prep method for choice fields
                     prepfunc = self.loader.get_choice_value_prep_method(field)
             elif len(prepfunc) > 1:
-                raise ValueError(f'too many items in spec for {colname}/{key}')
+                raise SpecError(f'too many items in spec for {colname}/{key}')
             elif len(prepfunc) == 1 and prepfunc[0] is None:
                 # pre-proc method explicitly set to None
                 prepfunc = None
@@ -487,7 +500,7 @@ class InputFileSpec:
                     # getattr gives us a bound method:
                     prepfunc = getattr(loader, prepfunc_name)
                     if not callable(prepfunc):
-                        raise ValueError(
+                        raise SpecError(
                             f'not the name of a {self.loader} method: '
                             f'{prepfunc_name}'
                         )
@@ -498,7 +511,7 @@ class InputFileSpec:
                     # in the spec's declaration.
                     prepfunc = partial(prepfunc, self.loader)
                 else:
-                    raise ValueError(f'not a callable: {prepfunc}')
+                    raise SpecError(f'not a callable: {prepfunc}')
 
             prepfuncs.append(prepfunc)
 
@@ -590,7 +603,7 @@ class CSV_Spec(InputFileSpec):
                 try:
                     pos = col_pos[col]
                 except KeyError:
-                    raise RuntimeError(
+                    raise InputFileError(
                         f'column "{col}" not found in header: {head}'
                     )
 
@@ -649,7 +662,7 @@ class ExcelSpec(InputFileSpec):
                 try:
                     pos = col_pos[col]
                 except KeyError:
-                    raise RuntimeError(
+                    raise InputFileError(
                         f'column not found: {col=} in {col_pos=}'
                     )
 
