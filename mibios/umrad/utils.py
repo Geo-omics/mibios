@@ -157,13 +157,15 @@ class ProgressPrinter():
         Must be called before inc().  Will start the timer and progress
         metering and printing.
         """
+        self.checkpoint = False
         self.reset_timer()
-        self.current = 0
-        self.last = 0
-        self.at_previous_ring = None
+        self.total = 0
+        self.old_total = 0
         self.max_width = 0
-        self.ring_time = None
         self.time_zero = datetime.now()
+        self.time_start = self.time_zero
+        self.time_end = None
+        self.duration = None
         self.reset_length_info()
 
     def reset_length_info(self):
@@ -193,6 +195,7 @@ class ProgressPrinter():
         """
         if self.timer is not None:
             self.timer.cancel()
+        del self.timer
         self.timer = RepeatTimer(self.interval, self._ring, owner=self)
 
     def _init_template(self, template):
@@ -227,50 +230,36 @@ class ProgressPrinter():
 
         Turn on time if needed
         """
-        if self.current == self.at_previous_ring:
-            # timer was stopped at last ring
-            try:
-                self.timer.start()
-            except RuntimeError:
-                # if the timer thread is still in reset_timer(), we can't
-                # re-start the old timer thread; pass here and start new timer
-                # at next inc()
-                pass
+        self.total += step
 
-        self.last = self.current
-        self.current += step
+        if self.checkpoint:
+            self.time_end = datetime.now()
+            self.duration = (self.time_end - self.time_start).total_seconds()
+            self.print_progress()
+            self.old_total = self.total
+            self.time_start = self.time_end
+            self.checkpoint = False
 
     def finish(self):
         """ Stop the timer and print a final result """
         total_seconds = (datetime.now() - self.time_zero).total_seconds()
         avg_txt = (f'(total: {total_seconds:.1f}s '
-                   f'avg: {self.current / total_seconds:.1f}/s)')
+                   f'avg: {self.total / total_seconds:.1f}/s)')
         self.print_progress(avg_txt=avg_txt, end='\n')  # print with totals/avg
         self.reset_state()
 
     def _ring(self):
-        """ Print progress """
-        self.ring_time = datetime.now()
-        self.print_progress()
-
-        if self.current == self.at_previous_ring:
-            # maybe we just iterate very slowly relative to the timer interval,
-            # but probably some exception occurred in the main thread; have to
-            # stop the timer or we'll get an infinite loop
-            # When inc() is called again a new timer will be used.
-            self.reset_timer()
-            return
-
-        self.at_previous_ring = self.current
+        """ Run by timer """
+        self.checkpoint = True
 
     def estimate(self):
         """
-        get current percentage and estimated finish time
+        get momentary percentage and estimated finish time
 
         Returns None if we havn't made any progress yet or we don't know the
         length of the iterator.
         """
-        if self.current == 0:
+        if self.total == 0:
             # too early for estimates (and div by zero)
             return
 
@@ -288,33 +277,31 @@ class ProgressPrinter():
             frac = pos / self.file_size
 
         elif self._length is not None and self._length > 0:
-            frac = self.current / self._length
+            frac = self.total / self._length
         else:
             # no length info
             return
 
-        cur_duration = (self.ring_time - self.time_zero).total_seconds()
-        remain = cur_duration / frac - cur_duration
-        return frac, remain
+        total_seconds = (self.time_end - self.time_zero).total_seconds()
+        remaining_seconds = total_seconds / frac - total_seconds
+        return frac, remaining_seconds
 
     def print_progress(self, avg_txt='', end=''):
         """ Do the progress printing """
         if self.template_var is None:
-            txt = self.template.format(self.current)
+            txt = self.template.format(self.total)
         else:
-            txt = self.template.format(**{self.template_var: self.current})
+            txt = self.template.format(**{self.template_var: self.total})
 
         if avg_txt:
             # called by finish()
             txt += ' ' + avg_txt
         elif self.show_rate:
-            prev = self.at_previous_ring
-            if prev is None:
-                prev = 0
             try:
-                rate = (self.current - prev) / self.interval
+                rate = (self.total - self.old_total) \
+                    / (self.time_end - self.time_start).total_seconds()
             except Exception:
-                # math errors if current is not a number?
+                # unlikely zero div or some None values
                 pass
             else:
                 est = self.estimate()
