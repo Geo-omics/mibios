@@ -440,7 +440,8 @@ class BaseLoader(DjangoManager):
                   f'{"filtered, " if f else ""}'
                   f'indexing by ({",".join(lookups)}) ...',
                   end='', flush=True)
-            related_manager = getattr(i.related_model, 'loader', 'objects')
+            related_manager = getattr(i.related_model, 'loader', None) \
+                or getattr(i.related_model, 'objects')
             fkmap[i.name] = {
                 tuple(a): pk for *a, pk
                 in related_manager.filter(**f).values_list(*lookups, 'pk')
