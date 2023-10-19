@@ -136,7 +136,7 @@ class ReferenceLoader(MetaDataLoader):
 class SampleInputSpec(CSV_Spec):
     UNITS_SHEET = 'Great_Lakes_Omics_Datasets.xlsx - metadata_units_and_notes.tsv'  # noqa: E501
 
-    def setup(self, loader, column_specs=None, path=None):
+    def setup(self, loader, column_specs=None, **kwargs):
         self.has_header = True
         if column_specs is None:
             base_spec = list(self._spec)
@@ -193,7 +193,7 @@ class SampleInputSpec(CSV_Spec):
             if i.concrete and i.name not in fields_accounted_for:
                 print(f'[WARNING] field missing from spec: {i}')
 
-        super().setup(loader, column_specs=specs, path=path)
+        super().setup(loader, column_specs=specs, **kwargs)
 
 
 class SampleLoader(BoolColMixin, OmicsSampleLoader):

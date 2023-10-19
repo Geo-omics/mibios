@@ -253,7 +253,7 @@ class BaseLoader(DjangoManager):
         for k, v in self._DEFAULT_LOAD_KWARGS.items():
             self.default_load_kwargs.setdefault(k, v)
 
-    def get_file(self):
+    def get_file(self, *args, **kwargs):
         """
         Return pathlib.Path to input data file
         """
@@ -280,9 +280,10 @@ class BaseLoader(DjangoManager):
             If an empty list is passed, then we run in "parse only" mode.  The
             parsed data is appended to the provided list.
         :param int skip_on_error:
-            If not 0, then certain Exceptions raised while processing a line of
-            the input file cause the line to be skipped and an error message to
-            be printed.
+            Skip this many lines with errors if >0.  Certain Exceptions raised
+            while processing a line of the input file cause the line to be
+            skipped and an error message to be printed.  If set to the bool
+            True, then all lines with errors will be skipped.
         :param bool validate:
             Run full_clean() on new model instances.  By default we skip this
             step as it hurts performance.  Turn this on if the DB raises in
@@ -302,7 +303,7 @@ class BaseLoader(DjangoManager):
         if kwargs['sep'] is not None:
             setup_kw['sep'] = kwargs['sep']
         if file is not None:
-            setup_kw['path'] = file
+            setup_kw['file'] = file
         self.setup_spec(**setup_kw)
 
         row_it = self.spec.iterrows()
@@ -318,6 +319,11 @@ class BaseLoader(DjangoManager):
         if parse_into is not None:
             self._parse_rows(row_it, parse_into=parse_into)
             return
+
+        if kwargs['skip_on_error'] is True:
+            # If True, let's skip all errors, so set to negative value here, if
+            # decremented later it will never reach zero
+            kwargs['skip_on_error'] = -1
 
         try:
             diff = self._load_rows(

@@ -12,7 +12,7 @@ from mibios.umrad.model_utils import delete_all_objects_quickly
 
 
 class DumpFile(InputFileSpec):
-    def setup(self, loader, column_specs=None, path=None):
+    def setup(self, loader, column_specs=None, **kwargs):
         """
         Automatically setup the spec based on model
         """
@@ -41,7 +41,7 @@ class DumpFile(InputFileSpec):
                 else:
                     column_specs.append(i.name)
 
-        super().setup(loader, column_specs=column_specs, path=path)
+        super().setup(loader, column_specs=column_specs, **kwargs)
 
     def iterrows(self):
         """
@@ -50,7 +50,7 @@ class DumpFile(InputFileSpec):
         Files don't have headers, columns are separated by <tab>|<tab>, lines
         may end in <tab>|
         """
-        with self.path.open() as f:
+        with self.file.open() as f:
             print(f'File opened: {f.name}')
             for line in f:
                 line = line.rstrip('\n')

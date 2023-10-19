@@ -1,6 +1,7 @@
 from datetime import datetime
 from functools import partial, wraps
 from inspect import signature
+from io import UnsupportedOperation
 from itertools import chain, zip_longest
 from operator import length_hint
 import os
@@ -367,12 +368,12 @@ class InputFileSpec:
         # set by setup():
         self.model = None
         self.loader = None
-        self.path = None
+        self.file = None
         self.has_header = None
         self.fk_attrs = {}
         self.fkmap_filters = {}
 
-    def setup(self, loader, column_specs=None, path=None):
+    def setup(self, loader, column_specs=None, file=None):
         """
         Setup method to be called once before loading data
 
@@ -387,11 +388,11 @@ class InputFileSpec:
         if not column_specs:
             raise SpecError('at least one column needs to be declared')
 
-        if path is None:
-            path = self.loader.get_file()
-        if isinstance(path, str):
-            path = Path(path)
-        self.path = path
+        if file is None:
+            file = self.loader.get_file()
+        if isinstance(file, str):
+            file = Path(file)
+        self.file = file
 
         self.empty_values += self.loader.empty_values
 
@@ -601,17 +602,32 @@ class CSV_Spec(InputFileSpec):
         """
         An iterator over the csv file's rows
 
-        :param pathlib.Path path: path to the data file
+        Also manages opening/closing of file.
         """
-        with self.path.open() as f:
-            print(f'File opened: {f.name}')
-            os.posix_fadvise(f.fileno(), 0, 0, os.POSIX_FADV_SEQUENTIAL)
+        try:
+            # open in case it's a str or Path
+            ifile = open(self.file)
+        except TypeError:
+            # assume it's already file-like
+            ifile = self.file
+        else:
+            print(f'File opened: {ifile.name}')
+
+        try:
+            try:
+                os.posix_fadvise(ifile.fileno(), 0, 0,
+                                 os.POSIX_FADV_SEQUENTIAL)
+            except UnsupportedOperation:
+                # fileno() won't work for e.g. StringIO
+                pass
 
             if self.has_header:
-                self.process_header(f)
+                self.process_header(ifile)
 
-            for line in f:
+            for line in ifile:
                 yield line.rstrip('\n').split(self.sep)
+        finally:
+            ifile.close()
 
 
 class ExcelSpec(InputFileSpec):
@@ -621,9 +637,9 @@ class ExcelSpec(InputFileSpec):
 
     def get_dataframe(self):
         """ Return file as pandas.DataFrame """
-        print(f'File opened: {self.path}')
+        print(f'File opened: {self.file}')
         df = pandas.read_excel(
-            str(self.path),
+            str(self.file),
             sheet_name=self.sheet_name,
             # TODO: only read columns we need
             # usecols=...,
