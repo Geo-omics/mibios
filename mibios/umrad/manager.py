@@ -9,7 +9,6 @@ from time import sleep
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import connection, transaction
-from django.db.models.manager import Manager as DjangoManager
 from django.utils.module_loading import import_string
 
 from mibios.models import (
@@ -228,7 +227,7 @@ class QuerySet(BulkCreateWrapperMixin, MibiosQuerySet):
         )
 
 
-class BaseLoader(DjangoManager):
+class BaseLoader(MibiosBaseManager):
     """
     A manager providing functionality to load data from file
     """

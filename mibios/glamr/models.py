@@ -324,7 +324,7 @@ class Sample(AbstractSample):
     notes = models.TextField(**ch_opt)
 
     objects = SampleManager.from_queryset(SampleQuerySet)()
-    loader = SampleLoader()
+    loader = SampleLoader.from_queryset(SampleQuerySet)()
 
     class Meta:
         default_manager_name = 'objects'
