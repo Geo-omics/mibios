@@ -4,6 +4,7 @@ import traceback
 from django.conf import settings
 from django.db.transaction import atomic
 
+from mibios import __version__ as version
 from mibios.umrad.manager import QuerySet
 from .utils import Timestamper
 
@@ -71,19 +72,29 @@ class SampleQuerySet(QuerySet):
         """
         Load all metagenomics data
         """
-        if skip_check:
-            samples = self
-        else:
-            samples = self.check_metagenomic_data()
-
-        # get number of stages
-        total_stages = 0
-        script = self._manager.get_metagenomic_loader_script()
-        for _, funcs in script:
-            if callable(funcs):
-                total_stages += 1
+        timestamper = Timestamper(
+            template='[ {timestamp} ]  ',
+            file_copy=settings.METAGENOMIC_LOADING_LOG,
+        )
+        with timestamper:
+            print(f'Loading metagenomic data / version: {version}')
+            if skip_check:
+                samples = self
+                print(f'{len(self)} samples')
             else:
-                total_stages += len(funcs)
+                samples = self.check_metagenomic_data()
+
+            # get number of stages
+            total_stages = 0
+            script = self._manager.get_metagenomic_loader_script()
+            print('Stages / flags: ')
+            for flag, funcs in script:
+                if callable(funcs):
+                    total_stages += 1
+                    print(f'  {total_stages} / {flag} ')
+                else:
+                    total_stages += len(funcs)
+                    print(f'  {total_stages - len(funcs) + 1}-{total_stages} / {flag} ')  # noqa: E501
 
         template = f'[ {{sample}} {{{{stage}}}}/{total_stages} {{{{{{{{timestamp}}}}}}}} ]  '  # noqa: E501
         for num, sample in enumerate(samples):
@@ -100,9 +111,6 @@ class SampleQuerySet(QuerySet):
 
                 t = template.format(sample=sample.sample_id)
 
-                # if not Alignment.loader.get_file(i).is_file():
-                #    print(f'No m8 file: {i} skipping...')
-                #    continue
                 with atomic():
                     for fn in funcs:
                         timestamper = Timestamper(
@@ -113,7 +121,7 @@ class SampleQuerySet(QuerySet):
                             try:
                                 fn(sample)
                             except Exception as e:
-                                # If we're contigured to write a log file, then
+                                # If we're configured to write a log file, then
                                 # print the stack to a special FAIL.log file
                                 # and continue with the next sample. This
                                 # assumes the error is caused not by a regular
