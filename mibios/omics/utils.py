@@ -195,7 +195,7 @@ class Timestamper(redirect_stdout):
                 persistent log.
         """
         self._file_obj = file_obj or sys.stdout
-        self.at_new_line = True
+        self.cur_line = ''
         self.prev_timestamp = None
         self.indent = None
         if template is None:
@@ -236,63 +236,60 @@ class Timestamper(redirect_stdout):
 
     def write(self, s):
         if s.startswith('\r'):
+            # process carriage return
             self._write('\r')
-            self.at_new_line = True
+            self.cur_line = ''
             s = s.lstrip('\r')
 
         lines = s.splitlines(keepends=True)
         if not lines:
             return
 
-        if self.at_new_line:
-            # start a new line with prefix
-            self.timestamp = datetime.now()
-            if self.prev_timestamp is None:
-                delta = None
-            else:
-                delta = self.timestamp - self.prev_timestamp
-                if delta.total_seconds() > self.FULL_TIMESTAMP_CUTOFF:
-                    delta = None
-
-            if delta is None:
-                ts_str = self.timestamp.strftime(self.TS_FORMAT)
-                self.full_ts_width = len(ts_str)
-            else:
-                seconds = delta.total_seconds()
-                hours = int(seconds // 3600)
-                seconds -= hours * 3600
-                minutes = int(seconds // 60)
-                seconds -= minutes * 60
-                if hours:
-                    ts_str = f'+ {hours}:{minutes:02}:{seconds:02.0f}'
-                elif minutes:
-                    ts_str = f'+ {minutes}:{seconds:02.0f}m'
-                else:
-                    ts_str = f'+ {seconds:.0f}s'
-                    if ts_str == '+ 0s':
-                        # zero seconds, leave blank
-                        ts_str = ''
-                ts_str = ts_str.rjust(self.full_ts_width)
-
-            prefix = self.template.format(timestamp=ts_str)
-            if self.indent is None:
-                self.indent = len(prefix)
-
+        # compile prefix
+        self.timestamp = datetime.now()
+        if self.prev_timestamp is None:
+            delta = None
         else:
-            # continue or finish a previous line
-            prefix = ''
+            delta = self.timestamp - self.prev_timestamp
+            if delta.total_seconds() > self.FULL_TIMESTAMP_CUTOFF:
+                delta = None
 
-        line = lines.pop(0)
-        self._write(prefix + line)
+        if delta is None:
+            ts_str = self.timestamp.strftime(self.TS_FORMAT)
+            self.full_ts_width = len(ts_str)
+        else:
+            seconds = delta.total_seconds()
+            hours = int(seconds // 3600)
+            seconds -= hours * 3600
+            minutes = int(seconds // 60)
+            seconds -= minutes * 60
+            if hours:
+                ts_str = f'+ {hours}:{minutes:02}:{seconds:02.0f}'
+            elif minutes:
+                ts_str = f'+ {minutes}:{seconds:02.0f}m'
+            else:
+                ts_str = f'+ {seconds:.0f}s'
+                if ts_str == '+ 0s':
+                    # zero seconds, leave blank
+                    ts_str = ''
+            ts_str = ts_str.rjust(self.full_ts_width)
 
+        prefix = self.template.format(timestamp=ts_str)
+
+        # rewrite current line w/new prefix and append first new line
+        self.cur_line += lines.pop(0)
+        self._write('\r')
+        self._write(prefix + self.cur_line)
+
+        # write any further lines, remember last line as current one
         while lines:
-            line = lines.pop(0)
-            self._write(' ' * self.indent + line)
+            self.cur_line = lines.pop(0)
+            self._write(' ' * len(prefix) + self.cur_line)
 
-        if line.endswith('\n'):
-            self.at_new_line = True
+        if self.cur_line.endswith('\n'):
+            # that line is finished, so forget it
+            self.cur_line = ''
             self.prev_timestamp = self.timestamp
         else:
-            self.at_new_line = False
             if self.prev_timestamp is None:
                 self.prev_timestamp = self.timestamp
