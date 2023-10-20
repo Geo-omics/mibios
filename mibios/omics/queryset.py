@@ -1,3 +1,4 @@
+import os
 import traceback
 
 from django.conf import settings
@@ -150,3 +151,59 @@ class SampleQuerySet(QuerySet):
             else:
                 print(f'Sample {sample.sample_id}/{sample} done!', end=' ')
         print()
+
+    def ur100_accession_crawler(self, outname=None, verbose=False):
+        """ Extract UniRef100 accessions from omics data """
+        if not outname:
+            outname = 'ur100.accessions.txt'
+
+        FILE_PATS = [
+            # filename pattern, 1-based ur100 column number
+            ('{sample_id}_tophit_report', 1),
+            ('{sample_id}_tophit_aln', 2),
+            ('{sample_id}_contig_tophit_report', 1),
+            ('{sample_id}_contig_tophit_aln', 2),
+        ]
+
+        PREFIXES = ['UNIREF100_', 'UniRef100_']
+
+        accns = set()
+        file_count = 0
+        for sample in self:
+            base = sample.get_metagenome_path()
+            found_a_file = False
+            for pat, col in FILE_PATS:
+                path = base / pat.format(sample_id=sample.sample_id)
+                if not path.exists():
+                    continue
+
+                file_count += 1
+                found_a_file = True
+                old_accns_len = len(accns)
+                with open(path) as ifile:
+                    os.posix_fadvise(
+                        ifile.fileno(), 0, 0, os.POSIX_FADV_SEQUENTIAL
+                    )
+                    for linenum, line in enumerate(ifile, start=1):
+                        row = line.rstrip('\n').split('\t', maxsplit=col)
+                        value = row[col - 1]
+
+                        for i in PREFIXES:
+                            if value.startswith(i):
+                                value = value.removeprefix(i)
+                        accns.add(value)
+                if verbose:
+                    print(
+                        f'{sample.sample_id}:{path.name} total:{linenum} '
+                        f'new:{len(accns) - old_accns_len}'
+                    )
+            if verbose and not found_a_file:
+                print(f'{sample.sample_id}: no files found')
+
+        print(f'Searched {file_count} files, found {len(accns)} distinct '
+              f'accessions.')
+
+        with open(outname, 'w') as ofile:
+            for i in sorted(accns):
+                ofile.write(f'{i}\n')
+        print(f'UniRef100 accessions written to {outname}')

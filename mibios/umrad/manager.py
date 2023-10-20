@@ -1311,18 +1311,35 @@ class UniRef100Loader(BulkLoader):
         self.func_dbs = FuncRefDBEntry.DB_CHOICES
 
     def get_file(self):
+        """ get path to UNIREF100_INFO file made by Create_Alignment_DB.pl """
         return settings.UMRAD_ROOT / 'UNIREF100_INFO.txt'
 
     @atomic_dry
-    def load(self, **kwargs):
+    def load(self, selection_from=None, **kwargs):
+        """
+        Populate UniRef100 from INFO file
+
+        :params:
+            selection_from: path to text file listing UniRef100 accessions.
+            Such a file can be compiled via
+            mibios.omics.Sample.loader.ur100_accession_crawler().
+        """
+        self.selected_accns = None
+        if selection_from:
+            with open(selection_from) as ifile:
+                self.selected_accns = {line.strip() for line in ifile}
+            print(f'Selectively loading {len(self.selected_accns)} UR100 '
+                  f'accessions.')
+
         # get map old->new for use by merge_taxids pre-processor
+        print('Loading merged taxnodes... ', end='', flush=True)
         MergedNodes = import_string('mibios.ncbi_taxonomy.models.MergedNodes')
         self.merged = dict(
             MergedNodes.objects
-            .select_related('new_node')
+            .select_related('new_node__taxid')
             .values_list('old_taxid', 'new_node__taxid')
-            .iterator()
         )
+        print(f'[{len(self.merged)} OK]')
         self.funcref2db = {}
         super().load(**kwargs)
         # set DB values for func xrefs -- can't do this in the regular load
@@ -1337,6 +1354,16 @@ class UniRef100Loader(BulkLoader):
             objs.append(obj)
         pp = ProgressPrinter('func xrefs db values assigned')
         FuncRefDBEntry.name_loader.fast_bulk_update(pp(objs), ['db'])
+
+    def check_selection(self, value, obj):
+        """ for selective loading, check if row is to be skipped """
+        if self.selected_accns is None:
+            return value
+        else:
+            if value.removeprefix('UNIREF100_') in self.selected_accns:
+                return value
+            else:
+                return CSV_Spec.SKIP_ROW
 
     def process_func_xrefs(self, value, obj):
         """ Pre-processor ro collect COG through EC columns """
@@ -1382,7 +1409,7 @@ class UniRef100Loader(BulkLoader):
         return [(i, ) for i in taxids]
 
     spec = CSV_Spec(
-        ('UR100', 'accession'),
+        ('UR100', 'accession', check_selection),
         ('UR90', 'uniref90'),
         ('Name', 'function_names'),
         ('Length', 'length'),
