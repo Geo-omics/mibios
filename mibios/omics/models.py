@@ -6,7 +6,7 @@ from subprocess import PIPE, Popen, TimeoutExpired
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.transaction import atomic, set_rollback
+from django.db.transaction import atomic
 
 from mibios.data import TableConfig
 from mibios.ncbi_taxonomy.models import TaxNode
@@ -93,17 +93,17 @@ class AbstractSample(Model):
         default=False,
         help_text='contig fasta data loaded',
     )
-    gene_fasta_loaded = models.BooleanField(
-        default=False,
-        help_text='gene fasta data loaded',
-    )
     contig_abundance_loaded = models.BooleanField(
         default=False,
         help_text='contig abundance/rpkm data data loaded',
     )
-    gene_abundance_loaded = models.BooleanField(
+    contig_lca_loaded = models.BooleanField(
         default=False,
-        help_text='gene abundance/rpkm data loaded',
+        help_text='contig LCA data loaded',
+    )
+    gene_alignments_loaded = models.BooleanField(
+        default=False,
+        help_text='genes loaded via contig_tophit_aln file',
     )
     gene_alignment_hits_loaded = models.BooleanField(
         default=False,
@@ -156,7 +156,8 @@ class AbstractSample(Model):
         help_text='number of reads mapped to genes',
     )
 
-    objects = Manager.from_queryset(SampleQuerySet)
+    objects = Manager.from_queryset(SampleQuerySet)()
+    loader = managers.SampleLoader.from_queryset(SampleQuerySet)()
 
     class Meta:
         abstract = True
@@ -206,58 +207,6 @@ class AbstractSample(Model):
         return (settings.OMICS_DATA_ROOT / 'BINS' / 'CHECKM'
                 / f'{self.accession}_CHECKM' / 'storage'
                 / 'bin_stats.analyze.tsv')
-
-    @atomic
-    def load_omics_data(self, dry_run=False):
-        """
-        load all omics data for this sample from data source
-
-        Assumes no existing data
-        """
-        match self.sample_type:
-            case self.AMPLICON:
-                self.load_amplicon_data()
-            case self.METAGENOME:
-                self.load_metagenomic_data()
-            case self.METATRANS:
-                self.load_metatranscriptomic_data()
-            case _:
-                raise ValueError('invalid sample_type')
-        set_rollback(dry_run)
-
-    def load_amplicon_data(self):
-        raise NotImplementedError
-
-    def load_metagenomic_data(self, done_ok=True, redo=False, dry_run=False):
-        """
-        Convenience method to load all metagenomic data for sample
-
-        :param bool done_ok:
-            Set to False to ensure that data has not been loaded already.  By
-            default, existing data remain of are re-loaded/updated if redo is
-            True.
-        :param bool redo:
-            If True, then any existing metagenomic data for this sample is
-            updated or deleted and then re-loaded.  The default is to keep the
-            data from previous runs and skip steps whenever possible.
-
-        Deprecated: Is replaced by queryset method.
-        """
-        kw = dict(done_ok=done_ok, redo=redo, dry_run=dry_run)
-        print(f'Loading metagenomic data for {self.sample_id} "{self}" ...')
-        Contig.loader.load_fasta_sample(self, **kw)
-        Gene.loader.load_fasta_sample(self, **kw)
-        Contig.loader.load_abundance_sample(self, **kw)
-        Gene.loader.load_abundance_sample(self, **kw)
-        Alignment.loader.load_sample(self, **kw)
-        Gene.loader.assign_gene_lca(self)
-        Contig.loader.assign_contig_lca(self)
-        TaxonAbundance.objects.populate_sample(self, **kw)
-        # FuncAbundance.loader.load_sample(self)
-        # CompoundAbundance.loader.load_sample(self)
-
-    def load_metatranscriptomic_data(self):
-        raise NotImplementedError
 
     def get_fastq_prefix(self):
         """
@@ -530,17 +479,14 @@ class AbstractDataset(Model):
         ...
 
 
-class Alignment(Model):
-    """ Model for a gene vs. UniRef100 alignment hit """
-    history = None
-    gene = models.ForeignKey('Gene', **fk_req)
+class Abundance(Model):
+    """ Abundance w.r.t. UniRef100 """
+    # cf. mmseqs2 easy-taxonomy output (tophit_report)
+    sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
     ref = models.ForeignKey(UniRef100, **fk_req)
-    score = models.PositiveIntegerField()
-
-    loader = managers.AlignmentLoader()
-
-    class Meta:
-        unique_together = (('gene', 'ref'),)
+    unique_cov = models.DecimalField(**digits(4, 3))
+    target_cov = models.DecimalField(**digits(4, 3))
+    avg_ident = models.DecimalField(**digits(4, 3))
 
 
 '''
@@ -885,49 +831,19 @@ class CheckM(Model):
 
 
 class TaxonAbundance(Model):
+    """ Abundance of taxon in a sample """
     sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
-    taxon = models.ForeignKey(TaxNode, **fk_req, related_name='abundance')
-
-    # meta-genomic abundance measures
-    # (horizontal aggregations / normalized by total post-QC read-pair count)
-    count_contig = models.PositiveIntegerField(
-        verbose_name='number of contigs',
+    # Fields cf. Kraken-style report mmseqs2 userguide
+    taxon = models.ForeignKey(
+        TaxNode,
+        on_delete=models.CASCADE,
+        null=True, blank=True,  # null means 'unclassified' / mmseqs2's taxid 0
+        related_name='abundance',
     )
-    count_gene = models.PositiveIntegerField(
-        verbose_name='number of genes',
-    )
-    len_contig = models.PositiveIntegerField(
-        verbose_name='total length of all contigs',
-    )
-    len_gene = models.PositiveIntegerField(
-        verbose_name='total length of all genes',
-    )
-    mean_fpkm_contig = models.FloatField(
-        verbose_name='aggregated fpkm across all contigs',
-    )
-    mean_fpkm_gene = models.FloatField(
-        verbose_name='aggregated fpkm across all genes',
-    )
-    wmedian_fpkm_contig = models.FloatField(
-        verbose_name='weighted median fpkm across all contigs',
-    )
-    wmedian_fpkm_gene = models.FloatField(
-        verbose_name='weighted median fpkm across all genes',
-    )
-    norm_reads_contig = models.FloatField(
-        verbose_name='sum of reads mapping to contigs, normalized',
-    )
-    norm_reads_gene = models.FloatField(
-        verbose_name='sum of reads mapping to genes, normalized',
-    )
-    norm_frags_contig = models.FloatField(
-        verbose_name='sum of fragments mapping to contigs, normalized',
-    )
-    norm_frags_gene = models.FloatField(
-        verbose_name='sum of fragments mapping to genes, normalized',
-    )
+    tpm = models.FloatField()
 
     objects = managers.TaxonAbundanceManager()
+    loader = managers.TaxonAbundanceLoader()
 
     class Meta(Model.Meta):
         unique_together = (
@@ -935,8 +851,11 @@ class TaxonAbundance(Model):
         )
 
     def __str__(self):
-        return (f'{self.taxon.name}/{self.sample.sample_name} '
-                f'{self.wmedian_fpkm_contig}')
+        if self.taxon is None:
+            orgname = 'unclassified'
+        else:
+            orgname = self.taxon.name  # queries DB
+        return f'{orgname}/{self.sample.sample_id}: {self.tpm}'
 
 
 class CompoundAbundance(AbstractAbundance):
@@ -970,7 +889,7 @@ class CompoundAbundance(AbstractAbundance):
 
 class SequenceLike(Model):
     """
-    Models for sequences as found in fasta (or similar) files
+    Abstract model for sequences as found in fasta (or similar) files
     """
     history = None
     sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
@@ -1029,46 +948,20 @@ class SequenceLike(Model):
             return seq
 
 
-class ContigLike(SequenceLike):
-    """
-    Abstract parent class for sequence like data with converage info
-
-    This is for contigs and genes but not proteins.
-
-    Contigs and Genes have a few things in common: fasta files with sequences
-    and bbmap coverage results.  This class covers those commonalities.  There
-    are a few methods that need to be implemented by the children that spell
-    out the differences.  Those deal with where to find the files and different
-    fasta headers.
-    """
-    # Data from mapping / coverage:
-    # decimals in bbmap output have 4 fractional places
-    # FIXME: determine max_places for sure
+class Contig(SequenceLike):
+    contig_no = models.PositiveIntegerField()
+    # columns from *_contig_abund.tsv file
+    mean = models.FloatField(**opt)
+    trimmed_mean = models.FloatField(**opt)
+    covered_bases = models.PositiveIntegerField(**opt)
+    variance = models.FloatField(**opt)
     length = models.PositiveIntegerField(**opt)
-    bases = models.PositiveIntegerField(**opt)
-    coverage = models.DecimalField(decimal_places=4, max_digits=10, **opt)
-    reads_mapped = models.PositiveIntegerField(**opt)
-    rpkm_bbmap = models.DecimalField(decimal_places=4, max_digits=10, **opt)
+    reads = models.PositiveIntegerField(**opt)
+    reads_per_base = models.FloatField(**opt)
     rpkm = models.FloatField(**opt)
-    frags_mapped = models.PositiveIntegerField(**opt)
-    fpkm_bbmap = models.DecimalField(decimal_places=4, max_digits=10, **opt)
-    fpkm = models.FloatField(**opt)
-    # taxon + lca from contigs file
-    taxa = models.ManyToManyField(
-        TaxNode,
-        related_name='classified_%(class)s',
-    )
+    tpm = models.FloatField(**opt)
+    # lca from *_contig_lca.tsv
     lca = models.ForeignKey(TaxNode, **fk_opt)
-
-    class Meta:
-        abstract = True
-
-    # Name of the (per-sample) id field, must be set in inheriting class
-    id_field_name = None
-
-
-class Contig(ContigLike):
-    contig_id = models.TextField(max_length=32)
 
     # bin membership
     bin_max = models.ForeignKey(BinMAX, **fk_opt, related_name='members')
@@ -1081,22 +974,19 @@ class Contig(ContigLike):
     class Meta:
         default_manager_name = 'objects'
         unique_together = (
-            ('sample', 'contig_id'),
+            ('sample', 'contig_no'),
         )
-
-    id_field_name = 'contig_id'
 
     def __str__(self):
         return self.accession
 
     @property
     def accession(self):
-        return f'{self.sample}:{self.contig_id}'
+        return f'{self.sample.sample_id}_{self.contig_no}'
 
     def set_from_fa_head(self, fasta_head_line):
-
-        # parsing ">samp_14_123\n" -> "samp_14_123"
-        self.contig_id = fasta_head_line.rstrip().removeprefix('>')
+        # parsing ">samp_14_123\n" -> 123
+        self.contig_no = int(fasta_head_line.strip().split('_')[2])
 
 
 class FuncAbundance(AbstractAbundance):
@@ -1128,61 +1018,30 @@ class FuncAbundance(AbstractAbundance):
         )
 
 
-class Gene(ContigLike):
-    STRAND_CHOICE = (
-        ('+', '+'),
-        ('-', '-'),
-    )
-    gene_id = models.TextField(max_length=32)
+class Gene(Model):
+    """ Model for a contig vs. UniRef100 alignment hit """
+    sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    # fields below cf. BLAST output fmt 6 (mmseqs2 tophit_aln)
     contig = models.ForeignKey('Contig', **fk_req)
-    start = models.PositiveIntegerField()
-    end = models.PositiveIntegerField()
-    strand = models.CharField(choices=STRAND_CHOICE, max_length=1)
-    besthit = models.ForeignKey(UniRef100, **fk_opt, related_name='gene_best')
-    hits = models.ManyToManyField(UniRef100, through=Alignment,
-                                  related_name='gene_hit')
+    ref = models.ForeignKey(UniRef100, **fk_req)
+    pident = models.FloatField()
+    length = models.PositiveSmallIntegerField()
+    mismatch = models.PositiveSmallIntegerField()
+    gapopen = models.PositiveSmallIntegerField()
+    qstart = models.PositiveSmallIntegerField()
+    qend = models.PositiveSmallIntegerField()
+    sstart = models.PositiveSmallIntegerField()
+    send = models.PositiveSmallIntegerField()
+    # skip evalue
+    bitscore = models.PositiveSmallIntegerField()
+    # ?? abund = models.ForeignKey(Abundance, **fk_opt) (from tophit_report)
 
     loader = managers.GeneLoader()
 
     class Meta:
-        default_manager_name = 'objects'
         unique_together = (
-            ('sample', 'gene_id'),
+            ('sample', 'contig', 'ref', 'qstart', 'qend', 'sstart', 'send'),
         )
-
-    id_field_name = 'gene_id'
-
-    def __str__(self):
-        return self.accession
-
-    @property
-    def accession(self):
-        return f'{self.sample}:{self.gene_id}'
-
-    def set_from_fa_head(self, line, contig_id_map, **kwargs):
-        # parsing prodigal info
-        gene_id, start, end, strand, misc = line.lstrip('>').rstrip().split(' # ')  # noqa: E501
-
-        if strand == '1':
-            strand = '+'
-        elif strand == '-1':
-            strand = '-'
-        else:
-            raise ValueError('expected strand to be "1" or "-1"')
-
-        # name expected to be: deadbeef_123_1
-        self.gene_id = gene_id
-        contig_id, _, _ = gene_id.rpartition('_')  # samp_12_34_5 -> samp_12_34
-        try:
-            # contig_id_map must be a mapping from contig_ids to Contig PKs
-            self.contig_id = contig_id_map[contig_id]
-        except KeyError as e:
-            raise RuntimeError(
-                f'no such contig: {e} -- ensure contigs are loaded'
-            )
-        self.start = start
-        self.end = end
-        self.strand = strand
 
 
 class NCRNA(Model):

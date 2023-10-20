@@ -1,41 +1,26 @@
 """
 Module for data load managers
-
-=== Workflow to load metagenomic data ===
-
-Assumes that UMRAD and sample meta-data is loaded
-    Sample.objects.update_analysis_status()
-    s = Sample.objects.get(sample_id='samp_14')
-    Contig.loader.load_fasta_sample(s)
-    Gene.loader.load_fasta_sample(s)
-    Contig.loader.load_abundance_sample(s)
-    Gene.loader.load_abundance_sample(s)
-    Alignment.loader.load_sample(s)
-    Gene.loader.assign_gene_lca(s)
-    Contig.loader.assign_contig_lca(s)
-    TaxonAbundance.objects.populate_sample(s)
 """
 
+from collections import defaultdict
+from io import StringIO
 from itertools import groupby, islice
 from logging import getLogger
-from operator import itemgetter
 import os
 import shutil
-from statistics import median
 import subprocess
 import tempfile
 
 from django.conf import settings
-from django.db.models import Prefetch
+from django.db import connection
 from django.db.transaction import atomic
 from django.utils.module_loading import import_string
 
 from mibios.models import QuerySet
-from mibios.ncbi_taxonomy.models import TaxNode
+from mibios.ncbi_taxonomy.models import DeletedNode, MergedNodes, TaxNode
 from mibios.umrad.models import UniRef100
 from mibios.umrad.manager import BulkLoader, Manager, MetaDataLoader
-from mibios.umrad.utils import CSV_Spec, atomic_dry
-from mibios.umrad.utils import ProgressPrinter as PP
+from mibios.umrad.utils import CSV_Spec, atomic_dry, InputFileError
 
 from . import get_sample_model
 from .utils import call_each, get_fasta_sequence
@@ -54,26 +39,6 @@ def resolve_glob(path, pat):
     raise FileNotFoundError(f'glob does not resolve: {path / pat}')
 
 
-class BBMap_RPKM_Spec(CSV_Spec):
-    def process_header(self, file):
-        # skip initial non-rows
-        pos = file.tell()
-        while True:
-            line = file.readline()
-            if line.startswith('#'):
-                if line.startswith('#Name'):
-                    file.seek(pos)
-                    return super().process_header(file)
-                else:
-                    # TODO: process rpkm header data
-                    pos = file.tell()
-            else:
-                raise RuntimeError(
-                    f'rpkm header lines must start with #, column header with '
-                    f'#Name, got: {line}'
-                )
-
-
 class SampleLoadMixin:
     """ Mixin for Loader class that loads per-sample files """
 
@@ -85,7 +50,14 @@ class SampleLoadMixin:
 
     @atomic_dry
     def load_sample(self, sample, template=None, sample_filter=None,
-                    done_ok=True, redo=False, **kwargs):
+                    done_ok=True, redo=False, undo=False, **kwargs):
+
+        if undo and redo:
+            raise ValueError('Option undo is incompatible with option redo.')
+
+        if undo and kwargs.get('update'):
+            raise ValueError('Option undo is incompatible with option update.')
+
         if template is None:
             template = {'sample': sample}
 
@@ -112,9 +84,7 @@ class SampleLoadMixin:
 
             if done and redo and not update:
                 # have to delete records for sample
-                print('Deleting... ', end='', flush=True)
-                dels = self.model.objects.filter(**sample_filter).delete()
-                print(dels, '[OK]')
+                self.undo(sample, sample_filter, flag)
 
         if 'file' not in kwargs:
             kwargs.update(file=self.get_file(sample))
@@ -128,141 +98,81 @@ class SampleLoadMixin:
             setattr(sample, flag, True)
             sample.save()
 
-
-class M8Spec(CSV_Spec):
-    def iterrows(self):
+    @atomic
+    def unload_sample(self, sample, sample_filter=None, flag=None):
         """
-        Transform m8 file into top good hits
+        Delete all objects related to the given sample
 
-        Yields rows of triplets [gene, uniref100, score]
-
-        m8 file format:
-
-             0 qseqid  /  $gene
-             1 qlen
-             2 sseqid  / $hit
-             3 slen
-             4 qstart
-             5 qend
-             6 sstart
-             7 send
-             8 evalue
-             9 pident / $pid
-            10 mismatch
-            11 qcovhsp  /  $cov
-            12 scovhsp
+        This is to undo the effect of load_sample().  Override this method if a
+        more delicate operation is needed.
         """
-        minid = self.loader.MINID
-        mincov = self.loader.MINCOV
-        score_margin = self.loader.TOP
-        per_gene = groupby(super().iterrows(), key=itemgetter(0))
-        for gene_id, grp in per_gene:
-            # 1. get good hits
-            hits = []
-            for row in grp:
-                pid = float(row[9])
-                if pid < minid:
-                    continue
-                cov = float(row[11])
-                if cov < mincov:
-                    continue
-                # hits: (gene, uniref100, score)
-                hits.append((row[0], row[2], int(pid * cov)))
+        if flag is None:
+            flag = getattr(self, 'load_flag_attr')
+        if flag is None:
+            raise ValueError('load progress flag needs to be provided')
 
-            # 2. keep top hits
-            if hits:
-                hits = sorted(hits, key=lambda x: -x[2])  # sort by score
-                minscore = int(hits[0][2] * score_margin)
-                for i in hits:
-                    # The int() above are improper rounding, so some scores a
-                    # bit below the cutoff will slip through
-                    if i[2] >= minscore:
-                        yield i
+        if sample_filter is None:
+            sample_filter = {'sample': sample}
+
+        print('Deleting... ', end='', flush=True)
+        dels = self.model.objects.filter(**sample_filter).delete()
+        print(dels, '[OK]')
+
+        setattr(sample, flag, False)
+        sample.save()
 
 
-class AlignmentLoader(BulkLoader, SampleLoadMixin):
+class TaxNodeMixin:
     """
-    loads data from XX_GENES.m8 files into Alignment table
+    Loader mixin for input files with NCBI taxid column
 
-    Parameters:
-      1. min query coverage (60%)
-      2. min pct alignment identity (60%)
-      3. min number of genes to keep (3) (not including? phages/viruses)
-      4. top score margin (0.9)
-      5. min number of model genomes for func. models (5)
-
-    Notes on Annotatecontigs.pl:
-        top == 0.9
-        minimum pident == 60%
-        minimum cov/qcovhsp == 60
-        score = pid*cov
-        keep top score per hit (global?)
-        keep top score of hits for each gene
-        keep top x percentile hits for each gene
-
-
+    Use together with SampleLoadMixin.
     """
-    MINID = 60.0
-    MINCOV = 60.0
-    TOP = 0.9
-
-    load_flag_attr = 'gene_alignment_hits_loaded'
-
-    def get_file(self, sample):
-        return sample.get_metagenome_path() / f'{sample.sample_id}_GENES.m8'
-
-    def query2gene_pk(self, value, obj):
+    def check_taxid(self, value, obj):
         """
-        Pre-processor to get gene PK from qseqid column for genes
+        Check validity of NCBI taxids
 
-        The query column has all that's in the fasta header, incl. the prodigal
-        data.  Also add the sample pk (gene is a FK field).
+        Preprocessing method for taxid columns
+
+        Add this method to spec line for NCBI taxid columns.  Checks if taxid
+        was merged and returns the new taxid instead.  Returns None for deleted
+        taxids.  Returns None if value is 0, meaning 'unclassified' in mmseqs2
+        semantics.  Otherwise unknown taxids are let through unchanged.
         """
-        return self.gene_id_map[value]
-
-    def upper(self, value, obj):
-        """
-        Pre-processor to upper-case the uniref100 id
-
-        the incoming prefixes have mixed case
-        """
-        return value.upper()
-
-    spec = M8Spec(
-        ('gene.pk', query2gene_pk),
-        ('ref', upper),
-        ('score',),
-    )
+        if value == '0':
+            # mmseq2 may assign taxid 0 / no rank / unclassified
+            return None
+        if int(value) in self.deleted:
+            self.deleted_count += 1
+            return None
+        if new_taxid := self.merged.get(int(value), None):
+            self.merged_count += 1
+            return new_taxid
+        return value
 
     @atomic_dry
-    def load_sample(self, sample, done_ok=True, redo=False, **kwargs):
-        # To save a ton of time and space at the Loader's fkmap step, add
-        # filter to only get the needed subset of the unirefs.  A bit hackish
-        # as it sidesteps the spec.
-        infile = self.get_file(sample)
-        print(f'Reading distinct unirefs from {infile}...', end='', flush=True)
-        with infile.open() as ifile:
-            # get 3rd column, unique values
-            urefs = {line.split()[2].upper() for line in ifile}
-        self.spec.fkmap_filters['ref'] = {'accession__in': urefs}
-        print(f' [{len(urefs)} OK]')
-
-        print('Compiling gene IDs... ', end='', flush=True)
-        self.gene_id_map = dict(sample.gene_set.values_list('gene_id', 'pk'))
-        print(f' {len(self.gene_id_map)} [OK]')
-
-        # Our model has no sample field, so don't use the normal template
-        super().load_sample(sample,
-                            template={},
-                            sample_filter=dict(gene__sample=sample),
-                            done_ok=done_ok,
-                            redo=redo,
-                            **kwargs)
+    def load_sample(self, sample, **kwargs):
+        print('Retrieving merged/deleted taxid info... ', end='', flush=True)
+        qs = MergedNodes.objects.select_related('new_node__taxid')
+        qs = qs.values_list('old_taxid', 'new_node__taxid')
+        self.merged = dict(qs)
+        self.merged_count = 0
+        self.deleted = set(DeletedNode.objects.values_list('taxid', flat=True))
+        self.deleted_count = 0
+        print(f'[{len(self.merged)}/{len(self.deleted)} OK]')
+        super().load_sample(sample, **kwargs)
+        if self.merged_count:
+            print(f'Found {self.merged_count} rows with outdated but merged '
+                  f'taxids.')
+        if self.deleted_count:
+            print(f'Found {self.deleted_count} rows with deleted taxids. '
+                  f'TaxNode field set to None.')
+        del self.merged, self.merged_count, self.deleted, self.deleted_count
 
 
 class CompoundAbundanceLoader(BulkLoader, SampleLoadMixin):
     """ loader manager for CompoundAbundance """
-    ok_field_name = 'comp_abund_ok'
+    load_flag_attr = 'comp_abund_ok'
 
     spec = CSV_Spec(
         ('cpd', 'compound'),
@@ -317,7 +227,7 @@ class SequenceLikeLoader(SampleLoadMixin, BulkLoader):
     """
     Loader manager for the SequenceLike abstract model
 
-    Provides the load_fasta_sample() method.
+    Provides the load_fasta() method.
     """
 
     def get_fasta_path(self, sample):
@@ -330,15 +240,15 @@ class SequenceLikeLoader(SampleLoadMixin, BulkLoader):
 
     def get_set_from_fa_head_extra_kw(self, sample):
         """
-        Return extra kwargs for from_sample_fasta()
+        Return extra kwargs for from_fasta()
 
         Should be overwritten by inheriting class if needed
         """
         return {}
 
     @atomic_dry
-    def load_fasta_sample(self, sample, start=0, limit=None, bulk=True,
-                          validate=False, done_ok=True, redo=False):
+    def load_fasta(self, sample, start=0, limit=None, bulk=True,
+                   validate=False, done_ok=True, redo=False):
         """
         import sequence data for one sample
 
@@ -348,7 +258,7 @@ class SequenceLikeLoader(SampleLoadMixin, BulkLoader):
         if done:
             if done_ok:
                 if redo:
-                    self.delete_fasta_sample()
+                    self.unload_fasta_sample()
                 else:
                     # nothing to do
                     return
@@ -358,7 +268,7 @@ class SequenceLikeLoader(SampleLoadMixin, BulkLoader):
                     f'{self.fasta_load_flag} -> {sample}'
                 )
 
-        objs = self.from_sample_fasta(sample, start=start, limit=limit)
+        objs = self.from_fasta(sample, start=start, limit=limit)
         if validate:
             objs = call_each(objs, 'full_clean')
 
@@ -372,20 +282,17 @@ class SequenceLikeLoader(SampleLoadMixin, BulkLoader):
         sample.save()
 
     @atomic
-    def delete_fasta_sample(self, sample):
+    def unload_fasta(self, sample):
         """
-        Counterpart of load_fasta_sample but will delete more, abundance etc.
+        Counterpart of load_fasta but will delete more, abundance etc.
         """
-        print(f'Deleting {self.model._meta.model_name} ', end='', flush=True)
-        info = self.model.filter(sample=sample).delete()
-        print(info, '[OK]')
-        setattr(sample, self.fasta_load_flag, False)
+        self.unload_sample(sample, flag=self.fasta_load_flag)
 
-    def from_sample_fasta(self, sample, start=0, limit=None):
+    def from_fasta(self, sample, start=0, limit=None):
         """
         Generate instances for given sample
 
-        Helper for load_fasta_sample().
+        Helper for load_fasta().
         """
         extra = self.get_set_from_fa_head_extra_kw(sample)
         with self.get_fasta_path(sample).open('r') as fa:
@@ -426,265 +333,106 @@ class SequenceLikeLoader(SampleLoadMixin, BulkLoader):
                 break
 
 
-class ContigLikeLoader(SequenceLikeLoader):
-    """ Manager for ContigLike abstract model """
-    abundance_load_flag = None  # set in inheriting class
-
-    def get_contigs_file_path(self, sample):
-        # FIXME: this is unused, remove?
-        return resolve_glob(
-            sample.get_metagenome_path() / 'annotation',
-            f'{sample.sample_id}_contigs_*.txt'
-        )
-
-    def process_coverage_header_data(self, sample, data):
-        """ Add header data to sample """
-        # must be implemented by inheriting class
-        raise NotImplementedError
-
-    rpkm_spec = None
-    """ rpkm_spec must be set in inheriting classes """
-
-    @atomic_dry
-    def load_abundance_sample(self, sample, file=None, done_ok=True,
-                              redo=False, **kwargs):
-        """
-        Load data from bbmap *.rpkm files
-
-        Assumes that fasta data was loaded previously.
-        """
-        if file is None:
-            file = self.get_rpkm_path(sample)
-
-        # BEGIN read header data #
-        done = getattr(sample, self.abundance_load_flag)
-        if done and done_ok and not redo:
-            # nothing to do
-            return
-
-        if done and not done_ok:
-            raise RuntimeError(
-                f'already loaded: {self}/{self.model} -> {sample}'
-            )
-
-        if done and redo or not done:
-            reads = None
-            mapped = None
-            with open(file) as ifile:
-                print(f'Reading from {ifile.name} ...')
-                while True:
-                    pos = ifile.tell()
-                    line = ifile.readline()
-                    if line.startswith('#Name\t') or not line.startswith('#'):
-                        # we're past the preamble
-                        ifile.seek(pos)
-                        break
-                    key, _, data = line.strip().partition('\t')
-                    if key == '#Reads':
-                        reads = int(data)
-                    elif key == '#Mapped':
-                        mapped = int(data)
-
-            if reads is None or mapped is None:
-                raise RuntimeError('Failed parsing (mapped) read counts')
-
-            if sample.read_count is not None and sample.read_count != reads:
-                print(f'Warning: overwriting existing read count with'
-                      f'different value: {sample.read_count}->{reads}')
-            sample.read_count = reads
-
-            mapped_old_val = getattr(sample, self.reads_mapped_sample_attr)
-            if mapped_old_val is not None and mapped_old_val != mapped:
-                print(f'Warning: overwriting existing mapped read count with'
-                      f'different value: {mapped_old_val}->{mapped}')
-            setattr(sample, self.reads_mapped_sample_attr, mapped)
-            sample.save()
-        # END read header data #
-
-        self.load_sample(
-            sample,
-            flag=self.abundance_load_flag,
-            spec=self.rpkm_spec,
-            file=file,
-            update=True,
-            **kwargs)
-
-    @staticmethod
-    def get_lca(nodes):
-        """ helper to calculate the LCA of given TaxNodes """
-        lca, *others = nodes
-        for i in others:
-            lca = lca.lca(i)
-        lins = []
-        for i in nodes:
-            # assume ancestors are prefetched, so sort by python
-            lineage = sorted(i.ancestors.all(), key=lambda x: x.rank)
-            lineage.append(i)
-            lins.append(lineage)
-
-        lca = None
-        for items in zip(*lins):
-            if len(set((i.pk for i in items))) == 1:
-                lca = items[0]
-            else:
-                break
-
-        return lca
-
-    def abundance_stats(self, sample):
-        """
-        Calculate various abundance based statistics per taxon and sample
-
-        Return value is intended to be fed into the per-taxon abundance table.
-        """
-        qs = (self
-              .filter(sample=sample)
-              .exclude(lca=None)
-              .order_by('-lca__rank', 'lca'))
-        stats = {}
-        for lca_id, objs in groupby(qs.iterator(), key=lambda x: x.lca_id):
-            objs = list(objs)
-
-            # weighted fpkm averages
-            wmedian_fpkm = median((i.fpkm for i in objs for _ in range(i.length)))  # noqa:E501
-
-            stats[lca_id] = {}
-            stats[lca_id]['wmedian_fpkm'] = wmedian_fpkm
-            stats[lca_id]['count'] = len(objs)
-            stats[lca_id]['length'] = sum((i.length for i in objs))
-            stats[lca_id]['reads_mapped'] = sum((i.reads_mapped for i in objs))
-            stats[lca_id]['frags_mapped'] = sum((i.frags_mapped for i in objs))
-
-        return stats
-
-
-class ContigLoader(ContigLikeLoader):
+class ContigLoader(TaxNodeMixin, SequenceLikeLoader):
     """ Manager for the Contig model """
     fasta_load_flag = 'contig_fasta_loaded'
-    abundance_load_flag = 'contig_abundance_loaded'
-    reads_mapped_sample_attr = 'reads_mapped_contigs'
 
     def get_fasta_path(self, sample):
         return sample.get_metagenome_path() / 'assembly' \
             / 'megahit_noNORM' / 'final.contigs.renamed.fa'
 
-    def get_rpkm_path(self, sample):
-        return sample.get_metagenome_path() / 'assembly' \
-            / f'{sample.sample_id}_READSvsCONTIGS.rpkm'
+    def get_contig_abund_path(self, sample):
+        """ get path to samp_NNN_contig_abund.tsv file """
+        fname = f'{sample.sample_id}_contig_abund.tsv'
+        return sample.get_metagenome_path() / fname
 
-    def calc_rpkm(self, value, obj):
-        """ calculate rpkm based on total post-QC read-pairs """
-        return (1_000_000_000 * int(obj.reads_mapped)
-                / int(obj.length) / self.sample.read_count)
+    def get_contig_lca_path(self, sample):
+        """ get path to samp_NNN_contig_lca.tsv file """
+        fname = f'{sample.sample_id}_contig_lca.tsv'
+        return sample.get_metagenome_path() / fname
 
-    def calc_fpkm(self, value, obj):
-        """ calculate fpkm based on total post-QC read-pairs """
-        return (1_000_000_000 * int(obj.frags_mapped)
-                / int(obj.length) / self.sample.read_count)
+    def get_contig_no(self, value, obj):
+        sample_id, _, contig_no = value.rpartition('_')
+        if sample_id != self.sample.sample_id:
+            raise InputFileError(
+                f'bad sample_id in contig name: {value} but expected '
+                f'{self.sample.sample_id}'
+            )
+        try:
+            contig_no = int(contig_no)
+        except (ValueError, TypeError) as e:
+            raise InputFileError(f'bad contig number in {value=}: {e}') from e
+        return contig_no
 
-    rpkm_spec = BBMap_RPKM_Spec(
-        ('#Name', 'contig_id'),
+    contig_abund_spec = CSV_Spec(
+        ('Sample', CSV_Spec.IGNORE_COLUMN),
+        ('Contig', 'contig_no', get_contig_no),
+        ('Mean', 'mean'),
+        ('Trimmed Mean', 'trimmed_mean'),
+        ('Covered Bases', 'covered_bases'),
+        ('Variance', 'variance'),
         ('Length', 'length'),
-        ('Bases', 'bases'),
-        ('Coverage', 'coverage'),
-        ('Reads', 'reads_mapped'),
-        ('RPKM', 'rpkm_bbmap'),
-        ('Frags', 'frags_mapped'),
-        ('FPKM', 'fpkm_bbmap'),
-        (BBMap_RPKM_Spec.CALC_VALUE, 'rpkm', calc_rpkm),
-        (BBMap_RPKM_Spec.CALC_VALUE, 'fpkm', calc_fpkm),
+        ('Read Count', 'reads'),
+        ('Reads per base', 'reads_per_base'),
+        ('RPKM', 'rpkm'),
+        ('TPM', 'tpm'),
+    )
+
+    contig_lca_spec = CSV_Spec(
+        ('contig_no', get_contig_no),
+        ('lca', 'check_taxid'),
     )
 
     @atomic_dry
-    def assign_contig_lca(self, sample, done_ok=True, redo=False):
-        """
-        assign / pre-compute taxa and LCAs to contigs via genes
+    def unload_fasta_sample(self, sample):
+        super().unload_fasta_sample(sample)
+        # since this deletes the whole object
+        sample.contig_abundance_loaded = False
+        sample.contig_lca_loaded = False
+        sample.save()
 
-        This populates the Contig.lca/taxa fields
-        """
-        if sample.tax_abund_ok:
-            if not done_ok:
-                raise RuntimeError(
-                    f'Contig LCAs already loaded {self.model}/{sample}'
-                )
-            if not redo:
-                return
+    @atomic_dry
+    def load_abundance(self, sample, **kwargs):
+        self.load_sample(
+            sample,
+            flag='contig_abundance_loaded',
+            spec=self.contig_abund_spec,
+            file=self.get_contig_abund_path(sample),
+            update=True,
+            **kwargs)
 
-        Gene = import_string('mibios.omics.models.Gene')
-        genes = Gene.objects.filter(sample=sample)
-        # genes = genes.exclude(hits=None)
-        genes = genes.values_list('contig_id', 'pk')
-        genes = genes.order_by('contig_id')
-        print('Fetching taxonomy... ', end='', flush=True)
-        taxa = TaxNode.objects \
-            .filter(classified_gene__sample=sample) \
-            .distinct() \
-            .in_bulk()
-        print(f'{len(taxa)} [OK]')
-        print('Fetching contigs... ', end='', flush=True)
-        contigs = self.model.objects.filter(sample=sample).in_bulk()
-        print(f'{len(contigs)} [OK]')
-        print('Fetching Gene -> TaxNode links... ', end='', flush=True)
-        g2tax_qs = Gene._meta.get_field('taxa').remote_field.through.objects
-        g2tax_qs = g2tax_qs.filter(gene__sample=sample)
-        g2tax_qs = g2tax_qs.values_list('gene_id', 'taxnode_id')
-        g2tax_qs = groupby(g2tax_qs.order_by('gene_id'), key=lambda x: x[0])
-        g2taxa = {}
-        for gene_pk, grp in g2tax_qs:
-            g2taxa[gene_pk] = [i for _, i in grp]
-        print(f'{len(g2taxa)} [OK]')
+    @atomic_dry
+    def unload_abundance(self, sample):
+        fields = ['mean', 'trimmed_mean', 'covered_bases', 'variance',
+                  'length', 'reads', 'reads_per_base', 'rpkm', 'tpm']
+        print('Unsetting abundance fields... ', end='', flush=True)
+        count = self.filter(sample=sample).update(**{i: None for i in fields})
+        print(f'[{count} OK]')
+        sample.contig_abundance_loaded = False
+        sample.save()
 
-        lca_cache = {}
-
-        def contig_taxnode_links():
-            """ generate m2m links with side-effects """
-            for contig_pk, grp in groupby(genes, lambda x: x[0]):
-                taxnode_pks = set()
-                for _, gene_pk, in grp:
-                    try:
-                        taxnode_pks.update(g2taxa[gene_pk])
-                    except KeyError:
-                        # gene w/o hits
-                        pass
-
-                # assign contig LCA from gene LCAs (side-effect):
-                if taxnode_pks:
-                    taxnode_pks = frozenset(taxnode_pks)
-                    try:
-                        lca = lca_cache[taxnode_pks]
-                    except KeyError:
-                        node, *others = ((taxa[i] for i in taxnode_pks))
-                        lca_lin = node.get_lca_lineage(*others, full=True)
-                        if lca_lin:
-                            lca = lca_lin[-1]
-                        else:
-                            lca = None
-                        lca_cache[taxnode_pks] = lca
-                else:
-                    lca = None
-
-                contigs[contig_pk].lca = lca
-
-                for i in taxnode_pks:
-                    yield (contig_pk, i)
-
-        Through = self.model._meta.get_field('taxa').remote_field.through
-        delcount, _ = Through.objects.filter(contig__sample=sample).delete()
-        if delcount:
-            print(f'Deleted {delcount} existing contig-taxnode links')
-        objs = (
-            Through(contig_id=i, taxnode_id=j)
-            for i, j in contig_taxnode_links()
+    @atomic_dry
+    def load_lca(self, sample, **kwargs):
+        self.load_sample(
+            sample,
+            flag='contig_lca_loaded',
+            spec=self.contig_lca_spec,
+            file=self.get_contig_lca_path(sample),
+            update=True,
+            **kwargs,
         )
-        self.bulk_create_wrapper(Through.objects.bulk_create)(objs)
-        if True:  # flake8 trickery
-            del lca_cache
 
-        self.fast_bulk_update(contigs.values(), fields=['lca'])
+    @atomic_dry
+    def unload_lca(self, sample):
+        print('Unsetting lca... ', end='', flush=True)
+        count = self.filter(sample=sample).update(lca=None)
+        print(f'[{count} OK]')
+        setattr(sample, 'contig_lca_loaded', False)
+        sample.save()
 
 
 class FuncAbundanceLoader(BulkLoader, SampleLoadMixin):
-    ok_field_name = 'func_abund_ok'
+    load_flag_attr = 'func_abund_ok'
 
     def get_file(self, sample):
         return resolve_glob(
@@ -692,177 +440,107 @@ class FuncAbundanceLoader(BulkLoader, SampleLoadMixin):
             f'{sample.sample_id}_functionss_*.txt'
         )
 
+
+class GeneLoader(SampleLoadMixin, BulkLoader):
+    def get_alignment_file(self, sample):
+        return sample.get_metagenome_path() \
+            / f'{sample.sample_id}_contig_tophit_aln'
+
+    def to_contig_id(self, value, obj):
+        """ return ID tuple based on sample and contig number """
+        return self.sample.pk, int(value.rpartition('_')[2])
+
+    def parse_ur100(self, value, obj):
+        # UniRef100_ --> UNIREF100_
+        return value.upper()
+
     spec = CSV_Spec(
-        ('fid', 'function'),
-        ('fname', None),
-        ('FUNC_GENES', None),
-        ('FUNC_SCOS', 'scos'),
-        ('FUNC_RPKM', 'rpkm'),
-        ('fidlca', None),
+        ('contig', to_contig_id),
+        ('ref', parse_ur100),
+        ('pident', ),
+        ('length', ),
+        ('mismatch', ),
+        ('gapopen', ),
+        ('qstart', ),
+        ('qend', ),
+        ('sstart', ),
+        ('send', ),
+        (None, ),  # skip evalue column
+        ('bitscore', ),
     )
-
-
-class GeneLoader(ContigLikeLoader):
-    """ Manager for the Gene model """
-    fasta_load_flag = 'gene_fasta_loaded'
-    abundance_load_flag = 'gene_abundance_loaded'
-    reads_mapped_sample_attr = 'reads_mapped_genes'
-
-    def get_fasta_path(self, sample):
-        return (
-            sample.get_metagenome_path() / 'genes'
-            / f'{sample.sample_id}_GENES.fna'
-        )
-
-    def get_rpkm_path(self, sample):
-        return sample.get_metagenome_path() / 'genes' \
-            / f'{sample.sample_id}_READSvsGENES.rpkm'
-
-    def extract_gene_id(self, value, obj):
-        """
-        Pre-processor to get just the gene id from prodigal fasta header
-        """
-        # deadbeef_123_1 # bla bla bla => deadbeef_123_1
-        value, _, _ = value.partition(' ')
-        return value
-
-    def calc_rpkm(self, value, obj):
-        """ calculate rpkm based on total post-QC read-pairs """
-        return (1_000_000_000 * int(obj.reads_mapped)
-                / int(obj.length) / self.sample.read_count)
-
-    def calc_fpkm(self, value, obj):
-        """ calculate fpkm based on total post-QC read-pairs """
-        return (1_000_000_000 * int(obj.frags_mapped)
-                / int(obj.length) / self.sample.read_count)
-
-    rpkm_spec = BBMap_RPKM_Spec(
-        ('#Name', 'gene_id', extract_gene_id),
-        ('Length', 'length'),
-        ('Bases', 'bases'),
-        ('Coverage', 'coverage'),
-        ('Reads', 'reads_mapped'),
-        ('RPKM', 'rpkm_bbmap'),
-        ('Frags', 'frags_mapped'),
-        ('FPKM', 'fpkm_bbmap'),
-        (BBMap_RPKM_Spec.CALC_VALUE, 'rpkm', calc_rpkm),
-        (BBMap_RPKM_Spec.CALC_VALUE, 'fpkm', calc_fpkm),
-    )
-
-    def get_set_from_fa_head_extra_kw(self, sample):
-        # returns a dict of the sample's contigs
-        qs = sample.contig_set.values_list('contig_id', 'pk')
-        return dict(contig_id_map=dict(qs.iterator()))
 
     @atomic_dry
-    def assign_gene_lca(self, sample, done_ok=True, redo=False):
+    def load_alignments(self, sample, **kwargs):
         """
-        assign / pre-compute taxa and LCAs to genes of a single sample
+        Load data from contig_tophits_aln file
 
-        This also populates Gene.lca / Gene.besthit fields
+        Creates Gene records.
         """
-        if sample.tax_abund_ok:
-            if not done_ok:
-                raise RuntimeError(
-                    f'Gene LCAs already loaded {self.model}/{sample}'
-                )
-            if not redo:
-                return
+        infile = self.get_alignment_file(sample)
 
-        Alignment = import_string('mibios.omics.models.Alignment')
+        # Ensure only relevant ur100s are retrieved by load() later:
+        print(f'Extracting distinct unirefs from {infile}...', end='',
+              flush=True)
+        with infile.open() as ifile:
+            # get 2nd column w/o prefix, unique values only
+            urefs = {
+                line.split(maxsplit=2)[1].removeprefix('UniRef100_')
+                for line in ifile
+            }
+        if connection.vendor == 'sqlite':
+            # avoid "too many SQL variables" kicking in when len(urefs)>250000
+            def get_urefs_map():
+                urefs_map = UniRef100.loader.only('accession') \
+                                     .in_bulk(urefs, field_name='accession')
+                return (((accn, obj.pk) for accn, obj in urefs_map.items()))
 
-        print('Fetching uniref100/taxa...', end='', flush=True)
-        taxa_pref = Prefetch(
-            'taxa',
-            queryset=TaxNode.objects.only('id', 'parent_id'),
-            to_attr='taxa_all',
+            self.spec.fkmap_filters['ref'] = get_urefs_map
+        else:
+            self.spec.fkmap_filters['ref'] = {'accession__in': urefs}
+        print(f' [{len(urefs)} OK]')
+
+        dedup = StringIO()
+        ur100s = set()
+        with infile.open() as ifile:
+            print(f'Reading file: {ifile.name} ...', end='', flush=True)
+            totalcount = 0
+            rows = ((i.rstrip('\n').split('\t') for i in ifile))
+            # sort+group by Gene unique_together fields
+            key = lambda x: (x[0], x[1], x[6], x[7], x[8], x[9])  # noqa:E731
+            rows = sorted(rows, key=key)
+            for count, (_, grp) in enumerate(groupby(rows, key=key)):
+                grp = list(grp)
+                totalcount += len(grp)
+                row = max(grp, key=lambda x: int(x[-1]))  # max bitscore
+                ur100s.add(self.parse_ur100(row[1], None))
+                dedup.write('\t'.join(row))
+                dedup.write('\n')
+        dedup.seek(0)
+        if count == totalcount:
+            print(f' [{count} OK]')
+        else:
+            print(f'deduplicated: {totalcount} -> {count} rows [OK]')
+        dedup.seek(0)
+
+        # Create placeholders for missing UR100 records
+        print('Check for missing UniRef100s... ', end='', flush=True)
+        existing = UniRef100.objects.in_bulk(ur100s, field_name='accession')
+        missing = ur100s.difference(existing.keys())
+        if missing:
+            print(f'{len(missing)} missing out of {len(ur100s)}')
+            objs = ((UniRef100(accession=i) for i in missing))
+            UniRef100.loader.bulk_create(objs)
+        else:
+            print('[all good]')
+            objs = None
+        del ur100s, existing, missing, objs
+
+        self.load_sample(
+            sample,
+            flag='gene_alignments_loaded',
+            file=dedup,
+            **kwargs,
         )
-        qs = UniRef100.objects \
-            .filter(gene_hit__sample=sample) \
-            .prefetch_related(taxa_pref) \
-            .only('pk') \
-            .distinct()
-        u2t = {}
-        taxa_all_uniq = {}
-        for urobj in qs:
-            # De-duplicate related taxnode instances:  Many uniref100 records
-            # share taxa, but prefetch_related will populate the list of
-            # related object (here taxnodes) with dedicated instances for each
-            # primary object (here the uniref100 objects.)
-            for i in range(len(urobj.taxa_all)):
-                taxnode = urobj.taxa_all[i]
-                cached = taxa_all_uniq.get(taxnode.pk, None)
-                if cached is None:
-                    # keeper
-                    taxa_all_uniq[taxnode.pk] = taxnode
-                else:
-                    # replace instance
-                    urobj.taxa_all[i] = cached
-            u2t[urobj.pk] = urobj.taxa_all
-        print(f' unirefs:{len(u2t)} taxa:{len(taxa_all_uniq)} [OK]')
-        del qs, taxa_all_uniq, urobj, taxnode, cached
-
-        hits = Alignment.objects.filter(gene__sample=sample)
-        hits = hits.select_related('gene').order_by('gene')
-        hits = hits.only('score', 'ref_id', 'gene__id')
-
-        lca_cache = {}
-        genes = []
-        pk_pairs = []
-        pp = PP('genes processed (taxnodes, LCAs, besthit)')
-        for gene, grp in pp(groupby(hits, key=lambda x: x.gene)):
-            # get all taxa for all hits, some UR100 may not have taxa
-            taxa = {}
-            best = None
-            for align in grp:
-                if best is None or align.score > best.score:
-                    best = align
-                for taxnode in u2t.get(align.ref_id, []):
-                    if taxnode.pk in taxa:
-                        continue
-                    else:
-                        taxa[taxnode.pk] = taxnode
-                        pk_pairs.append((gene.pk, taxnode.pk))
-
-            gene.besthit_id = best.ref_id
-            if taxa:
-                node_pks = frozenset(taxa.keys())
-                try:
-                    lca = lca_cache[node_pks]
-                except KeyError:
-                    node, *others = taxa.values()
-                    lca = node.get_lca_lineage(*others, full=True)
-                    lca_cache[node_pks] = lca
-                if lca:
-                    gene.lca = lca[-1]
-                else:
-                    # LCA is root
-                    gene.lca = None
-            else:
-                # some genes here have hits but no taxa, so no LCA (=root)
-                gene.lca = None
-            genes.append(gene)
-        del u2t, lca_cache, hits
-
-        Through = self.model._meta.get_field('taxa').remote_field.through
-        delcount, _ = Through.objects.filter(gene__sample=sample).delete()
-        if delcount:
-            print(f'Deleted {delcount} existing gene-taxnode links')
-
-        # Storing the gene<->taxnode m2m relation:
-        objs = (Through(gene_id=i, taxnode_id=j) for i, j in pk_pairs)
-        self.bulk_create_wrapper(Through.objects.bulk_create)(objs)
-        del pk_pairs
-
-        # update lca field for all genes incl. the unknowns
-        self.fast_bulk_update(genes, fields=['lca', 'besthit'])
-        no_lcas = self.filter(sample=sample, hits=None).exclude(lca=None)
-        if no_lcas.exists():
-            # If this was an update there might be old LCAs but no hits now.
-            print('Erasing lca field for genes without any hits (in case of '
-                  'changes) ... ', end='', flush=True)
-            num_unknown = no_lcas.update(lca=None)
-            print(f'{num_unknown} [OK]')
 
 
 class SampleLoader(MetaDataLoader):
@@ -1059,22 +737,16 @@ class SampleLoader(MetaDataLoader):
         means either a single callable that takes a sample as argument or a
         list of such callables.
         """
-        Alignment = import_string('mibios.omics.models.Alignment')
         Contig = import_string('mibios.omics.models.Contig')
         Gene = import_string('mibios.omics.models.Gene')
         TaxonAbundance = import_string('mibios.omics.models.TaxonAbundance')
 
         return [
-            ('contig_fasta_loaded', Contig.loader.load_fasta_sample),
-            ('gene_fasta_loaded', Gene.loader.load_fasta_sample),
-            ('contig_abundance_loaded', Contig.loader.load_abundance_sample),
-            ('gene_abundance_loaded', Gene.loader.load_abundance_sample),
-            ('gene_alignment_hits_loaded', [
-                Alignment.loader.load_sample,
-                Gene.loader.assign_gene_lca,
-                Contig.loader.assign_contig_lca,
-            ]),
-            ('tax_abund_ok', TaxonAbundance.objects.populate_sample),
+            ('contig_fasta_loaded', Contig.loader.load_fasta),
+            ('contig_abundance_loaded', Contig.loader.load_abundance),
+            ('contig_lca_loaded', Contig.loader.load_lca),
+            ('gene_alignments_loaded', Gene.loader.load_alignments),
+            ('tax_abund_ok', TaxonAbundance.loader.load_sample),
         ]
 
     def get_blocklist(self):
@@ -1100,91 +772,128 @@ class SampleLoader(MetaDataLoader):
         return self.filter(sample_id__in=blocklist)
 
 
-class TaxonAbundanceManager(Manager):
+class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
     """ loader manager for the TaxonAbundance model """
-    ok_field_name = 'tax_abund_ok'
+    load_flag_attr = 'tax_abund_ok'
+
+    def process_tpm(self, value, obj):
+        # obj.taxon may be None for unclassified or deleted taxids
+        # tpm values for those get added together
+        taxid = getattr(obj.taxon, 'taxid', None)
+        if taxid in self.tpm_data:
+            # is a row for merged taxid (duplicate)
+            retval = self.spec.SKIP_ROW
+        else:
+            # zero as temp placeholder
+            retval = 0.0
+
+        # save value for post-processing
+        self.tpm_data[taxid] += float(value)
+        return retval
+
+    spec = CSV_Spec(
+        ('tax_id', 'taxon', 'check_taxid'),
+        ('abund_w_subtax', None),
+        ('abund_direct', 'tpm', process_tpm),
+    )
+
+    def get_file(self, sample):
+        """ Get path to lca_abund_summarized file """
+        if sample.sample_id == 'samp_447':
+            from pathlib import Path
+            return Path('/tmp/heinro/samp_447_lca_abund_summarized.tsv')
+        return sample.get_metagenome_path() \
+            / f'{sample.sample_id}_lca_abund_summarized.tsv'
 
     @atomic_dry
-    def populate_sample(self, sample, validate=False, done_ok=True,
-                        redo=False):
+    def load_sample(self, sample, **kwargs):
         """
-        populate the taxon abundance table for a single sample
+        Load abundance vs. taxa from lca_abund_summarized files
 
-        This requires that the sample's genes' LCAs have been set.
+        The input data may be based on an older version of NCBI's taxonomy.  In
+        such a case, abundance for deleted taxids is added to 'unclassified.'
+        Merged taxids' abundance is accumulated approriately.  Abundance for
+        any otherwise unknown taxids, e.g. if a newer version of NCBI taxonomy
+        was used, is ignored (rows will be skipped.)
         """
-        if sample.tax_abund_ok:
-            if not done_ok:
-                raise RuntimeError(
-                    f'tax abundance already loaded {self.model}/{sample}'
-                )
-            if not redo:
-                return
+        self.tpm_data = defaultdict(float)
+        super().load_sample(sample, **kwargs)
+        tpm_data = self.tpm_data
+        del self.tpm_data
+        # post-processing: add tpm to parentage
+        # 0. Save unclassified
+        if None in tpm_data:
+            unclass = self.model.objects.get(sample=sample, taxon=None)
+            unclass.tpm = tpm_data.pop(None)
+            unclass.save()
+            print(f'Updated "unclassified" [{unclass.tpm} OK]')
+        # 1. close under ancestry
+        print(f'Fill-in taxonomic relations {len(tpm_data)} -> ', end='',
+              flush=True)
+        qs = TaxNode.objects.prefetch_related('ancestors', 'children')
+        qs = qs.select_related('parent')
+        closure = qs.in_bulk(tpm_data.keys(), field_name='taxid')
+        new_taxids = []
+        for taxid in list(tpm_data.keys()):
+            for a_node in closure[taxid].ancestors.all():
+                if a_node.taxid not in closure:
+                    closure[a_node.taxid] = a_node
+                    new_taxids.append(a_node.taxid)
+                    # 2. add ancestors to tpm data
+                    tpm_data[a_node.taxid] = 0.0
+        print(f'{len(tpm_data)} [OK]')
 
-        qs = self.filter(sample=sample)
-        if qs.exists():
-            print('Deleting existing data... ', end='', flush=True)
-            _, num_deleted = qs.delete()
-            print(f'{num_deleted} [OK]')
+        # 3. push tpm numbers up the tree
+        print('Closing TPM under ancestry... ', end='', flush=True)
+        to_update = {}
+        to_create = {}
+        while tpm_data:
+            leaves = []
+            for taxid, tpm in tpm_data.items():
+                node = closure[taxid]
+                is_leaf = True
+                for child in node.children.all():
+                    if child.taxid in tpm_data:
+                        if child.is_root():
+                            # Strangely root is it's own parent
+                            # averting infinite loop here
+                            continue
+                        is_leaf = False
+                        break
+                if is_leaf:
+                    if not node.is_root():
+                        # root's parent is root, all accumulation is done
+                        # already
+                        tpm_data[node.parent.taxid] += tpm
+                    if taxid in new_taxids:
+                        to_create[taxid] = tpm
+                    else:
+                        to_update[taxid] = tpm
+                    leaves.append(taxid)
+            for i in leaves:
+                del tpm_data[i]
+        print(f'[{len(to_update)}/{len(to_create)} OK]')
 
-        Contig = import_string('mibios.omics.models.Contig')
-        Gene = import_string('mibios.omics.models.Gene')
-        TaxNode = import_string('mibios.ncbi_taxonomy.models.TaxNode')
-
-        print('Compiling stats for contigs... ', end='', flush=True)
-        contig_stats = Contig.loader.abundance_stats(sample)
-        print(f'{len(contig_stats)} [OK]')
-        print('Compiling stats for genes... ', end='', flush=True)
-        gene_stats = Gene.loader.abundance_stats(sample)
-        print(f'{len(gene_stats)} [OK]')
-
-        # taxa for which we have stats don't quite overlap genes vs. contigs,
-        # but we'll create an object for each taxon and fill in default values
-        # (0.0) for each statistics that is missing
-        tax_ids = set(contig_stats.keys()).union(gene_stats.keys())
-        print(f'Retrieving {len(tax_ids)} taxa... ', end='', flush=True)
-        taxa = TaxNode.objects.filter(pk__in=tax_ids)
-        print('[OK]')
-
-        def fpkm(count, length):
-            """
-            calculate fpkm: count per kb length per 1m sequenced readpairs
-            """
-            if not count and not length:
-                # return 0.0 fpkm for missing data and avoid zero division
-                # but still catch bad data (zero length but non-zero count)
-                return 0.0
-            return 1_000_000_000 * count / (length * sample.read_count)
-
-        total = sample.read_count
+        # 4. update existing objects
         objs = []
-        empty_dict = {}  # stand-in so getting the default works
-        for taxon in taxa:
-            cont_st = contig_stats.get(taxon.pk, empty_dict)
-            gene_st = gene_stats.get(taxon.pk, empty_dict)
+        for obj in self.filter(sample=sample).select_related('taxon'):
+            # objs = qs.in_bulk(to_update.keys(), field_name='taxon__taxid')
+            if obj.taxon is None:
+                continue
+            if obj.taxon.taxid in to_update:
+                obj.tpm = to_update[obj.taxon.taxid]
+                objs.append(obj)
+        self.fast_bulk_update(objs, ['tpm'])
 
-            len_contigs = cont_st.get('length', 0)
-            len_genes = gene_st.get('length', 0)
-            frags_mapped_contig = cont_st.get('frags_mapped', 0)
-            frags_mapped_gene = gene_st.get('frags_mapped', 0)
-
-            objs.append(self.model(
-                sample=sample,
-                taxon=taxon,
-                count_contig=cont_st.get('count', 0),
-                count_gene=gene_st.get('count', 0),
-                len_contig=len_contigs,
-                len_gene=len_genes,
-                mean_fpkm_contig=fpkm(frags_mapped_contig, len_contigs),
-                mean_fpkm_gene=fpkm(frags_mapped_gene, len_genes),
-                wmedian_fpkm_contig=cont_st.get('wmedian_fpkm', 0.0),
-                wmedian_fpkm_gene=gene_st.get('wmedian_fpkm', 0.0),
-                norm_reads_contig=cont_st.get('reads_mapped', 0.0) / total,
-                norm_reads_gene=gene_st.get('reads_mapped', 0.0) / total,
-                norm_frags_contig=frags_mapped_contig / total,
-                norm_frags_gene=frags_mapped_gene / total,
-            ))
+        # 5. create new objects (ancestry)
+        objs = [
+            self.model(sample=sample, taxon=closure[taxid], tpm=tpm)
+            for taxid, tpm in to_create.items()
+        ]
         self.bulk_create(objs)
 
+
+class TaxonAbundanceManager(Manager):
     def as_krona_input_text(self, sample, field_name):
         """
         Generate input text data for krona

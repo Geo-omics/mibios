@@ -449,7 +449,7 @@ class BaseLoader(MibiosBaseManager):
                 or getattr(i.related_model, 'objects')
             fkmap[i.name] = {
                 tuple(a): pk for *a, pk
-                in related_manager.filter(**f).values_list(*lookups, 'pk')
+                in (f() if callable(f) else related_manager.filter(**f).values_list(*lookups, 'pk'))  # noqa:E501
             }
             print(f'[{len(fkmap[i.name])} OK]')
         del f
