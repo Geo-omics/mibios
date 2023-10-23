@@ -461,7 +461,7 @@ class BaseLoader(MibiosBaseManager):
         missing_fks = defaultdict(set)
         row_skip_count = 0
         fk_skip_count = 0
-        pk = None
+        field = pk = value = obj = m2m = None
 
         for lineno in self.iterate_rows(pp(rows), start=first_lineno):
             obj = None
@@ -612,6 +612,7 @@ class BaseLoader(MibiosBaseManager):
                     m2m_data[obj.get_accessions(ensure_type=True)] = m2m
 
         del fkmap, field, value, pk, obj, m2m
+
         if update:
             missing_objs = [(j.pk, i) for i, j in obj_pool.items() if j]
             if missing_objs:
