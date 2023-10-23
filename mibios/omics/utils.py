@@ -290,6 +290,3 @@ class Timestamper(redirect_stdout):
             # that line is finished, so forget it
             self.cur_line = ''
             self.prev_timestamp = self.timestamp
-        else:
-            if self.prev_timestamp is None:
-                self.prev_timestamp = self.timestamp

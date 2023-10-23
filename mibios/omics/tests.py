@@ -5,7 +5,9 @@ from mibios.umrad.utils import ProgressPrinter
 
 
 def test_timestamper():
-    with Timestamper(template='[ {timestamp} testing ]  ') as obj:
+    ts = Timestamper(template='[ {timestamp} testing ]  ',
+                     file_copy='/tmp/test_timestamper.txt')
+    with ts as obj:
         print('starting up ...')
         print('second line ...', end='')
         print('still second line')
@@ -16,6 +18,11 @@ def test_timestamper():
               sep='\n')
         sleep(1)
         print('multi\nline\nstring')
+        sleep(1)
+        obj.prev_timestamp = None
+        print('Print full timestamp on a long line.  ' * 5, end='', flush=True)
+        sleep(1)
+        print('finish long line')
         pp = ProgressPrinter('looping over range...')
         for i in pp(range(1000)):
             sleep(0.03)
