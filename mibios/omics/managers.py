@@ -498,6 +498,8 @@ class GeneLoader(SampleLoadMixin, BulkLoader):
         else:
             self.spec.fkmap_filters['ref'] = {'accession__in': urefs}
         print(f' [{len(urefs)} OK]')
+        # same for contigs:
+        self.spec.fkmap_filters['contig'] = {'sample': sample}
 
         dedup = StringIO()
         ur100s = set()
