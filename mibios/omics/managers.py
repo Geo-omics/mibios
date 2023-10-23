@@ -751,13 +751,13 @@ class SampleLoader(MetaDataLoader):
 
     def get_blocklist(self):
         """
-        Return PKs of blocked samples
+        Return QuerySet of blocked samples
 
         Blocked samples are those for which something is wrong with the omics
         data.  Beyond meta-data no other data should be loaded.
         """
         if not settings.SAMPLE_BLOCKLIST:
-            return []
+            return self.none()
 
         blocklist = []
         with open(settings.SAMPLE_BLOCKLIST) as ifile:
