@@ -3,7 +3,7 @@ Module for data load managers
 """
 
 from collections import defaultdict
-from io import StringIO
+from functools import partial
 from itertools import groupby, islice
 from logging import getLogger
 import os
@@ -441,8 +441,67 @@ class FuncAbundanceLoader(BulkLoader, SampleLoadMixin):
         )
 
 
-class GeneLoader(SampleLoadMixin, BulkLoader):
-    def get_alignment_file(self, sample):
+class UniRefMixin:
+    """ Mixin for dealing with uniref100 columns """
+    def parse_ur100(self, value, obj):
+        """ Preprocessing method, add this to spec line """
+        # UniRef100_ --> UNIREF100_
+        return value.upper()
+
+    def uniref100_helper(self, field_name, spec=None, create_missing=True):
+        """
+        Helper to run before calling load()
+
+        Reads the uniref100 column and provides the fkmap filter.  For missing
+        UniRef100 records, placeholders with only the accession are created.
+
+        :param spec:
+            Alternative loader spec attribute.  By default the usual
+            Loader.spec is used.
+        """
+        if spec is None:
+            spec = self.spec
+
+        col = spec.field_names.index(field_name)
+
+        rows = self.spec.iterrows()
+        print('Extracting distinct UniRef100s...', end='', flush=True)
+        # get accessions w/o prefix, unique values only
+        urefs = {row[col].removeprefix('UniRef100_') for row in rows}
+        print(f' [{len(urefs)} OK]')
+
+        # Create placeholders for missing UR100 records
+        print('Check for missing UniRef100s... ', end='', flush=True)
+        existing_map = UniRef100.loader.only('accession') \
+                                .in_bulk(urefs, field_name='accession')
+        existing = (i.removeprefix('UNIREF100_') for i in existing_map.keys())
+        missing = urefs.difference(existing)
+        if missing:
+            print(f'{len(missing)} missing out of {len(urefs)}')
+            if create_missing:
+                objs = ((UniRef100(accession=i) for i in missing))
+                UniRef100.loader.bulk_create(objs)
+        else:
+            print('[all good]')
+            objs = None
+        del existing_map, missing, objs, existing
+
+        # set fkmap_filter
+        if connection.vendor == 'sqlite':
+            # avoid "too many SQL variables" kicking in when len(urefs)>250000
+            def get_urefs_map():
+                # in_bulk() like above but also get PKs for any newly created
+                urefs_map = UniRef100.loader.only('accession') \
+                                     .in_bulk(urefs, field_name='accession')
+                return (((accn, obj.pk) for accn, obj in urefs_map.items()))
+
+            self.spec.fkmap_filters[field_name] = get_urefs_map
+        else:
+            self.spec.fkmap_filters[field_name] = {'accession__in': urefs}
+
+
+class GeneLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
+    def get_file(self, sample):
         return sample.get_metagenome_path() \
             / f'{sample.sample_id}_contig_tophit_aln'
 
@@ -450,13 +509,9 @@ class GeneLoader(SampleLoadMixin, BulkLoader):
         """ return ID tuple based on sample and contig number """
         return self.sample.pk, int(value.rpartition('_')[2])
 
-    def parse_ur100(self, value, obj):
-        # UniRef100_ --> UNIREF100_
-        return value.upper()
-
     spec = CSV_Spec(
         ('contig', to_contig_id),
-        ('ref', parse_ur100),
+        ('ref', 'parse_ur100'),
         ('pident', ),
         ('length', ),
         ('mismatch', ),
@@ -469,78 +524,51 @@ class GeneLoader(SampleLoadMixin, BulkLoader):
         ('bitscore', ),
     )
 
+    def dedup_alns(self):
+        """
+        deduplicate alignments before loading
+
+        Creates a temporary file and set the spec up to use that as input file.
+        """
+        dedup = tempfile.SpooledTemporaryFile(mode='w+t')
+        totalcount = 0
+
+        rows = self.spec.iterrows()  # iterator over original input file
+        # sort+group by Gene unique_together fields
+        key = lambda x: (x[0], x[1], x[6], x[7], x[8], x[9])  # noqa:E731
+        rows = sorted(rows, key=key)
+        print('Deduplicating alignments... ', end='', flush=True)
+        for count, (_, grp) in enumerate(groupby(rows, key=key)):
+            grp = list(grp)
+            totalcount += len(grp)
+            row = max(grp, key=lambda x: int(x[-1]))  # max bitscore
+            dedup.write('\t'.join(row))
+            dedup.write('\n')
+        if count == totalcount:
+            print(f'[{count} OK]')
+        else:
+            print(f'[{totalcount} -> {count} OK]')
+
+        # supplant input file
+        dedup.seek(0)
+        self.spec.file = dedup
+
     @atomic_dry
     def load_alignments(self, sample, **kwargs):
         """
         Load data from contig_tophits_aln file
 
-        Creates Gene records.
+        Creates Gene records.  The main entrypoint for the GeneLoader.
         """
-        infile = self.get_alignment_file(sample)
-
-        # Ensure only relevant ur100s are retrieved by load() later:
-        print(f'Extracting distinct unirefs from {infile}...', end='',
-              flush=True)
-        with infile.open() as ifile:
-            # get 2nd column w/o prefix, unique values only
-            urefs = {
-                line.split(maxsplit=2)[1].removeprefix('UniRef100_')
-                for line in ifile
-            }
-        if connection.vendor == 'sqlite':
-            # avoid "too many SQL variables" kicking in when len(urefs)>250000
-            def get_urefs_map():
-                urefs_map = UniRef100.loader.only('accession') \
-                                     .in_bulk(urefs, field_name='accession')
-                return (((accn, obj.pk) for accn, obj in urefs_map.items()))
-
-            self.spec.fkmap_filters['ref'] = get_urefs_map
-        else:
-            self.spec.fkmap_filters['ref'] = {'accession__in': urefs}
-        print(f' [{len(urefs)} OK]')
-        # same for contigs:
+        self.spec.pre_load_hook = [
+            partial(self.dedup_alns),
+            partial(self.uniref100_helper, field_name='ref'),
+        ]
         self.spec.fkmap_filters['contig'] = {'sample': sample}
-
-        dedup = StringIO()
-        ur100s = set()
-        with infile.open() as ifile:
-            print(f'Reading file: {ifile.name} ...', end='', flush=True)
-            totalcount = 0
-            rows = ((i.rstrip('\n').split('\t') for i in ifile))
-            # sort+group by Gene unique_together fields
-            key = lambda x: (x[0], x[1], x[6], x[7], x[8], x[9])  # noqa:E731
-            rows = sorted(rows, key=key)
-            for count, (_, grp) in enumerate(groupby(rows, key=key)):
-                grp = list(grp)
-                totalcount += len(grp)
-                row = max(grp, key=lambda x: int(x[-1]))  # max bitscore
-                ur100s.add(self.parse_ur100(row[1], None))
-                dedup.write('\t'.join(row))
-                dedup.write('\n')
-        dedup.seek(0)
-        if count == totalcount:
-            print(f' [{count} OK]')
-        else:
-            print(f'deduplicated: {totalcount} -> {count} rows [OK]')
-        dedup.seek(0)
-
-        # Create placeholders for missing UR100 records
-        print('Check for missing UniRef100s... ', end='', flush=True)
-        existing = UniRef100.objects.in_bulk(ur100s, field_name='accession')
-        missing = ur100s.difference(existing.keys())
-        if missing:
-            print(f'{len(missing)} missing out of {len(ur100s)}')
-            objs = ((UniRef100(accession=i) for i in missing))
-            UniRef100.loader.bulk_create(objs)
-        else:
-            print('[all good]')
-            objs = None
-        del ur100s, existing, missing, objs
 
         self.load_sample(
             sample,
             flag='gene_alignments_loaded',
-            file=dedup,
             **kwargs,
         )
 
