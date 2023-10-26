@@ -573,6 +573,54 @@ class GeneLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
         )
 
 
+class GeneAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
+    """ load data from contig_tophit_report files """
+    load_flag_attr = 'gene_abundance_loaded'
+    spec = CSV_Spec(
+        ('ref', 'parse_ur100'),
+        (None, ),  # ignore the count
+        ('unique_cov', ),
+        ('target_cov', ),
+        ('avg_ident', ),
+        # ignore taxonomy columns
+        has_header=False,
+    )
+
+    def get_file(self, sample):
+        return sample.get_metagenome_path() \
+            / f'{sample.sample_id}_contig_tophit_report'
+
+    @atomic_dry
+    def load_sample(self, sample, *args, **kwargs):
+        self.spec.pre_load_hook = \
+            partial(self.uniref100_helper, field_name='ref')
+        super().load_sample(sample, *args, **kwargs)
+
+
+class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
+    """ load data from *_tophit_report files """
+    load_flag_attr = 'read_abundance_loaded'
+    spec = CSV_Spec(
+        ('ref', 'parse_ur100'),
+        ('read_count', ),
+        ('unique_cov', ),
+        ('target_cov', ),
+        ('avg_ident', ),
+        # ignore taxonomy columns
+        has_header=False,
+    )
+
+    def get_file(self, sample):
+        return sample.get_metagenome_path() \
+            / f'{sample.sample_id}_tophit_report'
+
+    @atomic_dry
+    def load_sample(self, sample, *args, **kwargs):
+        self.spec.pre_load_hook = \
+            partial(self.uniref100_helper, field_name='ref')
+        super().load_sample(sample, *args, **kwargs)
+
+
 class SampleLoader(MetaDataLoader):
     """ Loader manager for Sample """
     def get_omics_import_file(self):
@@ -769,6 +817,8 @@ class SampleLoader(MetaDataLoader):
         """
         Contig = import_string('mibios.omics.models.Contig')
         Gene = import_string('mibios.omics.models.Gene')
+        ReadAbundance = import_string('mibios.omics.models.ReadAbundance')
+        GeneAbundance = import_string('mibios.omics.models.GeneAbundance')
         TaxonAbundance = import_string('mibios.omics.models.TaxonAbundance')
 
         return [
@@ -776,6 +826,8 @@ class SampleLoader(MetaDataLoader):
             ('contig_abundance_loaded', Contig.loader.load_abundance),
             ('contig_lca_loaded', Contig.loader.load_lca),
             ('gene_alignments_loaded', Gene.loader.load_alignments),
+            ('read_abundance_loaded', ReadAbundance.loader.load_sample),
+            ('gene_abundance_loaded', GeneAbundance.loader.load_sample),
             ('tax_abund_ok', TaxonAbundance.loader.load_sample),
         ]
 

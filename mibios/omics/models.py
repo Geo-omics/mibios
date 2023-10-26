@@ -95,7 +95,7 @@ class AbstractSample(Model):
     )
     contig_abundance_loaded = models.BooleanField(
         default=False,
-        help_text='contig abundance/rpkm data data loaded',
+        help_text='contig abundance/rpkm data loaded',
     )
     contig_lca_loaded = models.BooleanField(
         default=False,
@@ -105,9 +105,13 @@ class AbstractSample(Model):
         default=False,
         help_text='genes loaded via contig_tophit_aln file',
     )
-    gene_alignment_hits_loaded = models.BooleanField(
+    read_abundance_loaded = models.BooleanField(
         default=False,
-        help_text='gene alignment hits to UniRef100 loaded',
+        help_text='read-based abundance data from tophit_report loaded',
+    )
+    gene_abundance_loaded = models.BooleanField(
+        default=False,
+        help_text='abundance data from contig_tophit_report loaded',
     )
     binning_ok = models.BooleanField(
         default=False,
@@ -480,13 +484,33 @@ class AbstractDataset(Model):
 
 
 class Abundance(Model):
-    """ Abundance w.r.t. UniRef100 """
+    """
+    Abstract Abundance w.r.t. UniRef100
+
+    For data from mmseqs2's {contig_}tophit_report files
+    """
     # cf. mmseqs2 easy-taxonomy output (tophit_report)
     sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
     ref = models.ForeignKey(UniRef100, **fk_req)
     unique_cov = models.DecimalField(**digits(4, 3))
-    target_cov = models.DecimalField(**digits(4, 3))
+    target_cov = models.DecimalField(**digits(8, 3))
     avg_ident = models.DecimalField(**digits(4, 3))
+
+    class Meta(Model.Meta):
+        abstract = True
+        unique_together = (('sample', 'ref'),)
+
+
+class GeneAbundance(Abundance):
+    """ Gene/UR100 Abundance based on contigs """
+    loader = managers.GeneAbundanceLoader()
+
+
+class ReadAbundance(Abundance):
+    """ Gene/UR100 Abundance based on reads """
+    read_count = models.PositiveIntegerField()
+
+    loader = managers.ReadAbundanceLoader()
 
 
 '''
