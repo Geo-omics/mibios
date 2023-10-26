@@ -305,6 +305,9 @@ class BaseLoader(MibiosBaseManager):
             setup_kw['file'] = file
         self.setup_spec(**setup_kw)
 
+        for fn in self.spec.pre_load_hook:
+            fn()
+
         row_it = self.spec.iterrows()
         self.current_lineno = None
 

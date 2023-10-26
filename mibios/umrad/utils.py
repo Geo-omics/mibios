@@ -372,6 +372,7 @@ class InputFileSpec:
         self.has_header = None
         self.fk_attrs = {}
         self.fkmap_filters = {}
+        self.pre_load_hook = []
 
     def setup(self, loader, column_specs=None, file=None):
         """
@@ -509,6 +510,17 @@ class InputFileSpec:
         self.field_names = field_names
         self.fields = tuple(fields)
         self.prepfuncs = tuple(prepfuncs)
+
+        if callable(self.pre_load_hook):
+            self.pre_load_hook = [self.pre_load_hook]
+        try:
+            for i in self.pre_load_hook:
+                if not callable(i):
+                    raise TypeError(f'not callable: {i}')
+        except TypeError as e:
+            # get here also if we can't iterate over per_load_hook
+            msg = 'pre_load_hook should be a list of callables'
+            raise SpecError(msg) from e
 
     def __len__(self):
         return len(self.keys)
