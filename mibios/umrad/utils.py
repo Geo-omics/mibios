@@ -362,14 +362,14 @@ class InputFileSpec:
     the data these are used in addition to each field's empty_values attribute.
     """
 
-    def __init__(self, *column_specs):
+    def __init__(self, *column_specs, has_header=None):
         self._spec = column_specs or None
 
         # set by setup():
         self.model = None
         self.loader = None
         self.file = None
-        self.has_header = None
+        self.has_header = has_header
         self.fk_attrs = {}
         self.fkmap_filters = {}
         self.pre_load_hook = []
@@ -407,14 +407,15 @@ class InputFileSpec:
         cur_col_index = None  # for non-header input, defined by order in spec
         for spec_line in column_specs:
             # TODO: re-write as match statement?
-            # FIXME: two-str-items format can be <col> <field> OR <field> <fun>
-            # with no super easy way to distinguish them
+            # NOTE: two-str-items format can be <col> <field> OR <field> <fun>
+            # with no super easy way to distinguish them.  Use has_header init
+            # arg to make it explicit if needed.
             if not isinstance(spec_line, tuple):
                 # no-header-simple-format
                 spec_line = (spec_line, )
 
             if self.has_header is None:
-                # detect header presence from first spec piece
+                # auto-detect header presence from first spec piece
                 if len(spec_line) == 1:
                     self.has_header = False
                 elif len(spec_line) == 2 and callable(spec_line[1]):
@@ -466,7 +467,8 @@ class InputFileSpec:
             try:
                 field = self.model._meta.get_field(field_name)
             except FieldDoesNotExist as e:
-                raise SpecError(f'bad spec line: {spec_line}: {e}') from e
+                msg = f'bad spec line: {spec_line}: {e} / {self.has_header=}'
+                raise SpecError(msg) from e
 
             fields.append(field)
             field_names.append(field_name)
@@ -628,8 +630,8 @@ class CSVRowGenerator:
 
 
 class CSV_Spec(InputFileSpec):
-    def __init__(self, *column_specs, sep='\t'):
-        super().__init__(*column_specs)
+    def __init__(self, *column_specs, sep='\t', **kwargs):
+        super().__init__(*column_specs, **kwargs)
         self.sep = sep
 
     def setup(self, *args, sep=None, **kwargs):
