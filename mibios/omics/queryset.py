@@ -168,14 +168,13 @@ class SampleQuerySet(QuerySet):
         FILE_PATS = [
             # filename pattern, 1-based ur100 column number
             ('{sample_id}_tophit_report', 1),
-            ('{sample_id}_tophit_aln', 2),
             ('{sample_id}_contig_tophit_report', 1),
-            ('{sample_id}_contig_tophit_aln', 2),
         ]
 
         PREFIXES = ['UNIREF100_', 'UniRef100_']
 
         accns = set()
+        old_total = 0
         file_count = 0
         for sample in self:
             base = sample.get_metagenome_path()
@@ -187,10 +186,12 @@ class SampleQuerySet(QuerySet):
 
                 file_count += 1
                 found_a_file = True
-                old_accns_len = len(accns)
                 with open(path) as ifile:
                     os.posix_fadvise(
                         ifile.fileno(), 0, 0, os.POSIX_FADV_SEQUENTIAL
+                    )
+                    os.posix_fadvise(
+                        ifile.fileno(), 0, 0, os.POSIX_FADV_DONTNEED
                     )
                     for linenum, line in enumerate(ifile, start=1):
                         row = line.rstrip('\n').split('\t', maxsplit=col)
@@ -201,10 +202,13 @@ class SampleQuerySet(QuerySet):
                                 value = value.removeprefix(i)
                         accns.add(value)
                 if verbose:
+                    cur_total = len(accns)
                     print(
-                        f'{sample.sample_id}:{path.name} total:{linenum} '
-                        f'new:{len(accns) - old_accns_len}'
+                        f'{cur_total:>10} {sample.sample_id:>9}:'
+                        f'{path.name:<33}\t'
+                        f'{linenum:>7} new:{cur_total - old_total:>8}'
                     )
+                    old_total = cur_total
             if verbose and not found_a_file:
                 print(f'{sample.sample_id}: no files found')
 
