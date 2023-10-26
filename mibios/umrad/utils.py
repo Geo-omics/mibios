@@ -571,6 +571,62 @@ class InputFileSpec:
         return {field.name: val for field, _, val in row_data}
 
 
+class CSVRowGenerator:
+    """
+    Generator over csv rows with cleanup
+
+    Usage:
+        spec = CSVSpec(...)
+        for row in CSVRowGenerator(spec):
+            ...
+
+    This hides the complexity of supporting normal filesystem-based files as
+    well as tempfiles or other things like StringIO.  Normal files will be open
+    and closed.  Others will be left open and have seek(0) run so that they can
+    be reused.  It is the loader's responsibility to clean those up.
+    """
+    def __init__(self, spec):
+        self.spec = spec
+        try:
+            # open in case it's a str or Path
+            self._file = open(self.spec.file)
+        except TypeError:
+            # assume it's already file-like, e.g. some tempfile
+            self._file = self.spec.file
+            self.keep_open = True
+        else:
+            print(f'File opened: {self._file.name}')
+            self.keep_open = False
+            try:
+                os.posix_fadvise(self._file.fileno(), 0, 0,
+                                 os.POSIX_FADV_SEQUENTIAL)
+            except UnsupportedOperation:
+                pass
+
+        if self.spec.has_header:
+            self.spec.process_header(self._file)
+
+        self._it = self._generator()
+
+    def _generator(self):
+        """ the row generator with cleanup """
+        try:
+            for line in self._file:
+                yield line.rstrip('\n').split(self.spec.sep)
+        finally:
+            if self.keep_open:
+                # in case tempfile is read multiple times
+                self._file.seek(0)
+            else:
+                self._file.close()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self._it)
+
+
 class CSV_Spec(InputFileSpec):
     def __init__(self, *column_specs, sep='\t'):
         super().__init__(*column_specs)
@@ -590,7 +646,8 @@ class CSV_Spec(InputFileSpec):
 
         Overwrite this method if your file has a more complex layout.  Make
         sure this method consumes all non-data rows at the beginning of the
-        file.
+        file.  If the input file is read multiple times then process_header()
+        is called each time, before iterating over the rows.
         """
         head = file.readline().rstrip('\n').split(self.sep)
         col_pos = {colname: pos for pos, colname in enumerate(head)}
@@ -614,32 +671,10 @@ class CSV_Spec(InputFileSpec):
         """
         An iterator over the csv file's rows
 
-        Also manages opening/closing of file.
+        Also manages opening/closing of file if needed.  Will consume the
+        header row if there is one.
         """
-        try:
-            # open in case it's a str or Path
-            ifile = open(self.file)
-        except TypeError:
-            # assume it's already file-like
-            ifile = self.file
-        else:
-            print(f'File opened: {ifile.name}')
-
-        try:
-            try:
-                os.posix_fadvise(ifile.fileno(), 0, 0,
-                                 os.POSIX_FADV_SEQUENTIAL)
-            except UnsupportedOperation:
-                # fileno() won't work for e.g. StringIO
-                pass
-
-            if self.has_header:
-                self.process_header(ifile)
-
-            for line in ifile:
-                yield line.rstrip('\n').split(self.sep)
-        finally:
-            ifile.close()
+        return CSVRowGenerator(self)
 
 
 class ExcelSpec(InputFileSpec):
