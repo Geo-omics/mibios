@@ -12,7 +12,6 @@ import subprocess
 import tempfile
 
 from django.conf import settings
-from django.db import connection
 from django.db.transaction import atomic
 from django.utils.module_loading import import_string
 
@@ -441,6 +440,15 @@ class FuncAbundanceLoader(BulkLoader, SampleLoadMixin):
         )
 
 
+fkmap_cache = {}
+
+
+def fkmap_cache_reset():
+    """ Initialize or reset the global fkmap cache """
+    global fkmap_cache
+    fkmap_cache = {'UniRef100': {}}
+
+
 class UniRefMixin:
     """ Mixin for dealing with uniref100 columns """
     def parse_ur100(self, value, obj):
@@ -467,37 +475,41 @@ class UniRefMixin:
         rows = self.spec.iterrows()
         print('Extracting distinct UniRef100s...', end='', flush=True)
         # get accessions w/o prefix, unique values only
-        urefs = {row[col].removeprefix('UniRef100_') for row in rows}
+        urefs = {row[col].upper() for row in rows}
         print(f' [{len(urefs)} OK]')
 
-        # Create placeholders for missing UR100 records
+        # Create placeholders for missing UR100 records ...
         print('Check for missing UniRef100s... ', end='', flush=True)
-        existing_map = UniRef100.loader.only('accession') \
-                                .in_bulk(urefs, field_name='accession')
-        existing = (i.removeprefix('UNIREF100_') for i in existing_map.keys())
-        missing = urefs.difference(existing)
+        # 1. Look in cache (if initialized) and load any not yet in cache
+        global fkmap_cache
+        fkmap = fkmap_cache.get('UniRef100', dict())
+        missing = urefs.difference((i[0] for i in fkmap.keys()))
+        # 2. update cache
+        exist_missing = UniRef100.loader.pkmap('accession', missing)
+        add_to_cache_count = 0
+        for accn, pk in exist_missing.items():
+            fkmap[(accn,)] = pk
+            missing.remove(accn)
+            add_to_cache_count += 1
+        if add_to_cache_count and fkmap_cache:
+            print(f'(cache: +{add_to_cache_count}) ', end='', flush=True)
+
         if missing:
-            print(f'{len(missing)} missing out of {len(urefs)}')
+            print(f'missing: {len(missing)}')
             if create_missing:
                 objs = ((UniRef100(accession=i) for i in missing))
                 UniRef100.loader.bulk_create(objs)
+                # Update fkmap with PKs of new objects:
+                fkmap.update((
+                    ((accn,), pk) for accn, pk
+                    in UniRef100.loader.pkmap_vals('accession', missing)
+                ))
         else:
             print('[all good]')
             objs = None
-        del existing_map, missing, objs, existing
 
         # set fkmap_filter
-        if connection.vendor == 'sqlite':
-            # avoid "too many SQL variables" kicking in when len(urefs)>250000
-            def get_urefs_map():
-                # in_bulk() like above but also get PKs for any newly created
-                urefs_map = UniRef100.loader.only('accession') \
-                                     .in_bulk(urefs, field_name='accession')
-                return (((accn, obj.pk) for accn, obj in urefs_map.items()))
-
-            self.spec.fkmap_filters[field_name] = get_urefs_map
-        else:
-            self.spec.fkmap_filters[field_name] = {'accession__in': urefs}
+        self.spec.fkmap_filters[field_name] = lambda: fkmap
 
 
 class GeneLoader(UniRefMixin, SampleLoadMixin, BulkLoader):

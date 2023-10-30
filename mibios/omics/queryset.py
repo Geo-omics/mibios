@@ -6,6 +6,7 @@ from django.db.transaction import atomic
 
 from mibios import __version__ as version
 from mibios.umrad.manager import QuerySet
+from .managers import fkmap_cache_reset
 from .utils import Timestamper
 
 
@@ -97,6 +98,7 @@ class SampleQuerySet(QuerySet):
                     print(f'  {total_stages - len(funcs) + 1}-{total_stages} / {flag} ')  # noqa: E501
 
         template = f'[ {{sample}} {{{{stage}}}}/{total_stages} {{{{{{{{timestamp}}}}}}}} ]  '  # noqa: E501
+        fkmap_cache_reset()
         for num, sample in enumerate(samples):
             print(f'{len(samples) - num} samples to go...')
             stage = 1

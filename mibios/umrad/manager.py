@@ -226,6 +226,43 @@ class QuerySet(BulkCreateWrapperMixin, MibiosQuerySet):
             progress=progress,
         )
 
+    def pkmap_vals(self, field_name, id_list=None):
+        """
+        Get map (as list of pairs) from (unique) values to PKs.
+
+        To get these as a dict use pkmap().  Similar to in_bulk() but arguments
+        are reversed.  Argument field_name has no default as 'pk' does not make
+        sense here.  Faster than in_bulk as targets are not objects just the
+        primary keys.
+
+        The values for given field should be unique within the queryset but
+        this is not checked.  Likewise it is not an error if values of ids are
+        not actually found in the database.
+        """
+        if connection.vendor == 'sqlite' \
+                and id_list is not None \
+                and len(id_list) > 250000:
+            # avoid OperationalError: too many SQL variables
+            qs = self.only(field_name)
+            return (
+                (val, obj.pk) for val, obj
+                in qs.in_bulk(id_list, field_name=field_name).items()
+            )
+        else:
+            f = {}
+            if id_list is not None:
+                f[f'{field_name}__in'] = id_list
+
+            return self.filter(**f).values_list(field_name, 'pk')
+
+    def pkmap(self, field_name, id_list=None):
+        """
+        Get map from (unique) values (accessions etc.) to PKs
+
+        Like pkmap_vals() but returns the mapping properly as dict.
+        """
+        return dict(self.pkmap_vals(field_name, id_list))
+
 
 class BaseLoader(MibiosBaseManager):
     """
@@ -450,10 +487,13 @@ class BaseLoader(MibiosBaseManager):
                   end='', flush=True)
             related_manager = getattr(i.related_model, 'loader', None) \
                 or getattr(i.related_model, 'objects')
-            fkmap[i.name] = {
-                tuple(a): pk for *a, pk
-                in (f() if callable(f) else related_manager.filter(**f).values_list(*lookups, 'pk'))  # noqa:E501
-            }
+            if callable(f):
+                fkmap[i.name] = f()
+            else:
+                fkmap[i.name] = {
+                    tuple(a): pk for *a, pk
+                    in related_manager.filter(**f).values_list(*lookups, 'pk')
+                }
             print(f'[{len(fkmap[i.name])} OK]')
         del f
 
