@@ -1,5 +1,6 @@
 from contextlib import redirect_stdout
 from datetime import datetime
+from functools import wraps
 from operator import methodcaller
 import sys
 
@@ -290,3 +291,23 @@ class Timestamper(redirect_stdout):
             # that line is finished, so forget it
             self.cur_line = ''
             self.prev_timestamp = self.timestamp
+
+
+def gentle_int(fn):
+    """
+    Function/method decorator to avoid traceback display when pressing Ctrl-C
+
+    This will make the decorated function return None when a ^C is caught, so
+    only use this on top-level functions/methods or otherwise be careful that
+    the return value is not misinterpreted.
+    """
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except KeyboardInterrupt:
+            # Pressing ctrl-c typically displays a ^C w/o newline, so the
+            # message below starts with one.
+            print(f'\n<returning from {fn} via keyboard interrupt>')
+            return
+    return wrapper

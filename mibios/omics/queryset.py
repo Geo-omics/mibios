@@ -7,7 +7,7 @@ from django.db.transaction import atomic
 from mibios import __version__ as version
 from mibios.umrad.manager import QuerySet
 from .managers import fkmap_cache_reset
-from .utils import Timestamper
+from .utils import gentle_int, Timestamper
 
 
 class SampleQuerySet(QuerySet):
@@ -69,6 +69,7 @@ class SampleQuerySet(QuerySet):
         # all ok, return queryset with missing data
         return qs.filter(**{flags[-1]: False}).order_by('pk')
 
+    @gentle_int
     def load_metagenomic_data(self, skip_check=False):
         """
         Load all metagenomics data
@@ -122,6 +123,9 @@ class SampleQuerySet(QuerySet):
                         with timestamper:
                             try:
                                 fn(sample)
+                            except KeyboardInterrupt as e:
+                                print(repr(e))
+                                raise
                             except Exception as e:
                                 # If we're configured to write a log file, then
                                 # print the stack to a special FAIL.log file
