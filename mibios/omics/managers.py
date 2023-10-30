@@ -830,7 +830,6 @@ class SampleLoader(MetaDataLoader):
         Contig = import_string('mibios.omics.models.Contig')
         Gene = import_string('mibios.omics.models.Gene')
         ReadAbundance = import_string('mibios.omics.models.ReadAbundance')
-        GeneAbundance = import_string('mibios.omics.models.GeneAbundance')
         TaxonAbundance = import_string('mibios.omics.models.TaxonAbundance')
 
         return [
@@ -839,7 +838,6 @@ class SampleLoader(MetaDataLoader):
             ('contig_lca_loaded', Contig.loader.load_lca),
             ('gene_alignments_loaded', Gene.loader.load_alignments),
             ('read_abundance_loaded', ReadAbundance.loader.load_sample),
-            ('gene_abundance_loaded', GeneAbundance.loader.load_sample),
             ('tax_abund_ok', TaxonAbundance.loader.load_sample),
         ]
 
