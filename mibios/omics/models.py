@@ -492,8 +492,15 @@ class Abundance(Model):
     # cf. mmseqs2 easy-taxonomy output (tophit_report)
     sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
     ref = models.ForeignKey(UniRef100, **fk_req)
-    unique_cov = models.DecimalField(**digits(4, 3))
-    target_cov = models.DecimalField(**digits(8, 3))
+    unique_cov = models.DecimalField(
+        **digits(4, 3),
+        help_text='unique coverage of target uniqueAlignedResidues / '
+        'targetLength',
+    )
+    target_cov = models.DecimalField(
+        **digits(10, 3),
+        help_text='target coverage alignedResidues / targetLength',
+    )
     avg_ident = models.DecimalField(**digits(4, 3))
 
     class Meta(Model.Meta):
@@ -508,7 +515,9 @@ class GeneAbundance(Abundance):
 
 class ReadAbundance(Abundance):
     """ Gene/UR100 Abundance based on reads """
-    read_count = models.PositiveIntegerField()
+    read_count = models.PositiveIntegerField(
+        help_text='number of sequences aligning to target',
+    )
 
     loader = managers.ReadAbundanceLoader()
 
