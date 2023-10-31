@@ -60,8 +60,8 @@ def get_fasta_sequence(file, offset, length, skip_header=True):
     """
     file.seek(offset)
     if skip_header:
-        header = file.readline()[0] == b'>'
-        if header[0] != b'>':
+        header = file.readline()
+        if header[0] != ord(b'>'):
             raise RuntimeError('expected fasta header start ">" missing')
         length -= len(header)
         if length < 0:
@@ -73,7 +73,7 @@ def get_fasta_sequence(file, offset, length, skip_header=True):
     data = file.read(length).splitlines()
     if not skip_header:
         data.insert(1, b'\n')
-    data = b''.join(data.splitlines())
+    data = b''.join(data)
     return data
 
 
