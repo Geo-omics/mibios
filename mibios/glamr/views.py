@@ -1,7 +1,9 @@
 from itertools import groupby
 from logging import getLogger
 
-from django_tables2 import Column, SingleTableView, TemplateColumn
+from django_tables2 import (
+    Column, SingleTableView, TemplateColumn, table_factory,
+)
 
 from django.apps import apps
 from django.conf import settings
@@ -298,14 +300,10 @@ class ModelTableMixin(ExportMixin):
         Sample: tables.SampleTable,
     }
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._add_extra_columns = False
-
     def get_table_kwargs(self):
         kw = super().get_table_kwargs()
         kw['exclude'] = self.exclude
-        if self._add_extra_columns:
+        if self.model not in self.TABLE_CLASSES:
             kw['extra_columns'] = self._get_improved_columns()
         kw['view'] = self
         return kw
@@ -316,11 +314,10 @@ class ModelTableMixin(ExportMixin):
 
         # Some model have dedicated tables, everything else gets a table from
         # the factory at SingleTableMixin
-        try:
-            return self.TABLE_CLASSES[self.model]
-        except KeyError:
-            self._add_extra_columns = True
-            return super().get_table_class()
+        return self.TABLE_CLASSES.get(
+            self.model,
+            table_factory(self.model, tables.Table),
+        )
 
     def customize_queryset(self, qs):
         """
