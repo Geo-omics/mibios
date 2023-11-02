@@ -328,7 +328,7 @@ class Model(MibiosModel):
         If no such field exist, then return the first tuple of fields declared
         as "unique_together" if such a declaration took place.
 
-        Raises KeyError in all other cases.
+        Raises LookupError in all other cases.
         """
         if cls.accession_fields is not None:
             return tuple(

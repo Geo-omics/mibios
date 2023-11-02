@@ -112,6 +112,24 @@ class Dataset(AbstractDataset):
 
         return s
 
+    @classmethod
+    def get_record_url(cls, key, ktype=None):
+        if ktype is not None:
+            ktype.removesuffix(':')
+            if ktype != 'pk':
+                raise ValueError(f'illegal key type: {ktype=}')
+        if isinstance(key, cls):
+            # object given
+            if ktype == 'pk':
+                key = key.pk
+            else:
+                key = key.get_set_no()
+
+        kwargs = dict(key=key)
+        if ktype == 'pk':
+            kwargs['ktype'] = 'pk:'
+        return reverse('dataset', kwargs=kwargs)
+
     URL_TEMPLATES = {
         'bioproject': 'https://www.ncbi.nlm.nih.gov/bioproject/{}',
         'gold_id': {
@@ -154,7 +172,7 @@ class Dataset(AbstractDataset):
             return f'https://genome.jgi.doe.gov/portal/?core=genome&query={self.accession}'  # noqa: E501
 
     def get_absolute_url(self):
-        return reverse('dataset', args=[self.pk])
+        return self.get_record_url(self)
 
     def get_samples_url(self):
         return reverse('dataset_sample_list', args=[self.pk])
@@ -196,8 +214,29 @@ class Reference(Model):
             value = f'{value} ({self.reference_id})'
         return value
 
+    def get_paper_no(self):
+        return self.reference_id.removeprefix('paper_')
+
+    @classmethod
+    def get_record_url(cls, key, ktype=None):
+        if ktype is not None:
+            ktype.removesuffix(':')
+            if ktype != 'pk':
+                raise ValueError(f'illegal key type: {ktype=}')
+        if isinstance(key, cls):
+            # object given
+            if ktype == 'pk':
+                key = key.pk
+            else:
+                key = key.get_paper_no()
+
+        kwargs = dict(key=key)
+        if ktype == 'pk':
+            kwargs['ktype'] = 'pk:'
+        return reverse('reference', kwargs=kwargs)
+
     def get_absolute_url(self):
-        return reverse('reference', args=[self.pk])
+        return self.get_record_url(self)
 
 
 class Sample(AbstractSample):
@@ -335,6 +374,24 @@ class Sample(AbstractSample):
             if self.sample_id and settings.INTERNAL_DEPLOYMENT:
                 value = f'{value} ({self.sample_id})'
         return value or self.sample_id or super().__str__()
+
+    @classmethod
+    def get_record_url(cls, key, ktype=None):
+        if ktype is not None:
+            ktype.removesuffix(':')
+            if ktype != 'pk':
+                raise ValueError(f'illegal key type: {ktype=}')
+        if isinstance(key, cls):
+            # object given
+            if ktype == 'pk':
+                key = key.pk
+            else:
+                key = key.get_samp_no()
+
+        kwargs = dict(key=key)
+        if ktype == 'pk':
+            kwargs['ktype'] = 'pk:'
+        return reverse('sample', kwargs=kwargs)
 
     def format_collection_timestamp(self):
         """

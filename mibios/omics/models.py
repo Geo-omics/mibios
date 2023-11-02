@@ -169,6 +169,10 @@ class AbstractSample(Model):
     def __str__(self):
         return self.sample_id
 
+    def get_samp_no(self):
+        """ Get sample_id number: "samp_NNN" -> NNN """
+        return int(self.sample_id.removeprefix('samp_'))
+
     def load_bins(self):
         if not self.binning_ok:
             with atomic():
@@ -372,6 +376,10 @@ class AbstractDataset(Model):
 
     _orphan_group_obj = None
     orphan_group_description = 'ungrouped samples'
+
+    def get_set_no(self):
+        """ Get dataset number from dataset_id """
+        return int(self.dataset_id.removeprefix('set_'))
 
     def samples(self):
         """

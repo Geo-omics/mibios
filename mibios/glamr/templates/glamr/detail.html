@@ -39,7 +39,7 @@
         <div class="card-body">
             <div>
                 {% for obj in qs %}
-                    <a href="{% url 'record' model=model_name pk=obj.pk %}">{{ obj }}</a>{% if not forloop.last %}&nbsp;|&nbsp;{% endif %}
+                    <a href="{% record_url obj %}">{{ obj }}</a>{% if not forloop.last %}&nbsp;|&nbsp;{% endif %}
                     {% empty %}
                             -
                 {% endfor %}

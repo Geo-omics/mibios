@@ -10,7 +10,7 @@ url declarations for the mibios.glamr app
 from functools import partial
 
 from django.conf import settings
-from django.urls import include, path
+from django.urls import include, path, re_path
 from django.views import defaults
 
 from mibios import urls as mibios_urls
@@ -19,15 +19,19 @@ from mibios.omics.views import krona
 from . import views
 
 
+kpat = r'(?P<ktype>pk:)?(?P<key>[\w:-]+)'
+""" accession/primary key pattern for RecordView """
+
+
 urlpatterns = [
     path('', views.FrontPageView.as_view(), name='frontpage'),
-    path('dataset/<int:pk>/samples', views.SampleListView.as_view(), name='dataset_sample_list'),  # noqa: E501
-    path('dataset/<int:pk>/', views.DatasetView.as_view(), name='dataset'),
-    path('reference/<int:pk>/', views.ReferenceView.as_view(), name='reference'),  # noqa: E501
-    path('sample/<int:pk>/', views.SampleView.as_view(), name='sample'),
-    path('sample/<int:sample_pk>/krona/<str:stats_field>/', krona, name='krona'),  # noqa:E501
+    path('dataset/<int:set_no>/samples/', views.SampleListView.as_view(), name='dataset_sample_list'),  # noqa: E501
+    re_path(rf'dataset/{kpat}/$', views.DatasetView.as_view(), name='dataset'),  # noqa: E501
+    re_path(rf'reference/{kpat}/$', views.ReferenceView.as_view(), name='reference'),  # noqa: E501
+    re_path(rf'sample/{kpat}/$', views.SampleView.as_view(), name='sample'),  # noqa: E501
+    path('sample/<int:samp_no>/krona/<str:stats_field>/', krona, name='krona'),  # noqa:E501
     path('data/<str:model>/', views.TableView.as_view(), name='generic_table'),  # noqa: E501
-    path('data/<str:model>/<int:pk>/', views.record_view, name='record'),
+    re_path(rf'data/(?P<model>\w+)/{kpat}/$', views.record_view, name='record'),  # noqa: E501
     path('data/<str:model>/<int:pk>/overview/', views.OverView.as_view(), name='record_overview'),  # noqa: E501
     path('data/<str:model>/<int:pk>/overview/samples/', views.OverViewSamplesView.as_view(), name='record_overview_samples'),  # noqa: E501
     path('data/<str:model>/<int:pk>/abundance/', views.AbundanceView.as_view(), name='record_abundance'),  # noqa: E501

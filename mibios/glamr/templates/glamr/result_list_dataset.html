@@ -3,14 +3,14 @@
 {% for _, _, item, field, text in object_list %}
     <li class="card mb-2">
         <div style="display: flex; flex-direction: row" class="card-header">
-            <h5 class="m-2">Dataset: <a href="{% url 'dataset' pk=item.pk %}">{{ item }}</a> (found in {{ field }}: "{{text}}")</h5>
+            <h5 class="m-2">Dataset: <a href="{% record_url item %}">{{ item }}</a> (found in {{ field }}: "{{text}}")</h5>
         </div>
         <div class="card-body">
             <table class="table table-hover table-condensed table-sm"><tbody>
                 <tr>
                     <td>Reference:</td>
                     {% if item.reference_id %}
-                        <td><a href="{% url 'reference' pk=item.reference_id %}">{{ item.reference }}</a></td>
+                        <td><a href="{% record_url 'reference' pk=item.reference_id %}">{{ item.reference }}</a></td>
                     {% else %}
                         <td><i>No reference associated with this dataset</i></td>
                     {% endif %}

@@ -6,33 +6,7 @@ from django_tables2 import Column, Table as Table0, TemplateColumn
 from mibios.glamr import models as glamr_models
 from mibios.omics import models as omics_models
 
-
-def get_record_url(*args):
-    """
-    Return URL for an object
-
-    Arguments: <obj> | <<model|model_name> <pk>>
-    The object can be passed as the only argument.  Or the model/model name and
-    PK must be passed.
-
-    Use this instead of Model.get_absolute_url() because it needs to work on
-    models from other apps.
-    """
-    if len(args) == 1:
-        obj = args[0]
-        model_name = obj._meta.model_name
-        pk = obj.pk
-    elif len(args) == 2:
-        model, pk = args
-        if isinstance(model, str):
-            model_name = model
-        else:
-            model_name = model._meta.model_name
-    else:
-        raise TypeError(
-            'expect either a model instance or model/-name and pk pair'
-        )
-    return reverse('record', kwargs={'model': model_name, 'pk': pk})
+from .utils import get_record_url
 
 
 class Table(Table0):
@@ -41,13 +15,42 @@ class Table(Table0):
         self.view = view
 
 
+def linkify_record(record):
+    """
+    linkify helper to get record URLs
+
+    Usage:
+
+    class MyTable(Table):
+        some_field = Column(..., linkify=linkify_record, ...)
+
+    This should link a column to the record's single object view.
+    """
+    # The linkify magic senses the signature, so the argument is 'record', that
+    # should get us a model instance passed.
+    return get_record_url(record)
+
+
+def linkify_value(value):
+    """
+    linkify helper to get the value's URLs
+
+    Usage:
+
+    class MyTable(Table):
+        fk_field = Column(..., linkify=linkify_value, ...)
+
+    This should link a column based on a foreign key field to the right single
+    object view.
+    """
+    # The linkify magic senses the signature, so the argument is 'value', that
+    # should get us the FK target's model instance passed.
+    return get_record_url(value)
+
+
 class CompoundAbundanceTable(Table):
-    sample = Column(
-        linkify=lambda value: get_record_url(value)
-    )
-    compound = Column(
-        linkify=lambda value: get_record_url(value)
-    )
+    sample = Column(linkify=linkify_value)
+    compound = Column(linkify=linkify_value)
 
     class Meta:
         model = omics_models.CompoundAbundance
@@ -84,7 +87,7 @@ class OverViewTable(Table):
     )
     short = TemplateColumn(
         "{{ record }}",
-        linkify=lambda record: get_record_url(record),
+        linkify=linkify_record,
         verbose_name='Mini description',
     )
 
@@ -98,12 +101,12 @@ class OverViewTable(Table):
 
 class OverViewSamplesTable(Table):
     accession = Column(
-        linkify=lambda record: get_record_url(record),
+        linkify=linkify_record,
         verbose_name='Sample',
     )
     sample_name = Column(verbose_name='Other names')
     dataset = Column(
-        linkify=lambda value: get_record_url(value),
+        linkify=linkify_value,
         verbose_name='Dataset',
     )
 
@@ -116,9 +119,7 @@ class OverViewSamplesTable(Table):
 
 
 class TaxonAbundanceTable(Table):
-    sample = Column(
-        linkify=lambda value: get_record_url('sample', value.pk)
-    )
+    sample = Column(linkify=linkify_value)
 
     class Meta:
         model = omics_models.TaxonAbundance
@@ -253,16 +254,11 @@ class DatasetTable(Table):
         )
 
 
-def get_sample_url(sample):
-    """ linkify helper for SampleTable """
-    return reverse('sample_detail', args=[sample.pk])
-
-
 class SingleColumnRelatedTable(Table):
     """ Table showing *-to-many related records in single column """
     objects = Column(
         verbose_name='Related records',
-        linkify=lambda record: get_record_url(record),
+        linkify=linkify_record,
         empty_values=(),  # triggers render_objects()
         orderable=False,
     )
@@ -274,9 +270,8 @@ class SingleColumnRelatedTable(Table):
 class SampleTable(Table):
     sample_name = Column(
         verbose_name='Sample Name/ID',
-        # linkify=lambda record: get_sample_url(record),
+        linkify=linkify_record,
         empty_values=[],
-        linkify=lambda record: reverse('sample', args=[record.pk]),
     )
     geo_loc_name = Column(
         empty_values=[],
@@ -284,7 +279,7 @@ class SampleTable(Table):
     )
     sample_type = Column()
     dataset = Column(
-        linkify=lambda value: reverse('dataset', args=[value.pk]),
+        linkify=linkify_value,
         verbose_name='Dataset',
     )
 

@@ -1,6 +1,6 @@
 {% extends "glamr/detail.html" %}
 {% load glamr_extras %}
 {% block extra_breadcrumbs %}
-    <li class="breadcrumb-item"><a href="{% url 'dataset' pk=object.dataset.pk %}">{{object.dataset|meta:"verbose_name"|capfirst}}</a></li>
-    <li class="breadcrumb-item"><a href="{% url 'dataset_sample_list' pk=object.dataset.pk %}">{{object|meta:"verbose_name_plural"|capfirst}}</a></li>
+    <li class="breadcrumb-item"><a href="{% record_url object.dataset %}">{{object.dataset|meta:"verbose_name"|capfirst}}</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'dataset_sample_list' set_no=object.dataset.get_set_no %}">{{object|meta:"verbose_name_plural"|capfirst}}</a></li>
 {% endblock %}

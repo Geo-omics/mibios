@@ -3,7 +3,7 @@
 {% for is_first, model_name, obj, field, text in object_list %}
     <li class="card mb-2" {% if is_first %}id="{{model_name}}_first_item"{% endif %}>
         <div style="display: flex; flex-direction: row" class="card-header">
-            <h5 class="card-title m-2">{{obj|meta:"verbose_name"}}: <a href="{% url 'record' model=obj|meta:"model_name" pk=obj.pk %}">{{obj}}</a></h5>
+            <h5 class="card-title m-2">{{obj|meta:"verbose_name"}}: <a href="{% record_url obj %}">{{obj}}</a></h5>
         </div>
         <div class="card-body">
             <p>in field "{{field}}": {{text}}</p>

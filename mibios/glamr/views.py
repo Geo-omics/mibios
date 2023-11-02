@@ -342,8 +342,7 @@ class ModelTableMixin(ExportMixin):
         except RuntimeError:
             acc_field = None
             col = TemplateColumn(
-                """[<a href="{% url 'record' model=model_name pk=record.pk %}">{{ record }}</a>]""",  # noqa:E501
-                extra_context=dict(model_name=self.model._meta.model_name),
+                """[<a href="{% record_url record %}">{{ record }}</a>]""",
             )
             cols.append(('record links', col))
             del col
@@ -354,8 +353,7 @@ class ModelTableMixin(ExportMixin):
 
             kwargs = {}
             if acc_field and i is acc_field:
-                kwargs['linkify'] = \
-                    lambda record: tables.get_record_url(record)
+                kwargs['linkify'] = tables.linkify_record
             elif not i.many_to_one:
                 if hasattr(i, 'unit'):
                     kwargs['verbose_name'] = f'{i.verbose_name} ({i.unit})'
@@ -366,7 +364,7 @@ class ModelTableMixin(ExportMixin):
                     continue
             else:
                 # regular FK field
-                kwargs['linkify'] = lambda value: tables.get_record_url(value)
+                kwargs['linkify'] = tables.linkify_value
             cols.append((i.name, Column(**kwargs)))
         return cols
 
@@ -844,6 +842,27 @@ class RecordView(DetailView):
             except KeyError as e:
                 raise Http404(f'no such model: {e}') from e
 
+    def get_object_lookups(self):
+        """
+        Compile Queryset filter from kwargs
+
+        This default implementation only supports lookup by primary key via the
+        'key' kwarg.  Overwrite this to support other kinds of lookup.
+        """
+        return dict(pk=self.kwargs['key'])
+
+    def get_object(self, lookups=None, queryset=None):
+        if queryset is None:
+            queryset = self.get_queryset()
+
+        lookups = self.get_object_lookups()
+        try:
+            obj = queryset.filter(**lookups).get()
+        except self.model.DoesNotExist:
+            raise Http404(f'no {self.model} matching query {lookups=}')
+
+        return obj
+
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['object_model_name'] = self.model._meta.model_name
@@ -1053,6 +1072,14 @@ class DatasetView(MapMixin, RecordView):
         'size_fraction',
     ]
 
+    def get_object_lookups(self):
+        key = self.kwargs['key']
+        if self.kwargs.get('ktype', None) == 'pk:':
+            return dict(pk=key)
+        else:
+            # default to lookup via set number
+            return dict(dataset_id=f'set_{key}')
+
     def get_sample_queryset(self):
         return self.object.sample_set.all()
 
@@ -1191,6 +1218,14 @@ class ReferenceView(RecordView):
     model = models.Reference
     exclude = ['reference_id', 'short_reference']
 
+    def get_object_lookups(self):
+        key = self.kwargs['key']
+        if self.kwargs.get('ktype', None) == 'pk:':
+            return dict(pk=key)
+        else:
+            # default to lookup via paper number
+            return dict(reference_id=f'paper_{key}')
+
 
 class OverView(SingleTableView):
     template_name = 'glamr/overview.html'
@@ -1310,8 +1345,11 @@ class SampleListView(MapMixin, ExportMixin, SingleTableView):
     table_class = tables.SampleTable
 
     def get_queryset(self):
-        pk = self.kwargs['pk']
-        self.dataset = models.Dataset.objects.get(pk=pk)
+        f = dict(dataset_id=f'set_{self.kwargs["set_no"]}')
+        try:
+            self.dataset = models.Dataset.objects.get(**f)
+        except models.Dataset.DoesNotExist:
+            raise Http404(f'no such dataset: {f=}')
         return self.dataset.samples()
 
     def get_context_data(self, **ctx):
@@ -1342,10 +1380,13 @@ class SampleView(RecordView):
     ]
     related = []
 
-    def get_context_data(self, **ctx):
-        ctx = super().get_context_data(**ctx)
-        ctx['sample_id'] = str(self.kwargs['pk'])
-        return ctx
+    def get_object_lookups(self):
+        key = self.kwargs['key']
+        if self.kwargs.get('ktype', None) == 'pk:':
+            return dict(pk=key)
+        else:
+            # default to lookup via sample number
+            return dict(sample_id=f'samp_{key}')
 
     def get_ordered_fields(self):
         fields = []

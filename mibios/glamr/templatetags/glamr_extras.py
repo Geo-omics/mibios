@@ -2,6 +2,8 @@ from django import template
 from django.db.models import Field, Q
 from django.template.defaultfilters import capfirst, stringfilter
 
+from mibios.glamr.utils import get_record_url
+
 
 register = template.Library()
 
@@ -88,3 +90,11 @@ def meta_attr_access(model, attrname):
     Access an attribute of Model._meta
     """
     return getattr(model._meta, attrname)
+
+
+@register.simple_tag(name='record_url')
+def record_url(*args, **kwargs):
+    """
+    Return URL to given object/record
+    """
+    return get_record_url(*args, **kwargs)

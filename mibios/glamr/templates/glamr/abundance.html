@@ -3,7 +3,7 @@
 {% block content %}
 <h3>
 {{ model_name_verbose }} of
-<a href="{% url 'record' model=object_model_name pk=object.pk %}">{{ object }}</a>
+<a href="{% record_url object %}">{{ object }}</a>
 </h3>
 {% render_table table %}
 {% endblock %}
