@@ -1035,6 +1035,21 @@ class TaxonAbundanceManager(Manager):
                 for i in obj.taxon.lineage:
                     row.append(names[i.pk])
             rows.append('\t'.join(row))
+
+        if not rows:
+            # The krona chart needs some abundance data to work with.  So, no
+            # rows should mean no abundance is loaded for the given sample, so
+            # a proper course of action is to raise DoesNotExist which the view
+            # should catch.  That's why there is a get() call below.  The
+            # try/except dance is there to make this all very explicit.
+            try:
+                qs.get()
+            except self.model.DoesNotExist:
+                raise
+            except Exception as e:
+                msg = 'was really expecting DoesNotExist'
+                raise RuntimeError(msg) from e
+
         return '\n'.join(rows)
 
     def as_krona_html(self, sample, outpath=None, use_cache=True):
@@ -1063,21 +1078,7 @@ class TaxonAbundanceManager(Manager):
             krona_out = tmpd + '/krona.html'
 
             with open(krona_in, 'w') as ofile:
-                txt = self.as_krona_input_text(sample)
-                if txt:
-                    ofile.write(txt)
-                else:
-                    # no abundance data for this sample.  If we were to
-                    # continue, krona will happily make a page, which would be
-                    # mostly empty, will little indication whats going on.
-                    if outpath is None:
-                        # assume the calling view handles errors
-                        log.error(
-                            'no tax abundance data, not generating krona page'
-                        )
-                        return None
-                    else:
-                        raise ValueError('no abundance data')
+                ofile.write(self.as_krona_input_text(sample))
 
             cmd = [
                 'ktImportText',
@@ -1085,15 +1086,7 @@ class TaxonAbundanceManager(Manager):
                 '-o', krona_out,
                 krona_in
             ]
-            try:
-                subprocess.run(cmd, cwd=tmpd, check=True)
-            except subprocess.CalledProcessError as e:
-                # e.g. krona not installed
-                if outpath is None:
-                    raise
-                else:
-                    log.error(f'krona failed: {e}')
-                    return None
+            subprocess.run(cmd, cwd=tmpd, check=True)
 
             if outpath is None:
                 with open(krona_out) as ifile:

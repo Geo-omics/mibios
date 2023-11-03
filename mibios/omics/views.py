@@ -17,8 +17,9 @@ def krona(request, samp_no):
     except Sample.DoesNotExist:
         raise Http404('no such sample')
 
-    html = TaxonAbundance.objects.as_krona_html(sample)
-    if html is None:
+    try:
+        html = TaxonAbundance.objects.as_krona_html(sample)
+    except TaxonAbundance.DoesNotExist:
         raise Http404('no abundance data for sample or error with krona')
 
     return HttpResponse(html)
