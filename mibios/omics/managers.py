@@ -7,6 +7,7 @@ from functools import partial
 from itertools import groupby, islice
 from logging import getLogger
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import tempfile
@@ -16,7 +17,9 @@ from django.db.transaction import atomic
 from django.utils.module_loading import import_string
 
 from mibios.models import QuerySet
-from mibios.ncbi_taxonomy.models import DeletedNode, MergedNodes, TaxNode
+from mibios.ncbi_taxonomy.models import (
+    DeletedNode, MergedNodes, TaxNode, TaxName,
+)
 from mibios.umrad.models import UniRef100
 from mibios.umrad.manager import BulkLoader, Manager, MetaDataLoader
 from mibios.umrad.utils import CSV_Spec, atomic_dry, InputFileError
@@ -904,7 +907,7 @@ class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
 
         The input data may be based on an older version of NCBI's taxonomy.  In
         such a case, abundance for deleted taxids is added to 'unclassified.'
-        Merged taxids' abundance is accumulated approriately.  Abundance for
+        Merged taxids' abundance is accumulated appropriately.  Abundance for
         any otherwise unknown taxids, e.g. if a newer version of NCBI taxonomy
         was used, is ignored (rows will be skipped.)
         """
@@ -986,31 +989,57 @@ class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
 
 
 class TaxonAbundanceManager(Manager):
-    def as_krona_input_text(self, sample, field_name):
+    def get_krona_path(self, sample):
+        return Path(settings.KRONA_CACHE_DIR) / f'{sample.sample_id}.html'
+
+    def make_all_krona_charts(self, keep_existing=True):
+        """
+        Create krona charts in chache directory
+
+        Makes charts for all samples for which there is some tax abundance.
+        The default is to keep existing charts.  To re-create charts set
+        keep_existing to False.
+        """
+        Sample = get_sample_model()
+        for i in Sample.objects.exclude(taxonabundance=None).only('sample_id'):
+            path = self.get_krona_path(i)
+            if path.exists():
+                if keep_existing:
+                    continue
+                else:
+                    path.unlink()
+
+            self.make_krona_html(i, outpath=path)
+
+    def as_krona_input_text(self, sample):
         """
         Generate input text data for krona
 
         Will return an empty string if no abundance data is saved for the given
         sample.
         """
-        # field_name may be user input from http requests, double-check that
-        # this is a real field, so we don't send garbage to krona (via the
-        # getattr below)
-        self.model._meta.get_field(field_name)  # may raise FieldDoesNotExist
-
         qs = self.filter(sample=sample).select_related('taxon')
         qs = qs.prefetch_related('taxon__ancestors')
+        names = dict(
+            TaxName.objects
+            .filter(name_class=11, node__abundance__sample=sample)
+            .values_list('node_id', 'name')
+        )
 
         rows = []
-        for i in qs.iterator():
-            lin = sorted(i.taxon.ancestors.all(), key=lambda x: x.rank)
-            row = [str(getattr(i, field_name))] + [i.name for i in lin]
+        for obj in qs:
+            row = [str(obj.tpm)]
+            if obj.taxon is None:
+                row.append('unclassified')
+            else:
+                for i in obj.taxon.lineage:
+                    row.append(names[i.pk])
             rows.append('\t'.join(row))
         return '\n'.join(rows)
 
-    def as_krona_html(self, sample, field, outpath=None):
+    def as_krona_html(self, sample, outpath=None, use_cache=True):
         """
-        Generate the krona html file
+        Return krona html chart
 
         If outpath is given this is save to the file system, if it is None, the
         default, then Krona's html content is the return value (indended to be
@@ -1018,14 +1047,23 @@ class TaxonAbundanceManager(Manager):
         either an error with running the krona generator or missing abundance
         data (Check the django error log for details.)
         """
-        # TODO: caching, have a settings option to store krona's static files
-        # (CSS, ...) locally instead of at sourceforge or wherever.
+        if use_cache:
+            path = self.get_krona_path(sample)
+            if not path.exists():
+                self.make_krona_html(sample, outpath=path)
+
+            with path.open() as ifile:
+                return ifile.read()
+        else:
+            return self.make_krona_html(sample)
+
+    def make_krona_html(self, sample, outpath=None):
         with tempfile.TemporaryDirectory() as tmpd:
             krona_in = tmpd + '/data.txt'
             krona_out = tmpd + '/krona.html'
 
             with open(krona_in, 'w') as ofile:
-                txt = self.as_krona_input_text(sample, field)
+                txt = self.as_krona_input_text(sample)
                 if txt:
                     ofile.write(txt)
                 else:
@@ -1061,4 +1099,5 @@ class TaxonAbundanceManager(Manager):
                 with open(krona_out) as ifile:
                     return ifile.read()
             else:
-                shutil.copy2(krona_out, outpath)
+                # copy2 returns outpath on success
+                return shutil.copy2(krona_out, outpath)

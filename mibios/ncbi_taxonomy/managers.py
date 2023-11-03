@@ -140,7 +140,7 @@ class TaxNodeLoader(Loader):
         Generate distinct (ancestor, descendend) pk pairs
 
         This is a helper to populate the ancestry relation.  The lineages
-        parameter must be a iterable of all the lineages ordered left-to-right
+        parameter must be an iterable of all the lineages ordered left-to-right
         (or right-to-left.)
         """
         # whenever some initial nodes are the same as for the previous lineage,

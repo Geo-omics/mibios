@@ -47,3 +47,4 @@ def get_db_settings(db_dir='.', db_infix=''):
 DATABASES = get_db_settings()
 
 OMICS_DATA_ROOT = Path()  # noqa:F405
+KRONA_CACHE_DIR = './krona-cache'
