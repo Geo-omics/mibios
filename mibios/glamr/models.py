@@ -175,7 +175,7 @@ class Dataset(AbstractDataset):
         return self.get_record_url(self)
 
     def get_samples_url(self):
-        return reverse('dataset_sample_list', args=[self.pk])
+        return reverse('dataset_sample_list', args=[self.get_set_no()])
 
 
 class Reference(Model):
