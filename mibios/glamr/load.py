@@ -15,7 +15,7 @@ from mibios.umrad.manager import (
     InputFileError, Loader, MetaDataLoader, Manager,
 )
 from mibios.umrad.model_utils import delete_all_objects_quickly
-from mibios.umrad.utils import CSV_Spec, atomic_dry
+from mibios.umrad.utils import CSV_Spec, atomic_dry, SpecError
 
 from .search_fields import SEARCH_FIELDS
 
@@ -139,13 +139,19 @@ class SampleInputSpec(CSV_Spec):
     def setup(self, loader, column_specs=None, **kwargs):
         self.has_header = True
         if column_specs is None:
-            base_spec = list(self._spec)
+            base_spec0 = list(self._spec)
         else:
-            base_spec = column_specs
+            base_spec0 = column_specs
 
         # base_spec is assumed to be in three-column (col_name, field_name,
-        # function) format
-        base_spec = {i[0]: i for i in base_spec}  # map col name to spec item
+        # prep-function) format
+        base_spec = {}
+        for col_name, field_name, *preps in base_spec0:
+            if field_name in base_spec:
+                raise SpecError(
+                    f'field name duplicate: {field_name=} {base_spec0=}'
+                )
+            base_spec[field_name] = (col_name, field_name, *preps)
 
         specs = []
         with (settings.GLAMR_META_ROOT / self.UNITS_SHEET).open() as ifile:
@@ -162,21 +168,22 @@ class SampleInputSpec(CSV_Spec):
                         raise RuntimeError('field name missing in meta data')
                     # row does not relate to a existing field
                     continue
-                if col_name in base_spec:
-                    if base_spec[col_name][1] != field_name:
+                if field_name in base_spec:
+                    if base_spec[field_name][0] != col_name:
                         raise RuntimeError(
                             f'fieldname mismatch for "{col_name}": '
-                            f'{base_spec[col_name][1]=} != {field_name=}\n'
+                            f'{base_spec[field_name][0]=} != {col_name=}\n'
                             f'{line=}'
                         )
-                    # merge spec item
-                    spec_item = base_spec.pop(col_name)
+                    # override UNITS_SHEET data with base spec item
+                    spec_item = base_spec.pop(field_name)
                 else:
                     # take from meta data
                     spec_item = (col_name, field_name)
 
                 specs.append(spec_item)
 
+        # concatenate with remaining base specs
         specs = list(base_spec.values()) + specs
 
         # Check that the spec account for all field we think should get loaded
@@ -362,7 +369,6 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
         ('is_isolate', 'is_isolate', 'parse_bool'),  # BT
         ('is_blank_neg_control', 'is_neg_control', 'parse_bool'),  # BU
         ('is_mock_community_or_pos_control', 'is_pos_control', 'parse_bool'),
-        ('modified_or_experimental', 'modified_or_experimental', 'parse_bool'),
         ('Notes', 'notes'),  # CQ
     )
 
