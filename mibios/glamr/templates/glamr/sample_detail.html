@@ -6,5 +6,9 @@
 {% endblock %}
 
 {% block detail_header %}{{ block.super }}
-[<a href="{% url 'krona' samp_no=object.get_samp_no %}">krona chart</a>]
+{% if object.tax_abund_ok %}
+    [<a href="{% url 'krona' samp_no=object.get_samp_no %}">krona chart</a>]
+{% else %}
+    [krona chart]
+{% endif %}
 {% endblock %}
