@@ -1,5 +1,13 @@
 {%extends "glamr/base.html"%}
 {%load render_table from django_tables2%}
 {%block content%}
+<h4>Summary:</h4>
+<table>
+    <caption>Number of samples with flags set, out of {{ total_count }}</caption>
+    {% for flag, count in summary_data.items %}
+    <tr><td style="text-align:right; padding-right:1em">{{ count }}</td><td>{{ flag }}</td></tr>
+    {% endfor %}
+</table>
+<h4>Detailed table:</h4>
 {%render_table table%} 
 {%endblock%}

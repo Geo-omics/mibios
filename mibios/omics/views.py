@@ -30,3 +30,24 @@ class SampleStatusView(SingleTableView):
     table_class = SampleStatusTable
     model = get_sample_model()
     table_pagination = False
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['total_count'], ctx['summary_data'] = self.get_summary()
+        return ctx
+
+    def get_summary(self):
+        data = dict()
+        for i in SampleStatusTable._meta.fields:
+            field = self.model._meta.get_field(i)
+            if field.get_internal_type() == 'BooleanField':
+                data[i] = 0
+
+        total = 0
+        for obj in self.model.objects.only(*data.keys()):
+            total += 1
+            for flag in data.keys():
+                if getattr(obj, flag):
+                    data[flag] += 1
+
+        return total, data
