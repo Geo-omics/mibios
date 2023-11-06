@@ -1009,7 +1009,8 @@ class TaxonAbundanceManager(Manager):
                 else:
                     path.unlink()
 
-            self.make_krona_html(i, outpath=path)
+            saved = self.make_krona_html(i, outpath=path)
+            print(f'Saved as: {saved}')
 
     def as_krona_input_text(self, sample):
         """
