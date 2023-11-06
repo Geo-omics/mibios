@@ -18,6 +18,7 @@ services:
     volumes:
       # manage collectstatic writes here
       - static:/glamr-webapp/static:rw
+      - krona:/glamr-webapp/krona-cache:rw
     environment:
       - DJANGO_DEBUG
       - DJANGO_ENABLE_TEST_URLS
@@ -30,7 +31,8 @@ services:
       - 54321:5432
     volumes:
       # permanent storage on host
-      - /var/local/postgresql-glamr:/var/local/postgresql
+      - /ssd/glamr-db-staging:/var/local/postgresql
 
 volumes:
   static:
+  krona:

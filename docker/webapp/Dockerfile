@@ -7,11 +7,19 @@ USER root
 
 ARG DEBIAN_FRONTEND=noninteractive 
 RUN ln -sf /usr/share/zoneinfo/America/Detroit /etc/localtime
+
+# locale setup
+RUN apt-get update && apt-get upgrade --assume-yes && apt-get install --assume-yes --no-install-recommends \
+    locales 
+RUN echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen && locale-gen && update-locale
+ENV LANG=en_US.utf8
+
 RUN apt-get update && apt-get upgrade --assume-yes --quiet && apt-get install --assume-yes --no-install-recommends --quiet \
     adduser \
     curl \
     bind9-dnsutils \
     git \
+    less \
     iproute2 \
     iputils-ping \
     postgresql-client \
@@ -31,10 +39,12 @@ RUN apt-get update && apt-get upgrade --assume-yes --quiet && apt-get install --
     python3-pygraphviz \
     python3-xlrd \
     python3-zipstream \
+    # radiant is krona!
+    radiant \
     uwsgi \
     uwsgi-plugin-python3
 
-RUN echo "increment for mibios upgrade: 60"
+RUN echo "increment for mibios upgrade: 69"
 # this is Debian's pip so the below cmd line with --b-s-p will install mibios
 # (and nothing else) under /usr/local
 # Also, currently, just "pip install" would install for python3.10, hence
@@ -52,7 +62,7 @@ WORKDIR ${APP_BASE_DIR}
 COPY settings.py start-webapp ./
 RUN chmod ugo+rwx+t $APP_BASE_DIR
 USER $APP_USER:$APP_GROUP
-RUN mkdir static_var
+RUN mkdir static_var krona-cache
 
 RUN manage_mibios collectstatic --no-input
 
