@@ -1,10 +1,10 @@
-from django_tables2 import A, Column, Table
+from django_tables2 import Column, Table
 
 from . import get_sample_model
 
 
 class SampleStatusTable(Table):
-    sample_id = Column(linkify=('sample', [A('pk')]))
+    sample_id = Column(linkify=lambda record: record.get_record_url(record))
 
     class Meta:
         model = get_sample_model()
