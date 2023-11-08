@@ -38,6 +38,52 @@ class BoolColMixin:
         return value
 
 
+class AboutInfoManager(Manager):
+    @atomic_dry
+    def new(self, copy_last=True):
+        """ Return a new instance """
+        last = self.order_by('pk').last()
+        if last is not None and last.when_published is None:
+            raise RuntimeError(
+                'An unpublished entry still exists.  Update it or publish it '
+                'first!'
+            )
+
+        if copy_last and last is not None:
+            obj = self.model.create_from(last)
+        else:
+            obj = self.model()
+            obj.generation = 0
+
+        obj.auto_update()
+        obj.save()
+        return obj
+
+    @atomic_dry
+    def auto_update(self):
+        """ Auto-update certain fields of the last unpublished entry """
+        last = self.order_by('pk').last()
+        if last is None:
+            raise self.model.DoesNotExist
+        if last.when_published is not None:
+            raise RuntimeError('last entry is already published')
+        last.auto_update()
+        last.save()
+        return last
+
+    @atomic_dry
+    def publish(self):
+        """ publish the latest entry """
+        last = self.last()
+        if last is None:
+            raise self.model.DoesNotExist
+        if last.when_published is not None:
+            raise RuntimeError(f'is already published: {vars(last)=}')
+        last.when_published = timezone.localtime()
+        last.save()
+        return last
+
+
 class DatasetLoader(BoolColMixin, MetaDataLoader):
     empty_values = ['NA', 'Not Listed', 'NF', '#N/A']
 

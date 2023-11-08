@@ -9,6 +9,7 @@ from django.contrib.postgres.search import SearchVectorField
 from django.db import models
 from django.urls import reverse
 
+from mibios import __version__ as mibios_version
 from mibios.omics.models import AbstractDataset, AbstractSample
 from mibios.umrad.fields import AccessionField
 from mibios.umrad.models import Model
@@ -16,12 +17,62 @@ from mibios.umrad.model_utils import ch_opt, fk_opt, fk_req, uniq_opt, opt
 
 from .fields import OptionalURLField
 from .load import (
+    AboutInfoManager,
     DatasetLoader, DatasetManager, ReferenceLoader, SampleLoader,
     SampleManager, SearchableManager, UniqueWordManager,
 )
 from .queryset import (
     DatasetQuerySet, SampleQuerySet, SearchableQuerySet, UniqueWordQuerySet,
 )
+
+
+class AboutInfo(Model):
+    when_published = models.DateTimeField(null=True, unique=True)
+    src_version = models.TextField()
+    generation = models.PositiveSmallIntegerField(null=True)
+    comment = models.TextField()
+    dataset_count = models.PositiveSmallIntegerField()
+    sample_count = models.PositiveSmallIntegerField()
+    info_uniref = models.TextField(verbose_name='UniRef100')
+    info_ncbi_taxonomy = models.TextField(verbose_name='NCBI Taxonomy')
+    tool_krona = models.TextField(verbose_name='Krona')
+    tool_mmseqs2 = models.TextField(verbose_name='MMseqs2')
+
+    objects = AboutInfoManager()
+
+    def __str__(self):
+        when = self.when_published or '(unpublished)'
+        return f'{self.__class__.__name__} {when}'
+
+    @classmethod
+    def create_from(cls, other):
+        """
+        Return new instance based on other
+
+        Copies values from info_ and tool_ fields.  Increments the generation.
+        Does not save the new instance.
+        """
+        obj = cls()
+        for i in cls._meta.get_fields():
+            if i.name.startswith(('info_', 'tool_')):
+                setattr(obj, i.name, getattr(other, i.name))
+        obj.generation = other.generation + 1
+        return obj
+
+    def auto_update(self):
+        self.dataset_count = Dataset.objects.count()
+        self.sample_count = Sample.objects.count()
+        self.src_version = mibios_version
+
+    def fill_with_example_data(self):
+        """
+        Populate the instance with example content
+        """
+        self.info_ncbi_taxonomy = \
+            'https://www.ncbi.nlm.nih.gov/taxonomy 2023-02-20'
+        self.tool_mmseqs2 = 'https://mmseqs.com/'
+        self.tool_krona = 'https://github.com/marbl/Krona 2.8.1'
+        self.comment = 'This is the initial public release of GLAMR.'
 
 
 class Dataset(AbstractDataset):

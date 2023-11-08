@@ -1,0 +1,24 @@
+{% extends "glamr/base.html" %}
+{% load static %}
+{% block content %}
+<h3>About GLAMR</h3><br/>
+
+<p>Updated on {{ object.when_published|default:"(unpublished)" }}</p>
+<p>{{ object.comment }}</p>
+<p>Data sources:
+<ul>
+{% for key, url, txt in info %}
+<li>{%if url%}<a href="{{url}}">{{key}}</a>{%else%}{{key}}{%endif%}{% if txt %}: {{txt}}{%endif%}</li>
+{%endfor%}
+</ul>
+</p>
+<p>
+Credits:
+<ul>
+{% for key, url, txt in credits %}
+<li>{%if url%}<a href="{{url}}">{{key}}</a>{%else%}{{key}}{%endif%}{% if txt %}: {{txt}}{%endif%}</li>
+{%endfor%}
+</ul>
+<p>
+{% if have_history %}<p>[<a href="{%url 'about-history'%}">previous versions</a>]</p>{%endif%}
+{% endblock %}

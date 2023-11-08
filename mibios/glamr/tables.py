@@ -48,6 +48,18 @@ def linkify_value(value):
     return get_record_url(value)
 
 
+class AboutHistoryTable(Table):
+    class Meta:
+        # NOTE on order: Most recent version should go on top of page.  But
+        # can't order by PK as id column is excluded.  So as unpublished is
+        # NULL it'll go first with Postgres (good for production) but last with
+        # sqlite (acceptable in development.)
+        order_by = ('-when_published',)
+        model = glamr_models.AboutInfo
+        exclude = ['id', 'generation']
+        sequence = ['...', 'comment', 'src_version']
+
+
 class CompoundAbundanceTable(Table):
     sample = Column(linkify=linkify_value)
     compound = Column(linkify=linkify_value)

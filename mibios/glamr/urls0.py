@@ -25,6 +25,8 @@ kpat = r'(?P<ktype>pk:)?(?P<key>[\w:-]+)'
 
 urlpatterns = [
     path('', views.FrontPageView.as_view(), name='frontpage'),
+    path('about/', views.AboutView.as_view(), name='about'),
+    path('about/history/', views.AboutHistoryView.as_view(), name='about-history'),  # noqa: E501
     path('dataset/<int:set_no>/samples/', views.SampleListView.as_view(), name='dataset_sample_list'),  # noqa: E501
     re_path(rf'dataset/{kpat}/$', views.DatasetView.as_view(), name='dataset'),  # noqa: E501
     re_path(rf'reference/{kpat}/$', views.ReferenceView.as_view(), name='reference'),  # noqa: E501
