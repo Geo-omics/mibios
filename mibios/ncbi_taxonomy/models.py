@@ -257,18 +257,17 @@ class TaxNode(Model):
         """
         Get the scientific name of node
 
-        This works because (and as long as) each node has exactly one
-        scientific name.
+        This works because (as it seems) each node has exactly one scientific
+        name.
         """
-        if self._name is None:
-            qs = TaxName.objects.filter(
-                node=self,
-                name_class=TaxName.NAME_CLASS_SCI,
-            )
-            qs = qs.values_list('name', flat=True)
-            return qs.get()
-        else:
-            return self._name
+        try:
+            for i in self._prefetched_objects_cache['taxname_set']:
+                if i.name_class == TaxName.NAME_CLASS_SCI:
+                    return i
+        except (AttributeError, KeyError):
+            pass
+
+        return self.taxname_set.filter(name_class=TaxName.NAME_CLASS_SCI).get()
 
     def is_root(self):
         """ Say if node is the root of the taxonomic tree """
