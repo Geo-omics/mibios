@@ -6,9 +6,15 @@
 {% endblock %}
 
 {% block detail_header %}{{ block.super }}
-{% if object.tax_abund_ok %}
-    [<a href="{% url 'krona' samp_no=object.get_samp_no %}">krona chart</a>]
-{% else %}
-    [krona chart]
+{% if object.sample_type == "metagenome" %}
+[
+    {% if object.tax_abund_ok %}
+        <a href="{% url 'krona' samp_no=object.get_samp_no %}">krona chart</a>
+    {% else %}
+        krona chart
+    {% endif %}
+    | <a href="{% url 'relations_full' model='sample' pk=object.pk field='taxonabundance'%}">abundance/taxa</a>
+    | <a href="{% url 'relations_full' model='sample' pk=object.pk field='readabundance'%}">abundance/uniref100</a>
+]
 {% endif %}
 {% endblock %}
