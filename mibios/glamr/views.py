@@ -30,6 +30,7 @@ from mibios.omics import get_sample_model
 from mibios.omics.models import (
     CompoundAbundance, FuncAbundance, TaxonAbundance
 )
+from mibios.ncbi_taxonomy.models import TaxNode
 from mibios.umrad.models import FuncRefDBEntry
 from mibios.umrad.utils import DefaultDict
 from mibios.omics.models import Gene
@@ -1463,6 +1464,18 @@ class SampleView(RecordView):
         return (name, info, [(value, None)], None)
 
 
+class TaxonView(RecordView):
+    model = TaxNode
+    fields = ['rank', 'name', 'taxid', 'parent']
+    related = ['taxname', 'children']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        qs = qs.prefetch_related('taxname_set', 'children__taxname_set')
+        qs = qs.select_related('parent')
+        return qs
+
+
 class SearchView(TemplateView):
     """ offer a form for advanced search, offer model list """
     template_name = 'glamr/search_init.html'
@@ -1667,6 +1680,7 @@ record_view_registry = DefaultDict(
     dataset=DatasetView.as_view(),
     sample=SampleView.as_view(),
     reference=ReferenceView.as_view(),
+    taxnode=TaxonView.as_view(),
     default=RecordView.as_view(),
 )
 """
