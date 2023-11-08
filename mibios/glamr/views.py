@@ -1092,7 +1092,7 @@ class RecordView(DetailView):
         for i in self.get_ordered_fields():
             if isinstance(i, str):
                 # detail of a non-field attribute
-                item = (i, None, None, getattr(self.object, i), None)
+                item = (i, None, [(getattr(self.object, i), None)], None)
                 attrname = i
             else:
                 item = self.get_detail_for_field(i)
