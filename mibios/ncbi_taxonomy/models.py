@@ -246,7 +246,11 @@ class TaxNode(Model):
         self._name = None
 
     def __str__(self):
-        return f'{self.taxid}'
+        if self.rank == 'no rank':
+            rank = ''
+        else:
+            rank = self.rank + ' '
+        return f'{rank}{self.name}'
 
     @cached_property
     def name(self):
