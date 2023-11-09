@@ -543,3 +543,50 @@ class UniqueWord(models.Model):
 
     def __str__(self):
         return self.word
+
+
+class pg_class(models.Model):
+    """ Postgres' pg_class table for use with the dbinfo page """
+    PG_CLASS_RELKINDS = (
+        # from Postgresql docs chapter 53 section 11 on pg_class catalog
+        ('r', 'ordinary table'),
+        ('i', 'index'),
+        ('S', 'sequence'),
+        ('t', 'TOAST table'),
+        ('v', 'view'),
+        ('m', 'materialized view'),
+        ('c', 'composite type'),
+        ('f', 'foreign table'),
+        ('p', 'partitioned table'),
+        ('I', 'partitioned index'),
+    )
+    # Choosing field names to agree with model dbstat below so display via
+    # django_tables2 works mostly the same for both models.  Sqlite doesn't
+    # have anything similar to relkind, but that's the only real difference.
+    name = models.TextField(db_column='relname', primary_key=True)
+    kind = models.CharField(db_column='relkind', max_length=1,
+                            choices=PG_CLASS_RELKINDS)
+    num_pages = models.IntegerField(db_column='relpages')
+    num_rows = models.IntegerField(db_column='reltuples')
+    # there are more columns but we won't need them
+
+    PAGE_SIZE = 8192
+
+    class Meta:
+        managed = False
+        db_table = 'pg_class'
+
+
+class dbstat(models.Model):
+    """ sqlite's dbstat virtual table for use w/dbinfo page """
+    # see pg_class model, field names are chosen to mostly agree w/pg_class
+    name = models.TextField(primary_key=True)
+    num_pages = models.IntegerField(db_column='pageno')
+    num_rows = models.IntegerField(db_column='ncell')
+    # other columns ignored
+
+    PAGE_SIZE = 4096
+
+    class Meta:
+        managed = False
+        db_table = 'dbstat'

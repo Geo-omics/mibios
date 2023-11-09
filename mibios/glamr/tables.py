@@ -69,6 +69,55 @@ class CompoundAbundanceTable(Table):
         exclude = ['id']
 
 
+class DBInfoTable(Table):
+    num_rows = Column(
+        attrs={'td': {'align': 'right'}},
+    )
+    storage_size = Column(
+        empty_values=(),  # triggers render_objects()
+        attrs={'td': {'align': 'right'}},
+    )
+
+    GB = 1024 * 1024 * 1024
+
+    class Meta:
+        # Using model pg_class here, but the model dbstat is similar enough, so
+        # this table class should work for postgresql as well as sqlite.  When
+        # display with sqlite, django_tables2 will show a warning about the
+        # mismatch.
+        model = glamr_models.pg_class
+        exclude = ('num_pages',)
+        sequence = ['...', 'storage_size']
+        order_by = 'name'
+
+    def render_num_rows(self, value, record):
+        if value < 0:
+            # -1 indicates no info
+            return ''
+
+        # insert commas to separate thousands, assumes positive integer
+        value = str(int(value))
+        ncom = (len(value) - 1) // 3  # number of commas
+        digits = list(value)
+        ii = -3  # index in digit list where to insert right-most comma
+        for _ in range(ncom):
+            digits.insert(ii, ',')
+            ii = ii - 4  # next comma goes 3 digits to the left + prev comma
+        return ''.join(digits)
+
+    def render_storage_size(self, value, record):
+        if record.num_pages < 0:
+            return ''
+        psize = self._meta.model.PAGE_SIZE
+        return f'{record.num_pages * psize / self.GB:.1f}'
+
+    def order_storage_size(self, qs, is_descending):
+        flag = 'num_pages'
+        if is_descending:
+            flag = '-' + flag
+        return (qs.order_by(flag), True)
+
+
 class FunctionAbundanceTable(Table):
     related_genes = Column(
         linkify=lambda record:

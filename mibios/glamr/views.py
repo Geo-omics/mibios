@@ -9,7 +9,7 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
-from django.db import OperationalError
+from django.db import OperationalError, connection
 from django.db.models import Count, Field, Prefetch, URLField
 from django.http import Http404, HttpResponse
 from django.urls import reverse
@@ -23,7 +23,7 @@ from mibios import get_registry
 from mibios.data import DataConfig, TableConfig
 from mibios.glamr.filters import DatasetFilter
 from mibios.glamr.forms import DatasetFilterFormHelper
-from mibios.glamr.models import Sample, Dataset
+from mibios.glamr.models import Sample, Dataset, pg_class, dbstat
 from mibios.models import Q
 from mibios.views import ExportBaseMixin, TextRendererZipped
 from mibios.omics import get_sample_model
@@ -862,6 +862,54 @@ class AbundanceGeneView(ModelTableMixin, SingleTableView):
             return self.get_queryset().to_fasta()
         else:
             return super().get_values()
+
+
+class DBInfoView(SingleTableView):
+    template_name = 'glamr/dbinfo.html'
+    model = None  # set by setup()
+    table_class = tables.DBInfoTable
+    table_pagination = False
+
+    table_prefixes = (
+        'django_',
+        'glamr_',
+        'omics_',
+        'ncbi_taxonomy_',
+        'umrad_',
+    )
+
+    view_attrs = {
+        'postgresql': {
+            'model': pg_class,
+            'extra_where': None,
+        },
+        'sqlite': {
+            # see: https://www.sqlite.org/dbstat.html
+            'model': dbstat,
+            'extra_where': ['aggregate = TRUE'],
+        },
+    }
+
+    def setup(self, *args, **kwargs):
+        try:
+            attrs = self.view_attrs[connection.vendor]
+        except KeyError as e:
+            raise Http404(f'unsupported db vendor: {e}')
+
+        # set vendor-specific view attributes (model, name column name)
+        for attrname, value in attrs.items():
+            setattr(self, attrname, value)
+        return super().setup(*args, **kwargs)
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        q = Q()
+        for pref in self.table_prefixes:
+            q = q | Q(name__startswith=pref)
+        qs = qs.filter(q)
+        if self.extra_where:
+            qs = qs.extra(where=self.extra_where)
+        return qs
 
 
 class RecordView(DetailView):

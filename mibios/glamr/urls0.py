@@ -49,6 +49,7 @@ urlpatterns = [
 if settings.INTERNAL_DEPLOYMENT:
     urlpatterns.append(path('tables/', include(mibios_urls)))
     urlpatterns.append(path('omics/', include(omics_urls)))
+    urlpatterns.append(path('dbinfo/', views.DBInfoView.as_view(), name='dbinfo'))  # noqa:E501
 
 if settings.ENABLE_TEST_URLS:
     urlpatterns += [
