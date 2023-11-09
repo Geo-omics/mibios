@@ -45,59 +45,6 @@ from .utils import split_query
 log = getLogger(__name__)
 
 
-class AboutView(DetailView):
-    template_name = 'glamr/about.html'
-    model = models.AboutInfo
-
-    def get_object(self):
-        # last() may also return None so provide a blank instance useful for
-        # development.
-        self.object = self.get_queryset().order_by('pk').last() or self.model()
-        return self.object
-
-    def get_context_data(self, **ctx):
-        ctx = super().get_context_data(**ctx)
-        ctx['info'] = self.get_info()
-        ctx['credits'] = self.get_credits()
-        ctx['have_history'] = self.model.objects.count() >= 2
-        return ctx
-
-    def get_credits(self):
-        fields = [
-            i for i in self.model._meta.get_fields()
-            if i.name.startswith('tool_')
-        ]
-        data = []
-        for i in fields:
-            txt = getattr(self.object, i.attname)
-            url = None
-            if txt.startswith('https://'):
-                url, _, txt = txt.partition(' ')
-            data.append((i.verbose_name, url, txt))
-        return data
-
-    def get_info(self):
-        """ get data source version info """
-        fields = [
-            i for i in self.model._meta.get_fields()
-            if i.name.startswith('info_')
-        ]
-        data = []
-        for i in fields:
-            txt = getattr(self.object, i.attname)
-            url = None
-            if txt.startswith('https://'):
-                url, _, txt = txt.partition(' ')
-            data.append((i.verbose_name, url, txt))
-        return data
-
-
-class AboutHistoryView(SingleTableView):
-    template_name = 'glamr/about_history.html'
-    model = models.AboutInfo
-    table_class = tables.AboutHistoryTable
-
-
 class ExportMixin(ExportBaseMixin):
     query_param = 'export'
 
@@ -753,6 +700,59 @@ class SearchMixin(SearchFormMixin):
         else:
             ctx['result_stats'] = None
         return ctx
+
+
+class AboutView(DetailView):
+    template_name = 'glamr/about.html'
+    model = models.AboutInfo
+
+    def get_object(self):
+        # last() may also return None so provide a blank instance useful for
+        # development.
+        self.object = self.get_queryset().order_by('pk').last() or self.model()
+        return self.object
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['info'] = self.get_info()
+        ctx['credits'] = self.get_credits()
+        ctx['have_history'] = self.model.objects.count() >= 2
+        return ctx
+
+    def get_credits(self):
+        fields = [
+            i for i in self.model._meta.get_fields()
+            if i.name.startswith('tool_')
+        ]
+        data = []
+        for i in fields:
+            txt = getattr(self.object, i.attname)
+            url = None
+            if txt.startswith('https://'):
+                url, _, txt = txt.partition(' ')
+            data.append((i.verbose_name, url, txt))
+        return data
+
+    def get_info(self):
+        """ get data source version info """
+        fields = [
+            i for i in self.model._meta.get_fields()
+            if i.name.startswith('info_')
+        ]
+        data = []
+        for i in fields:
+            txt = getattr(self.object, i.attname)
+            url = None
+            if txt.startswith('https://'):
+                url, _, txt = txt.partition(' ')
+            data.append((i.verbose_name, url, txt))
+        return data
+
+
+class AboutHistoryView(SingleTableView):
+    template_name = 'glamr/about_history.html'
+    model = models.AboutInfo
+    table_class = tables.AboutHistoryTable
 
 
 class AbundanceView(ExportMixin, SingleTableView):
