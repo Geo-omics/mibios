@@ -491,15 +491,15 @@ class AbstractDataset(Model):
         ...
 
 
-class Abundance(Model):
+class ReadAbundance(Model):
     """
-    Abstract Abundance w.r.t. UniRef100
+    Read-mapping based abundance w.r.t. UniRef100
 
     For data from mmseqs2's {contig_}tophit_report files
     """
     # cf. mmseqs2 easy-taxonomy output (tophit_report)
     sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
-    ref = models.ForeignKey(UniRef100, **fk_req)
+    ref = models.ForeignKey(UniRef100, **fk_req, related_name='abundance')
     unique_cov = models.DecimalField(
         **digits(4, 3),
         help_text='unique coverage of target uniqueAlignedResidues / '
@@ -510,24 +510,14 @@ class Abundance(Model):
         help_text='target coverage alignedResidues / targetLength',
     )
     avg_ident = models.DecimalField(**digits(4, 3))
-
-    class Meta(Model.Meta):
-        abstract = True
-        unique_together = (('sample', 'ref'),)
-
-
-class GeneAbundance(Abundance):
-    """ Gene/UR100 Abundance based on contigs """
-    loader = managers.GeneAbundanceLoader()
-
-
-class ReadAbundance(Abundance):
-    """ Gene/UR100 Abundance based on reads """
     read_count = models.PositiveIntegerField(
         help_text='number of sequences aligning to target',
     )
 
     loader = managers.ReadAbundanceLoader()
+
+    class Meta(Model.Meta):
+        unique_together = (('sample', 'ref'),)
 
 
 '''

@@ -179,12 +179,20 @@ class OverViewSamplesTable(Table):
         ]
 
 
+class ReadAbundanceTable(Table):
+    sample = Column(linkify=linkify_value)
+
+    class Meta:
+        model = omics_models.ReadAbundance
+        exclude = ['id', 'ref']
+
+
 class TaxonAbundanceTable(Table):
     sample = Column(linkify=linkify_value)
 
     class Meta:
         model = omics_models.TaxonAbundance
-        fields = ['sample', 'sum_gene_rpkm']
+        exclude = ['id', 'taxon']
 
 
 class DatasetTable(Table):

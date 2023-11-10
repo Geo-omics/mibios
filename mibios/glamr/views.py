@@ -28,7 +28,7 @@ from mibios.models import Q
 from mibios.views import ExportBaseMixin, TextRendererZipped
 from mibios.omics import get_sample_model
 from mibios.omics.models import (
-    CompoundAbundance, FuncAbundance, TaxonAbundance
+    CompoundAbundance, FuncAbundance, ReadAbundance, TaxonAbundance
 )
 from mibios.ncbi_taxonomy.models import TaxNode
 from mibios.umrad.models import FuncRefDBEntry
@@ -755,26 +755,49 @@ class AboutHistoryView(SingleTableView):
     table_class = tables.AboutHistoryTable
 
 
-class AbundanceView(ExportMixin, SingleTableView):
+class AbundanceView(MapMixin, ExportMixin, SingleTableView):
     """
-    Lists abundance data for a single object of a variable model
+    Lists abundance data for a single object of certain models
     """
     template_name = 'glamr/abundance.html'
 
-    def get_table_class(self):
-        if self.model is CompoundAbundance:
-            return tables.CompoundAbundanceTable
-        elif self.model is FuncAbundance:
-            return tables.FunctionAbundanceTable
-        elif self.model is TaxonAbundance:
-            return tables.TaxonAbundanceTable
-        else:
-            raise ValueError('unsupported abundance model')
+    # view attributes set by setup:
+    VIEW_ATTRS = {
+        'taxnode': {
+            'model': TaxonAbundance,
+            'table_class': tables.TaxonAbundanceTable,
+            'sample_filter_key': 'taxonabundance__taxon',
+        },
+        'uniref100': {
+            'model': ReadAbundance,
+            'table_class': tables.ReadAbundanceTable,
+            'sample_filter_key': 'readabundance__ref',
+        },
+        'funcrefdbentry': {
+            'model': FuncAbundance,
+            'table_class': tables.FunctionAbundanceTable,
+            'sample_filter_key': 'funcabundance__function',
+        },
+        'compoundrecord': {
+            'model': CompoundAbundance,
+            'table_class': tables.CompoundAbundanceTable,
+            'sample_filter_key': 'compoundabundance__compound',
+        },
+    }
 
     def setup(self, request, *args, **kwargs):
         super().setup(request, *args, **kwargs)
+        obj_model_name = kwargs['model']
         try:
-            self.object_model = get_registry().models[kwargs['model']]
+            view_attrs = self.VIEW_ATTRS[obj_model_name]
+        except KeyError as e:
+            raise Http404(f'unsupported model: {e}') from e
+
+        for key, value in view_attrs.items():
+            setattr(self, key, value)
+
+        try:
+            self.object_model = get_registry().models[obj_model_name]
         except KeyError as e:
             raise Http404(f'no such model: {e}') from e
 
@@ -787,18 +810,24 @@ class AbundanceView(ExportMixin, SingleTableView):
 
     def get_queryset(self):
         try:
-            return self.object.abundance.all()
+            qs = self.object.abundance.all()
         except AttributeError:
             # (object-)model lacks reverse abundance relation
             raise
+
+        qs = qs.filter(sample__dataset__private=False)
+        return qs
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['model_name_verbose'] = self.model._meta.verbose_name
         ctx['object'] = self.object
         ctx['object_model_name'] = self.object_model._meta.model_name
-
         return ctx
+
+    def get_sample_queryset(self):
+        f = {self.sample_filter_key: self.object}
+        return Sample.objects.filter(**f)
 
 
 class AbundanceGeneView(ModelTableMixin, SingleTableView):
@@ -972,6 +1001,9 @@ class RecordView(DetailView):
         ctx['details'] = self.get_details()
         ctx['relations'] = self.get_relations()
         ctx['external_url'] = self.object.get_external_url()
+        ctx['has_abundance'] = (
+            self.model._meta.model_name in AbundanceView.VIEW_ATTRS
+        )
 
         return ctx
 
