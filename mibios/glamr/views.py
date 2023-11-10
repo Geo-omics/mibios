@@ -415,6 +415,7 @@ class MapMixin():
         # str() will access the reference
         datasets = datasets.select_related('reference')
         dataset_name = {i.pk: str(i) for i in datasets}
+        dataset_no = {i.pk: i.get_set_no() for i in datasets}
 
         map_data = []
         by_coords = groupby(qs, key=lambda x: (x['longitude'], x['latitude']))
@@ -424,8 +425,12 @@ class MapMixin():
             # take only the first sample at these coordinates
             item = grp[0]
 
-            item['sample_url'] = fast_reverse('sample', args=[item['id']])
-            item['dataset_url'] = fast_reverse('dataset', args=[item['dataset_id']])  # noqa:E501
+            item['sample_url'] = fast_reverse(
+                'sample', args=[item['sample_id'].removeprefix('samp_')],
+            )
+            item['dataset_url'] = fast_reverse(
+                'dataset', args=[dataset_no[item['dataset_id']]],
+            )
             item['dataset_name'] = dataset_name[item['dataset_id']]
             del item['dataset_id']
 
