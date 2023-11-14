@@ -230,6 +230,8 @@ class QuerySet(BulkCreateWrapperMixin, MibiosQuerySet):
         """
         Get map (as list of pairs) from (unique) values to PKs.
 
+        Returns a list of 2-tuples.
+
         To get these as a dict use pkmap().  Similar to in_bulk() but arguments
         are reversed.  Argument field_name has no default as 'pk' does not make
         sense here.  Faster than in_bulk as targets are not objects just the
@@ -239,21 +241,23 @@ class QuerySet(BulkCreateWrapperMixin, MibiosQuerySet):
         this is not checked.  Likewise it is not an error if values of ids are
         not actually found in the database.
         """
-        if connection.vendor == 'sqlite' \
-                and id_list is not None \
-                and len(id_list) > 250000:
-            # avoid OperationalError: too many SQL variables
-            qs = self.only(field_name)
-            return (
-                (val, obj.pk) for val, obj
-                in qs.in_bulk(id_list, field_name=field_name).items()
-            )
-        else:
-            f = {}
-            if id_list is not None:
-                f[f'{field_name}__in'] = id_list
 
-            return self.filter(**f).values_list(field_name, 'pk')
+        if id_list is None:
+            return self.values_list(field_name, 'pk')
+
+        # PG on docker flames out (invalid memory alloc request size) at batch
+        # size about >8 million (when used as in UniRefMixin), sqlite has a
+        # limit of 250000
+        BATCH_SIZE = 1000000
+        if connection.vendor == 'sqlite':
+            BATCH_SIZE = 250000
+
+        res = []
+        for i in range(0, len(id_list) - 1, BATCH_SIZE):
+            f = {f'{field_name}__in': id_list[i:i + BATCH_SIZE]}
+            part = self.filter(**f).values_list(field_name, 'pk')
+            res += part
+        return res
 
     def pkmap(self, field_name, id_list=None):
         """

@@ -488,7 +488,7 @@ class UniRefMixin:
         fkmap = fkmap_cache.get('UniRef100', dict())
         missing = urefs.difference((i[0] for i in fkmap.keys()))
         # 2. update cache
-        exist_missing = UniRef100.loader.pkmap('accession', missing)
+        exist_missing = UniRef100.loader.pkmap('accession', list(missing))
         add_to_cache_count = 0
         for accn, pk in exist_missing.items():
             fkmap[(accn,)] = pk
@@ -505,7 +505,7 @@ class UniRefMixin:
                 # Update fkmap with PKs of new objects:
                 fkmap.update((
                     ((accn,), pk) for accn, pk
-                    in UniRef100.loader.pkmap_vals('accession', missing)
+                    in UniRef100.loader.pkmap_vals('accession', list(missing))
                 ))
         else:
             print('[all good]')
