@@ -7,7 +7,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, ButtonHolder, Submit
 
 from .models import Dataset
-from .search_fields import SEARCH_FIELDS
+from .search_fields import search_fields
 from .templatetags.glamr_extras import human_lookups
 
 
@@ -48,9 +48,8 @@ class SearchForm(forms.Form):
 
 class AdvancedSearchForm(SearchForm):
     MODEL_CHOICES = [('', '')] + [
-        (model, model.upper())
-        for model_fields in SEARCH_FIELDS.values()
-        for model in model_fields.keys()
+        (i._meta.model_name, i._meta.model_name.upper())
+        for i in search_fields.keys()
     ]
     model = forms.ChoiceField(choices=MODEL_CHOICES, required=False)
     field_data_only = forms.BooleanField(

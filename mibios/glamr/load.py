@@ -1,4 +1,5 @@
 from datetime import datetime
+from itertools import chain
 import re
 
 from django.apps import apps
@@ -17,7 +18,7 @@ from mibios.umrad.manager import (
 from mibios.umrad.model_utils import delete_all_objects_quickly
 from mibios.umrad.utils import CSV_Spec, atomic_dry, SpecError
 
-from .search_fields import SEARCH_FIELDS
+from .search_fields import search_fields
 
 
 class BoolColMixin:
@@ -428,14 +429,9 @@ class SearchableManager(Loader):
     @atomic_dry
     def reindex(self):
         delete_all_objects_quickly(self.model)
-        models = [
-            apps.get_app_config(app_label).get_model(model_name)
-            for app_label, app_data in SEARCH_FIELDS.items()
-            for model_name in app_data
-        ]
         from .search_utils import update_spellfix
-        for i in models:
-            self.index_model(i)
+        for model in search_fields.keys():
+            self.index_model(model)
         update_spellfix()
 
     def index_model(self, model):
@@ -459,20 +455,29 @@ class SearchableManager(Loader):
             # get PKs of objects with hits/abundance
             f = {abund_lookup: None}
             whits = model.objects.exclude(**f).values_list('pk', flat=True)
-            whits = set((i for i in whits.iterator()))
+            whits = set(whits)
             print(f'with hits: {len(whits)} / total: ', end='', flush=True)
         else:
             whits = set()
 
-        qs = model.objects.all()
-        print(f'{qs.count()} [OK]')
+        simple_fields = []
+        related_fields = []
+        for i in search_fields[model]:
+            if '__' in i:
+                related_fields.append(i)
+            else:
+                simple_fields.append(i)
 
-        def searchable_objs():
-            fs = SEARCH_FIELDS[model._meta.app_label][model._meta.model_name]
-            for obj in qs:
-                for field_name in fs:
+        data_objs = model.objects.only('pk', *simple_fields).in_bulk()
+        print(f'{len(data_objs)} [OK]')
+
+        def get_objs_simple():
+            """ generator over searchable objs - simple fields """
+            for obj in data_objs.values():
+                for field_name in simple_fields:
                     txt = getattr(obj, field_name)
                     if txt is None or txt == '':
+                        # don't index blanks
                         continue
 
                     yield self.model(
@@ -482,7 +487,29 @@ class SearchableManager(Loader):
                         content_object=obj,
                     )
 
-        self.bulk_create(searchable_objs(), batch_size=10000)
+        it = get_objs_simple()
+
+        # The relation across which we're searching may be *-to-many, so there
+        # may be multiple values per data object with multiple respective
+        # Searchable objects that need to be created.  Hence, we process those
+        # separately for each such field below:
+        for field_name in related_fields:
+            # exclude the non-related as to not index blanks
+            field_name_pref = '__'.join(field_name.split('__')[:-1])
+            qs = model.objects.exclude(**{field_name_pref: None})
+            qs = qs.values_list('pk', field_name)
+            it = chain(it, (
+                self.model(
+                    text=value,
+                    has_hit=(pk in whits),
+                    field=field_name,
+                    content_object=data_objs[pk],
+                )
+                for pk, value in qs
+                if value not in (None, '')
+            ))
+
+        self.bulk_create(it)
 
 
 class UniqueWordManager(Loader):
@@ -490,6 +517,9 @@ class UniqueWordManager(Loader):
     def reindex(self):
         """
         Populate table with unique, lower-case words from Searchable.text
+
+        Run this after running Searchable.objects.reindex().  This will not run
+        on sqlite3 just on postgresql.
         """
         Searchable = apps.get_app_config('glamr').get_model('searchable')
         with connections['default'].cursor() as cur:

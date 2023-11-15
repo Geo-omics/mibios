@@ -20,7 +20,10 @@ Populating the database:
 
     Sample.loader.load_metagenomic_data()
 
+    ...
 
+    Searchable.objects.reindex()
+    UniqueWord.objects.reindex()
 """
 
 GREAT_LAKES = [

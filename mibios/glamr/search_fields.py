@@ -1,3 +1,6 @@
+from django.apps import apps
+from django.utils.functional import lazy
+
 from mibios import get_registry
 
 
@@ -43,7 +46,7 @@ SEARCH_FIELDS = {
         ],
     },
     'ncbi_taxonomy': {
-        'taxname': ['name'],  # what about 'unique_name' ?
+        'taxnode': ['taxname__name'],
     },
     'umrad': {
         'compoundname': ['entry'],
@@ -59,7 +62,27 @@ ADVANCED_SEARCH_MODELS = [
 """ names of models we offer for the advanced search """
 
 
-def print():
+def compile_search_fields():
+    """
+    Process the SEARCH_FIELDS for use by the rest of the module
+
+    The compiled dict maps models to list of fields.
+    """
+    retval = {}
+    for app_label, data in SEARCH_FIELDS.items():
+        appconf = apps.get_app_config(app_label)
+        for model_name, field_list in data.items():
+            model = appconf.get_model(model_name)
+            retval[model] = field_list
+
+    return retval
+
+
+# this must be evaluated lazily to ensure apps and models are set up
+search_fields = lazy(compile_search_fields, dict)()
+
+
+def printit():
     """ helper go generate SEARCH_FIELD """
     r = get_registry()
     d = {}

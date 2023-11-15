@@ -502,6 +502,8 @@ class Searchable(models.Model):
     objects = SearchableManager.from_queryset(SearchableQuerySet)()
 
     class Meta:
+        # NOTE: Be aware the monkey-patching of concrete_fields in
+        # AppConfig.ready().
         indexes = [
             GinIndex(
                 fields=['searchvector'],

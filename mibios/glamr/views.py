@@ -5,7 +5,6 @@ from django_tables2 import (
     Column, SingleTableView, TemplateColumn, table_factory,
 )
 
-from django.apps import apps
 from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
@@ -36,7 +35,7 @@ from mibios.umrad.utils import DefaultDict
 from mibios.omics.models import Gene
 from . import models, tables, GREAT_LAKES
 from .forms import QBuilderForm, QLeafEditForm, SearchForm
-from .search_fields import ADVANCED_SEARCH_MODELS, SEARCH_FIELDS
+from .search_fields import ADVANCED_SEARCH_MODELS, search_fields
 from .search_utils import get_suggestions
 from .url_utils import fast_reverse
 from .utils import split_query
@@ -501,9 +500,8 @@ class SearchFormMixin:
         """ a lookup dict to get model classes from name """
         if cls._model_class is None:
             cls._model_class = {
-                model_name: apps.get_model(app_label, model_name)
-                for app_label, app_models in SEARCH_FIELDS.items()
-                for model_name in app_models.keys()
+                i._meta.model_name: i
+                for i in search_fields.keys()
             }
         return cls._model_class
 
@@ -513,12 +511,13 @@ class SearchFormMixin:
         ctx['advanced_search'] = False
         ctx['models_and_fields'] = [
             (
-                model_name,
-                self.model_class[model_name]._meta.verbose_name_plural,
-                fields[:7] + (['...'] if len(fields) > 7 else []),
+                model._meta.model_name,
+                model._meta.verbose_name_plural,
+                fields[:7] + (
+                    ['...'] if len(fields) > 7 else []
+                ),
             )
-            for app, app_data in SEARCH_FIELDS.items()
-            for model_name, fields in app_data.items()
+            for model, fields in search_fields.items()
         ]
 
         search_model = self.search_model or self.model
@@ -549,13 +548,15 @@ class SearchMixin(SearchFormMixin):
         """
         if cls._verbose_field_name is None:
             cls._verbose_field_name = {}
-            for app_label, app_models in SEARCH_FIELDS.items():
-                for model_name, fields in app_models.items():
-                    model = cls.model_class[model_name]
-                    verbose = {}
-                    for i in fields:  # fields is list of field names
+            for model, fields in search_fields.items():
+                verbose = {}
+                for i in fields:  # list of field names
+                    if '__' in i:
+                        # TODO: get the real verbose name
+                        verbose[i] = i.replace('__', ' ')
+                    else:
                         verbose[i] = model._meta.get_field(i).verbose_name
-                    cls._verbose_field_name[model_name] = verbose
+                cls._verbose_field_name[model._meta.model_name] = verbose
         return cls._verbose_field_name
 
     def setup(self, request, *args, **kwargs):
@@ -1569,11 +1570,12 @@ class SearchView(TemplateView):
         ctx = super().get_context_data(**ctx)
         ctx['advanced_search'] = False
         m_and_f = []
-        for app, app_data in SEARCH_FIELDS.items():
-            app = apps.get_app_config(app)
-            for model_name, fields in app_data.items():
-                m = app.get_model(model_name)
-                m_and_f.append((model_name, m._meta.verbose_name, fields[:7]))
+        for model, fields in search_fields.items():
+            m_and_f.append((
+                model._meta.model_name,
+                model._meta.verbose_name,
+                fields[:7],
+            ))
         ctx['models_and_fields'] = m_and_f
 
         # models in alphabetical order
@@ -1672,35 +1674,39 @@ class SearchResultMixin(MapMixin):
         ctx['suggestions'] = self.suggestions
         return ctx
 
-    def search_result_as_list(self):
+    def mangle_to_list(self, model, items_per_field):
         """
-        Helper to turn SearchMixin.search_result into a ListView.object_list
+        Helper to turn SearchMixin.search_result into something suitable for
+        ListView.object_list.
         """
+        res = []
+        model_name = model._meta.model_name
+        items = {
+            pk: (field, text)
+            for field, items in items_per_field.items()
+            for text, pk in items
+        }
+        objs = model.objects.in_bulk(items.keys())
+        is_first = True  # True for the first item of each model
+        for pk, (field, text) in items.items():
+            if pk not in objs:
+                # search index out-of-sync
+                continue
+            field = self.verbose_field_name[model_name][field]
+            res.append((is_first, model_name, objs[pk], field, text))
+            is_first = False
+        return res
+
+    def get_queryset(self):
+        """ returns list of 5-tuples """
+        self.search_result = self.search()
         if not self.search_result:
             return []
 
         res = []
         for model, items_per_field in self.search_result.items():
-            model_name = model._meta.model_name
-            items = {
-                pk: (field, text)
-                for field, items in items_per_field.items()
-                for text, pk in items
-            }
-            objs = model.objects.in_bulk(items.keys())
-            is_first = True  # True for the first item of each model
-            for pk, (field, text) in items.items():
-                if pk not in objs:
-                    # search index out-of-sync
-                    continue
-                field = self.verbose_field_name[model_name][field]
-                res.append((is_first, model_name, objs[pk], field, text))
-                is_first = False
+            res += self.mangle_to_list(model, items_per_field)
         return res
-
-    def get_queryset(self):
-        self.search_result = self.search()
-        return self.search_result_as_list()
 
     def get_sample_queryset(self):
         sample_pks = set()
