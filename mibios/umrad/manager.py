@@ -60,12 +60,16 @@ class BulkCreateWrapperMixin:
                 return
 
             if batch_size is None:
-                # sqlite has a variable-per-query limit of 999; it's not clear
-                # how one runs against that; it seems that multiple smaller
-                # INSERTs are being used automatically.  So, until further
-                # notice, only have a default batch size for progress metering
-                # here.
-                batch_size = 999
+                if connection.vendor == 'sqlite':
+                    # sqlite has a variable-per-query limit of 999; it's not
+                    # clear how one runs against that; it seems that multiple
+                    # smaller INSERTs are being used automatically.  So, until
+                    # further notice, only have a default batch size for
+                    # progress metering here.
+                    batch_size = 999
+                else:
+                    # allow progress update every few seconds
+                    batch_size = 25000
 
             # get model name from manager (wrappee_bc.__self__ is the manager)
             model_name = wrappee_bc.__self__.model._meta.verbose_name
