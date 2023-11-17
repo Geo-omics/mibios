@@ -720,15 +720,16 @@ class AboutView(DetailView):
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['info'] = self.get_info()
-        ctx['credits'] = self.get_credits()
+        ctx['info'] = self.get_credits(prefix='info_')
+        ctx['credits'] = self.get_credits(prefix='tool_')
         ctx['have_history'] = self.model.objects.count() >= 2
         return ctx
 
-    def get_credits(self):
+    def get_credits(self, prefix):
+        """ Compile credits data for given field name prefix """
         fields = [
             i for i in self.model._meta.get_fields()
-            if i.name.startswith('tool_')
+            if i.name.startswith(prefix)
         ]
         data = []
         for i in fields:
@@ -736,22 +737,8 @@ class AboutView(DetailView):
             url = None
             if txt.startswith('https://'):
                 url, _, txt = txt.partition(' ')
-            data.append((i.verbose_name, url, txt))
-        return data
-
-    def get_info(self):
-        """ get data source version info """
-        fields = [
-            i for i in self.model._meta.get_fields()
-            if i.name.startswith('info_')
-        ]
-        data = []
-        for i in fields:
-            txt = getattr(self.object, i.attname)
-            url = None
-            if txt.startswith('https://'):
-                url, _, txt = txt.partition(' ')
-            data.append((i.verbose_name, url, txt))
+            if txt:
+                data.append((i.verbose_name, url, txt))
         return data
 
 

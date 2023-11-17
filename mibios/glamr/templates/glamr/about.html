@@ -12,13 +12,15 @@
 {%endfor%}
 </ul>
 </p>
-<p>
-Credits:
-<ul>
-{% for key, url, txt in credits %}
-<li>{%if url%}<a href="{{url}}">{{key}}</a>{%else%}{{key}}{%endif%}{% if txt %}: {{txt}}{%endif%}</li>
-{%endfor%}
-</ul>
-<p>
+{%if credits%}
+    <p>
+    Credits:
+    <ul>
+    {% for key, url, txt in credits %}
+    <li>{%if url%}<a href="{{url}}">{{key}}</a>{%else%}{{key}}{%endif%}{% if txt %}: {{txt}}{%endif%}</li>
+    {%endfor%}
+    </ul>
+    <p>
+{%endif%}
 {% if have_history %}<p>[<a href="{%url 'about-history'%}">previous versions</a>]</p>{%endif%}
 {% endblock %}
