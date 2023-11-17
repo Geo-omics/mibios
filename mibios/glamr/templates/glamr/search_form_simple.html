@@ -27,7 +27,7 @@
             </select>
             <button class="btn btn-primary" type="submit" values="Submit">Search</button>
         </div>
-        <input type="text" name="query" placeholder="Microcystis, HABs, Lake Erie" required id="query_text" class="form-control" onload="changeSelection()">
+        <input type="text" name="query" placeholder="Microcystis, HABs, Lake Erie" {%if query%}value="{{query}}" {%endif%}required id="query_text" class="form-control" onload="changeSelection()">
         <div class="input-group-append">
             <button class="btn btn-outline-primary" type="button" data-toggle="collapse" data-target="#search-help-detail" aria-expanded="false" aria-controls="search-help-detail">
                 <i class="bi bi-info-circle"></i>
