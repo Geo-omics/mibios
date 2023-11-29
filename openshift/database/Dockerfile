@@ -35,7 +35,6 @@ COPY pg_hba.conf restore_mode.conf /etc/postgresql/15/main/
 COPY local.conf /etc/postgresql/15/main/conf.d/
 RUN sed -i 's/^data_directory = .*//' /etc/postgresql/15/main/postgresql.conf
 RUN cp /etc/postgresql/15/main/postgresql.conf /etc/postgresql/15/main/postgresql_restore.conf
-RUN [ -n $DATABASE_RESTORE ] && echo "include = '/etc/postgresql/15/main/restore_mode.conf'" >> /etc/postgresql/15/main/postgresql.conf
 ENV PGDATA_ROOT=$POSTGRES_BASE/pgdata_mnt/data
 RUN env
 

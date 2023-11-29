@@ -2,72 +2,31 @@
 set -eu
 PGBIN=/usr/lib/postgresql/15/bin
 
-export PGDATA=$PGDATA_ROOT/generation-$PGDATA_GENERATION
-
 echo "Running openshift build: ${OPENSHIFT_BUILD_NAME:-}"
 cd "$PGDATA_ROOT"
 
-if [[ -n "${DATABASE_RESTORE:-}" ]]; then
-    # Running in restore container
-
-    if [[ $PGDATA -ef ./current ]]; then
-        ls -la
-        echo >&2 "ERROR: Configured to run on current generation, please update PGDATA_GENERATION or shut down the database-restore deployment"
-        sleep 300
-        exit 1
-    fi
-
-    # initialize the DB if needed
-    if [[ ! -d "$PGDATA" ]]; then
-        if [[ -h ./next ]]; then
-            ls -la
-            echo >&2 "./next exists, aborting..."
-            sleep 300
-            exit 1
-        fi
-        ln -s -T "$PGDATA" ./next
-        mkdir --verbose --mode 700 "$PGDATA"
-        $PGBIN/initdb --pgdata="$PGDATA"
-        $PGBIN/pg_ctl start --silent --wait
-        createuser glamr_django
-        createdb --owner glamr_django glamr-public
-        $PGBIN/pg_ctl stop --silent --mode=fast --wait
-    fi
-
-    if [[ $PGDATA -ef ./next ]]; then
-        echo "Using next PGDATA=$PGDATA"
-    else
-        ls -la
-        echo >&2 "PGDATA=$PGDATA exists but is not ./next, aborting..."
-        sleep 300
-        exit 1
-    fi
-    echo "Starting db server in 5 seconds..."
-    sleep 5
+if [[ -n ${PGDATA_NAME:-} ]]; then
+    PGDATA=$PGDATA_ROOT/$PGDATA_NAME
+    echo "As provided by runtime environment PGDATA=$PGDATA"
 else
-    # Running in live container
-    if [[ $PGDATA -ef ./next ]]; then
-        echo "Switched to next generation:"
-        echo "OLD: $(realpath ./current)"
-        ln -sf -T "$PGDATA" ./current
-        echo "NEW: $(realpath ./current)"
-        rm -r ./next
+    if [[ -L $PGDATA_ROOT/next ]]; then
+        # switch to next database generation
+        echo "Switching to next database generation..."
+        ln -v -sf -T "$(readlink current)" last
+        ln -v -sf -T "$(readlink next)" current
     fi
 
-    if [[ ! -d "$PGDATA" && -d ./current ]]; then
-        # try recovering from misconfiguration
-        echo "WARNING: configured PGDATA=$PGDATA is not a directory but ./current is, using ./current=$(realpath ./current)"
-        PGDATA=$(realpath ./current)
-    fi
-
-    if [[ $PGDATA -ef ./current ]]; then
-        echo "Using current PGDATA=$PGDATA"
+    if [[ -n ${USE_OLD_DATABASE:-} ]]; then
+        # use old database
+        PGDATA=$(realpath ./last)
+        echo "Using old PGDATA=$PGDATA"
     else
-       echo "WARNING: PGDATA=$PGDATA is not ./current"
+        PGDATA=$(realpath ./current)
+        echo "Using PGDATA=$PGDATA"
     fi
-
 fi
 
 [[ -d "$PGDATA" ]] || echo "WARNING: not a directory: PGDATA=$PGDATA"
 
+export PGDATA
 exec $PGBIN/postgres --config-file=/etc/postgresql/15/main/postgresql.conf

@@ -3,11 +3,8 @@
 set -eu
 PGBIN=/usr/lib/postgresql/15/bin
 
-export PGDATA=$PGDATA_ROOT/generation-$PGDATA_GENERATION
-
 echo "Attempting graceful shutdown..."
 cd "$PGDATA_ROOT"
-if [[ -n "${DATABASE_RESTORE:-}" ]]; then who="live DB"; else who="restore"; fi
-echo -ne "\n$(date) $who gen-$PGDATA_GENERATION shutdown " >> ../shutdown.log
-$PGBIN/pg_ctl stop -D "$PGDATA" --wait --timeout=60 --mode=fast
+echo -ne "\n$(date) shutdown " >> ../shutdown.log
+$PGBIN/pg_ctl stop --wait --timeout=60 --mode=fast
 echo -n "[OK]" >> ../shutdown.log
