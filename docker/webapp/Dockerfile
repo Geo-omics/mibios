@@ -39,7 +39,6 @@ RUN apt-get update && apt-get upgrade --assume-yes --quiet && apt-get install --
     python3-pygraphviz \
     python3-xlrd \
     python3-zipstream \
-    # radiant is krona!
     radiant \
     uwsgi \
     uwsgi-plugin-python3
