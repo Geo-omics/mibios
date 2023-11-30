@@ -1069,7 +1069,16 @@ class TaxonAbundanceManager(Manager):
                 self.make_krona_html(sample, outpath=path)
 
             with path.open() as ifile:
-                return ifile.read()
+                try:
+                    return ifile.read()
+                except Exception as e:
+                    log.error(
+                        f'krona html read failed: {e.__class__.__name__}:{e}\n'
+                        f'{ifile=}'
+                    )
+                    ifile.seek(0)
+                    return ifile.read(encoding='utf-8')
+
         else:
             return self.make_krona_html(sample)
 
