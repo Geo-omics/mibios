@@ -2,7 +2,6 @@
 Django settings specific for glarm test site on alpena
 """
 from os import environ
-from pathlib import Path
 from mibios.glamr.settings import *
 
 
@@ -30,6 +29,9 @@ ADMINS = [("Robert", "heinro@umich.edu")]
 # For production, set STATIC_ROOT to the directory containing static files,
 # relative to your instance's base directory
 STATIC_ROOT = 'static'
+
+# storing krona files on the static volume, must be created/maintained manually
+KRONA_CACHE_DIR = 'static/krona-cache/'
 
 # URL for static files
 STATIC_URL = '/static/'

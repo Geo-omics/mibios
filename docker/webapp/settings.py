@@ -33,7 +33,7 @@ ADMINS = [("Robert", "heinro@umich.edu")]
 # For production, set STATIC_ROOT to the directory containing static files,
 # relative to your instance's base directory
 STATIC_ROOT = 'static'
-KRONA_CHACHE_DIR = 'krona-cache/'
+KRONA_CACHE_DIR = 'krona-cache/'
 
 # URL for static files
 STATIC_URL = '/glamr/static/'
