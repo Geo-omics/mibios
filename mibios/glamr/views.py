@@ -339,10 +339,10 @@ class ModelTableMixin(ExportMixin):
         except RuntimeError:
             acc_field = None
             col = TemplateColumn(
-                """
-                {%load glamr_extras%}
-                [<a href="{% record_url record %}">{{ record }}</a>]
-                """,
+                '{%load glamr_extras%}[<a href="{% record_url record %}">'
+                + self.model._meta.model_name
+                + '/{{ record.pk }}</a>]',
+                order_by='pk',
             )
             cols.append(('record links', col))
             del col
