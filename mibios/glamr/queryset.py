@@ -143,6 +143,8 @@ class SearchableQuerySet(QuerySet):
         :param list fields:
             list of field names, limits results to these fields
         :param str lookup: Use this lookup to query the text field
+
+        Returns a dict mapping models to dict mapping fields to tuples.
         """
         f = {}
         if abundance:

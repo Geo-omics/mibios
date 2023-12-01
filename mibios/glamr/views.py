@@ -576,6 +576,7 @@ class SearchMixin(SearchFormMixin):
                 raise Http404('bad model name / is not searchable') from e
 
         self.query = None
+        self.real_query = None
         self.check_abundance = False
         self.search_result = {}
         self.suggestions = []
@@ -604,11 +605,11 @@ class SearchMixin(SearchFormMixin):
         Depending on the search's success, this methods sets the view's
         search_result and suggestions attributes.
 
-        Returns a Searchable queryset.  Sets self.suggestions as a side-effect.
+        Returns a dict.  Sets self.suggestions as a side-effect.
         """
         self.process_search_form()
         if not self.query:
-            return
+            return {}
 
         # first search
         search_result = models.Searchable.objects.search(
