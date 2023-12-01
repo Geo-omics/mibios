@@ -581,9 +581,6 @@ class DataConfig:
         Shifting must be one relation hop at a time.  A new config instance
         will be returned.
         """
-        if self.q:
-            raise NotImplementedError('shifting Q objects is not implemented')
-
         field, *others = fields
         if isinstance(field, str):
             field, *more = field.split('__')
@@ -616,6 +613,7 @@ class DataConfig:
             self._shift_lookups(field, reverse, **i)
             for i in self.excludes
         ]
+        conf.q = [self._shift_q(field, reverse, i) for i in self.q]
 
         if not conf.filter:
             if field.remote_field.null:
@@ -648,6 +646,24 @@ class DataConfig:
             ret[k] = v
 
         return ret
+
+    def _shift_q(self, field, reverse, original_q):
+        """
+        Return shifted Q object
+        """
+        children = []
+        for i in original_q.children:
+            if isinstance(i, tuple) and len(i) == 2:
+                # a lookup=val pair, the shifted version must be a tuple again
+                child, *_ = \
+                    self._shift_lookups(field, reverse, **dict((i, ))).items()
+            else:
+                # it's a Q node
+                child = self._shift_q(field, reverse, i)
+            children.append(child)
+        q = original_q.copy()
+        q.children = children
+        return q
 
     def _need_distinct(self):
         """
