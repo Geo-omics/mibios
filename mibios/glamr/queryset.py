@@ -70,16 +70,15 @@ class DatasetQuerySet(QuerySet):
 
 
 class SampleQuerySet(OmicsSampleQuerySet):
-    def basic_counts(self, *fields, exclude_blanks=True):
+    def basic_counts(self, *fields, exclude_blank_fields=[]):
         """
         Count samples by given combination of categories
         """
         if not fields:
             raise ValueError('fields parameter missing')
         qs = self
-        if exclude_blanks:
-            for i in fields:
-                qs = qs.exclude(**{i: ''})
+        for i in exclude_blank_fields:
+            qs = qs.exclude(**{i: None})
         qs = (qs
               .values_list(*fields)
               .order_by(*fields)
@@ -91,12 +90,20 @@ class SampleQuerySet(OmicsSampleQuerySet):
         self,
         column_field='sample_type',
         row_field='geo_loc_name',
-        exclude_blanks=True,
+        blank_sample_type=False,
         otherize=True,
     ):
         """ Get count summary (for frontpage view) """
+        if not blank_sample_type:
+            if 'sample_type' in [column_field, row_field]:
+                # with default paramters: don't display stats for samples with
+                # missing sample type
+                exclude_blank_fields = ['sample_type']
+        else:
+            exclude_blank_fields = []
+
         qs = self.basic_counts(row_field, column_field,
-                               exclude_blanks=exclude_blanks)
+                               exclude_blank_fields=exclude_blank_fields)
 
         # It's not totally trivial to turn the QuerySet, a sequence of tuples
         # (row_name, column_name, count) into a DataFrame.  So we put the
@@ -113,7 +120,7 @@ class SampleQuerySet(OmicsSampleQuerySet):
         )
         df = counts.unstack(fill_value=0)
 
-        if otherize:
+        if otherize and row_field == 'geo_loc_name':
             greats = set(GREAT_LAKES)
             others = df.loc[[i for i in df.index if i not in greats]].sum()
             df = df.loc[GREAT_LAKES]
