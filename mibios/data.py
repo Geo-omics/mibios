@@ -652,7 +652,8 @@ class DataConfig:
         Return shifted Q object
         """
         children = []
-        for i in original_q.children:
+        _, orig_children, kwargs = original_q.deconstruct()
+        for i in orig_children:
             if isinstance(i, tuple) and len(i) == 2:
                 # a lookup=val pair, the shifted version must be a tuple again
                 child, *_ = \
@@ -661,8 +662,7 @@ class DataConfig:
                 # it's a Q node
                 child = self._shift_q(field, reverse, i)
             children.append(child)
-        q = original_q.copy()
-        q.children = children
+        q = Q(*children, **kwargs)
         return q
 
     def _need_distinct(self):
