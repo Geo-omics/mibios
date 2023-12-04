@@ -1674,7 +1674,14 @@ class SearchResultMixin(MapMixin):
             for field, items in items_per_field.items()
             for text, pk in items
         }
-        objs = model.objects.in_bulk(items.keys())
+        qs = model.objects.all()
+        if model is TaxNode:
+            # do not incur extra query to display each node's name
+            # (per TaxNode.__str__)
+            # TODO: other models with potentially 1000s of search hits may need
+            # something like this too?
+            qs = qs.prefetch_related('taxname_set')
+        objs = qs.in_bulk(items.keys())
         is_first = True  # True for the first item of each model
         for pk, (field, text) in items.items():
             if pk not in objs:
