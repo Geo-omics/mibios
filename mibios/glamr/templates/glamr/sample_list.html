@@ -11,6 +11,6 @@
 </nav>
 {% include "glamr/map.html"%}
 <h3>Samples for {{ dataset }}:</h3>
-[<a href="?export">download</a>]
+{% include "glamr/download_links.html" %}
 {% render_table table %}
 {% endblock %}

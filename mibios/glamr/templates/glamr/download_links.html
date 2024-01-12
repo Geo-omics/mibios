@@ -1,0 +1,15 @@
+{# Fragment to display download links #}
+{# The export_options context variable is set by ExportMixin #}
+
+{% if export_options is None %}
+    {# no download links for you #}
+{% else %}
+
+<div class="m-2">
+Download:
+{% for url, info in export_options %}
+[<a href="{{url}}">{{info}}</a>]
+{% endfor %}
+</div>
+
+{% endif %}

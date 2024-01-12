@@ -23,8 +23,8 @@
 <li>{{k}}: {{v}}</li>
 {% endfor %}
 </ul>
-[<a href="?export">download</a>]
 
+{% include "glamr/download_links.html" %}
 {% render_table table %}
 
 {% else %}{# object_list #}

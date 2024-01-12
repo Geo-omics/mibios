@@ -8,6 +8,7 @@ Related {{ model_name_verbose }} of {{ object_model_name_verbose }}
 <a href="{% record_url object %}">{{ object }}</a>
 [<a href="{% url 'relations' model=object_model_name pk=object.pk field=field.name %}">simple list</a>]
 </h3>
+{% include "glamr/download_links.html" %}
 {% render_table table 'glamr/related_records_table.html'%}
 {% endblock %}
 

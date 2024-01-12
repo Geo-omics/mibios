@@ -12,6 +12,7 @@
         <h4 class="mt-1 mb-2">All records shown</h4>
         (<a href="{% url 'search_model' model=model_name %}">add filter</a>)
         {% endif %}
+        {% include "glamr/download_links.html" %}
         {% render_table table %}
 </div>
 {% endblock %}

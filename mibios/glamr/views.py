@@ -45,7 +45,9 @@ log = getLogger(__name__)
 
 
 class ExportMixin(ExportBaseMixin):
-    query_param = 'export'
+    """ Allow data download via query string parameter """
+    export_query_param = 'export'
+    export_options = None
 
     def get_filename(self):
         value = ''
@@ -65,16 +67,34 @@ class ExportMixin(ExportBaseMixin):
             return self.__class__.__name__.lower() + '-export'
 
     def get(self, request, *args, **kwargs):
-        if self.export_check():
-            return self.export_response()
-        else:
+        export_opt = self.export_check()
+        if export_opt is None:
+            self.populate_export_options()
             return super().get(request, *args, **kwargs)
 
-    def export_check(self):
-        """ Returns True if a file export response is needed """
-        return self.query_param in self.request.GET
+        return self.export_response(export_opt)
 
-    def export_response(self):
+    def export_check(self):
+        """
+        Evaluate the GET query string for the export parameter
+
+        Returns the export option (a str) if any, or None if not export reponse
+        was requested, meaning the data will then be displayed normally as
+        HTML.  Returns the empty string to export the normal table.  Otherwise
+        it is an accessor to a relation.
+        """
+        export_opt = self.request.GET.get(self.export_query_param)
+        # With GET.get() we get None if the key does not appear in the query
+        # string.  It's an empty string if the key is there but without a
+        # value, otherwise we get the value, and the last such value should
+        # there be multiple export params.
+        if export_opt not in [None, '']:
+            # TODO: check for valid parameter?
+            ...
+
+        return export_opt
+
+    def export_response(self, option):
         """ generate file download response """
         name, suffix, renderer_class = self.get_format()
 
@@ -82,14 +102,45 @@ class ExportMixin(ExportBaseMixin):
         filename = self.get_filename() + suffix
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
 
-        renderer_class(response, filename=filename).render(self.get_values())
+        renderer = renderer_class(response, filename=filename)
+        renderer.render(self.get_values(option))
+
         return response
 
-    def get_values(self):
-        if hasattr(self, 'get_table'):
-            return self.get_table().as_values()
+    def get_values(self, option):
+        if option == '':
+            if hasattr(self, 'get_table'):
+                return self.get_table().as_values()
+            else:
+                raise Http404('export not implemented')
+
+        raise Http404('export option not implemented')
+
+    def populate_export_options(self):
+        """ Automatically fill in export options """
+        if hasattr(self, 'get_queryset'):
+            # if we have a queryset, we want to offer downloading it
+            self.add_export_option('')
+
+    def add_export_option(self, path):
+        if self.export_options is None:
+            self.export_options = []
+
+        if path == '':
+            # default export, the view's model
+            info = self.model._meta.verbose_name_plural
         else:
-            raise RuntimeError('not implemented')
+            # TODO: improve this
+            info = path
+
+        qstr = self.request.GET.copy()
+        qstr[self.export_query_param] = path
+        self.export_options.append((f'?{qstr.urlencode()}', info))
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['export_options'] = self.export_options
+        return ctx
 
 
 class BaseFilterMixin:
@@ -1646,7 +1697,7 @@ class ToManyListView(SingleTableView):
         return ctx
 
 
-class ToManyFullListView(ModelTableMixin, ToManyListView):
+class ToManyFullListView(ModelTableMixin, ExportMixin, ToManyListView):
     """ relations view but with full model-based table """
     template_name = 'glamr/relations_full_list.html'
 
