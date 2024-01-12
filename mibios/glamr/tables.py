@@ -323,19 +323,6 @@ class DatasetTable(Table):
         )
 
 
-class SingleColumnRelatedTable(Table):
-    """ Table showing *-to-many related records in single column """
-    objects = Column(
-        verbose_name='Related records',
-        linkify=linkify_record,
-        empty_values=(),  # triggers render_objects()
-        orderable=False,
-    )
-
-    def render_objects(self, record):
-        return str(record)
-
-
 class SampleTable(Table):
     sample_name = Column(
         verbose_name='Sample Name/ID',

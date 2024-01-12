@@ -1651,10 +1651,9 @@ class TableView(BaseFilterMixin, ModelTableMixin, SingleTableView):
         self.conf = TableConfig(self.model)
 
 
-class ToManyListView(SingleTableView):
-    """ view relations belonging to one object """
+class ToManyListView(ModelTableMixin, ExportMixin, SingleTableView):
+    """ List records related to other record """
     template_name = 'glamr/relations_list.html'
-    table_class = tables.SingleColumnRelatedTable
 
     def setup(self, request, *args, **kwargs):
         super().setup(request, *args, **kwargs)
@@ -1678,6 +1677,8 @@ class ToManyListView(SingleTableView):
 
         self.field = field
         self.model = field.related_model
+        # hide the column for the object:
+        self.exclude.append(self.field.remote_field.name)
 
         try:
             self.accessor_name = field.get_accessor_name()
@@ -1695,16 +1696,6 @@ class ToManyListView(SingleTableView):
         ctx['field'] = self.field
         ctx['verbose_name_plural'] = self.model._meta.verbose_name_plural
         return ctx
-
-
-class ToManyFullListView(ModelTableMixin, ExportMixin, ToManyListView):
-    """ relations view but with full model-based table """
-    template_name = 'glamr/relations_full_list.html'
-
-    def setup(self, request, *args, **kwargs):
-        super().setup(request, *args, **kwargs)
-        # hide the column for the object
-        self.exclude.append(self.field.remote_field.name)
 
 
 class SearchResultMixin(MapMixin):

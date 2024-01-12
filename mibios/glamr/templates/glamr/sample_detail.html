@@ -13,8 +13,8 @@
     {% else %}
         krona chart
     {% endif %}
-    | <a href="{% url 'relations_full' model='sample' pk=object.pk field='taxonabundance'%}">abundance/taxa</a>
-    | <a href="{% url 'relations_full' model='sample' pk=object.pk field='readabundance'%}">abundance/uniref100</a>
+    | <a href="{% url 'relations' model='sample' pk=object.pk field='taxonabundance'%}">abundance/taxa</a>
+    | <a href="{% url 'relations' model='sample' pk=object.pk field='readabundance'%}">abundance/uniref100</a>
 ]
 {% endif %}
 {% endblock %}
