@@ -1693,7 +1693,7 @@ class ToManyListView(SingleTableView):
         ctx['object_model_name'] = self.obj_model._meta.model_name
         ctx['object_model_name_verbose'] = self.obj_model._meta.verbose_name
         ctx['field'] = self.field
-        ctx['model_name_verbose'] = self.model._meta.verbose_name
+        ctx['verbose_name_plural'] = self.model._meta.verbose_name_plural
         return ctx
 
 
