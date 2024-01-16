@@ -838,7 +838,7 @@ class AboutHistoryView(SingleTableView):
     table_class = tables.AboutHistoryTable
 
 
-class AbundanceView(MapMixin, ExportMixin, SingleTableView):
+class AbundanceView(MapMixin, ModelTableMixin, SingleTableView):
     """
     Lists abundance data for a single object of certain models
     """
