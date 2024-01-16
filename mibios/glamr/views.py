@@ -108,13 +108,34 @@ class ExportMixin(ExportBaseMixin):
         return response
 
     def get_values(self, option):
+        """
+        Collect data to be exported
+        """
         if option == '':
+            # export current table
             if hasattr(self, 'get_table'):
                 return self.get_table().as_values()
             else:
                 raise Http404('export not implemented')
 
-        raise Http404('export option not implemented')
+        try:
+            # try exporting related data
+            field = self.model._meta.get_field(option)
+        except FieldDoesNotExist:
+            pass
+        else:
+            f = {field.remote_field.name + '__in': self.get_queryset()}
+            qs = field.related_model.objects.filter(**f)
+            # return qs.values_list()
+            try:
+                # for use with ModelTableMixin:
+                tab_cls = self.TABLE_CLASSES[field.related_model]
+            except (AttributeError, KeyError):
+                raise
+                tab_cls = table_factory(field.related_model, tables.Table)
+            return tab_cls(data=qs).as_values()
+
+        raise Http404('the given export option is not implemented')
 
     def populate_export_options(self):
         """ Automatically fill in export options """
@@ -122,19 +143,24 @@ class ExportMixin(ExportBaseMixin):
             # if we have a queryset, we want to offer downloading it
             self.add_export_option('')
 
-    def add_export_option(self, path):
+    def add_export_option(self, option):
         if self.export_options is None:
             self.export_options = []
 
-        if path == '':
+        if option == '':
             # default export, the view's model
             info = self.model._meta.verbose_name_plural
         else:
-            # TODO: improve this
-            info = path
+            try:
+                field = self.model._meta.get_field(option)
+            except FieldDoesNotExist:
+                raise ValueError(f'unsupported export option value: {option}')
+            if not field.one_to_many or field.many_to_many:
+                raise ValueError(f'field {field} is not *-to-many')
+            info = field.name
 
         qstr = self.request.GET.copy()
-        qstr[self.export_query_param] = path
+        qstr[self.export_query_param] = option
         self.export_options.append((f'?{qstr.urlencode()}', info))
 
     def get_context_data(self, **ctx):
@@ -351,6 +377,10 @@ class ModelTableMixin(ExportMixin):
         Sample: tables.SampleTable,
     }
 
+    EXTRA_EXPORT_OPTIONS = {
+        Sample: ['taxonabundance'],
+    }
+
     def get_table_kwargs(self):
         kw = super().get_table_kwargs()
         kw['exclude'] = self.exclude
@@ -418,6 +448,13 @@ class ModelTableMixin(ExportMixin):
                 kwargs['linkify'] = tables.linkify_value
             cols.append((i.name, Column(**kwargs)))
         return cols
+
+    def get_context_data(self, **ctx):
+        # add export opts before ExportMixin makes context data:
+        for i in self.EXTRA_EXPORT_OPTIONS.get(self.model, []):
+            self.add_export_option(i)
+        ctx = super().get_context_data(**ctx)
+        return ctx
 
 
 class MapMixin():
@@ -1517,7 +1554,7 @@ class OverViewSamplesView(SingleTableView):
         return ctx
 
 
-class SampleListView(MapMixin, ExportMixin, SingleTableView):
+class SampleListView(MapMixin, ModelTableMixin, SingleTableView):
     """ List of samples belonging to a given dataset  """
     model = get_sample_model()
     template_name = 'glamr/sample_list.html'
