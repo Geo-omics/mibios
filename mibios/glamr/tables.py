@@ -4,15 +4,26 @@ from django.utils.html import escape, format_html, mark_safe
 from django_tables2 import Column, Table as Table0, TemplateColumn
 
 from mibios.glamr import models as glamr_models
+from mibios.ncbi_taxonomy.models import TaxName
 from mibios.omics import models as omics_models
 
 from .utils import get_record_url
 
 
 class Table(Table0):
-    def __init__(self, *args, view=None, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, data=None, view=None, **kwargs):
+        data = self.customize_queryset(data)
+        super().__init__(data=data, **kwargs)
         self.view = view
+
+    def customize_queryset(self, qs):
+        """
+        Table-specific mangling of the queryset.
+
+        Override this method as needed, e.g. add some annotations or run
+        select_related() for those additional columns.
+        """
+        return qs
 
 
 def linkify_record(record):
@@ -189,10 +200,67 @@ class ReadAbundanceTable(Table):
 
 class TaxonAbundanceTable(Table):
     sample = Column(linkify=linkify_value)
+    taxon = Column(linkify=linkify_value, verbose_name='Tax ID')
+    rank = Column(accessor='taxon__rank')
+    tax_name = Column(accessor='taxon', orderable=False,
+                      verbose_name='Tax Name')
 
     class Meta:
         model = omics_models.TaxonAbundance
-        exclude = ['id', 'taxon']
+        fields = ['sample', 'taxon', 'rank', 'tax_name', 'tpm']
+        order_by = ['-tpm']
+
+    def customize_queryset(self, qs):
+        qs = qs.select_related('taxon')
+        qs = qs.only('sample_id', 'taxon__taxid', 'taxon__rank', 'tpm')
+        return qs
+
+    def render_taxon(self, value):
+        return value.taxid
+
+    def render_tax_name(self, value):
+        # value is TaxNode obj
+        return value.name
+
+    def as_values(self):
+        """
+        Table export, re-implemented for speed with large data
+        """
+        # collect tax names and sample names for fast lookup
+        # TODO: these maps could be cached globally, saving couple seconds here
+        names = TaxName.objects.filter(name_class=TaxName.NAME_CLASS_SCI)
+        names = names.only('node_id', 'name')
+        tax_name_map = dict(names.values_list('node_id', 'name'))
+        del names
+        sample_name_map = {
+            i.pk: str(i)
+            for i in glamr_models.Sample.objects.all()
+        }
+
+        # we assume data is a QuerySet
+        qs = self.data.data
+
+        # Output fields, order etc. need to be manually kept in sync with table
+        # declarations.
+        fields = ['sample_id', 'taxon_id', 'taxon__taxid', 'taxon__rank',
+                  'tpm']
+        for spk, tpk, taxid, rank, tpm in qs.values_list(*fields):
+            if tpk is None:
+                taxid = ''
+                rank = ''
+                name = 'unclassified'  # TODO: also show unclass on HTML output
+            else:
+                name = tax_name_map[tpk]
+
+            yield [
+                sample_name_map[spk],
+                taxid,
+                rank,
+                name,
+                tpm,
+            ]
+
+        return
 
 
 class DatasetTable(Table):

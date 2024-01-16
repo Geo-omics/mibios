@@ -375,6 +375,7 @@ class ModelTableMixin(ExportMixin):
     TABLE_CLASSES = {
         Dataset: tables.DatasetTable,
         Sample: tables.SampleTable,
+        TaxonAbundance: tables.TaxonAbundanceTable,
     }
 
     EXTRA_EXPORT_OPTIONS = {

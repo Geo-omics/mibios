@@ -871,7 +871,7 @@ class TaxonAbundance(Model):
         null=True, blank=True,  # null means 'unclassified' / mmseqs2's taxid 0
         related_name='abundance',
     )
-    tpm = models.FloatField()
+    tpm = models.FloatField(verbose_name='TPM')
 
     objects = managers.TaxonAbundanceManager()
     loader = managers.TaxonAbundanceLoader()
