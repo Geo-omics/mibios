@@ -45,9 +45,24 @@ log = getLogger(__name__)
 
 
 class ExportMixin(ExportBaseMixin):
-    """ Allow data download via query string parameter """
+    """
+    Allow data download via query string parameter
+
+    Should be used together with a django_tables2 table view.
+    """
     export_query_param = 'export'
     export_options = None
+
+    include = []
+    """ Controls for which fields to display. Includes all if empty. """
+    exclude = ['id']
+    """ Which fields to exclude """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Instances get their own lists as they may modify them:
+        self.include = list(self.include)
+        self.exclude = list(self.exclude)
 
     def get_filename(self):
         value = ''
@@ -116,7 +131,7 @@ class ExportMixin(ExportBaseMixin):
             if hasattr(self, 'get_table'):
                 if self.include:
                     # Use all fields for export; excludes still apply
-                    self.include = None
+                    self.include = []
                 return self.get_table(**self.get_table_kwargs()).as_values()
             else:
                 raise Http404('export not implemented')
@@ -367,8 +382,6 @@ class ModelTableMixin(ExportMixin):
     self.model
     """
     model = None  # model needs to be set by inheriting class
-    include = None  # a list, display these fields (see implementation details)
-    exclude = None  # a list, do not display these fields
 
     table_class = None
     """ The table class can be set by an implementing class, if it remains
@@ -388,10 +401,8 @@ class ModelTableMixin(ExportMixin):
 
     def get_table_kwargs(self):
         kw = super().get_table_kwargs()
-        kw['exclude'] = self.exclude or []
-        if 'id' not in kw['exclude']:
-            kw['exclude'].append('id')
-        if self.include is not None:
+        kw['exclude'] = list(self.exclude)
+        if self.include:
             # We can't tell the table the fields at instantiation (normally
             # this is what the Meta class' field attribute is for, and this
             # will not overwrite Table.Meta.fields) but we can exclude
@@ -400,7 +411,7 @@ class ModelTableMixin(ExportMixin):
             # will also apply, so better not use both Table.Meta.fields and
             # ModelTableMixin.include!
             for i in self.model._meta.get_fields():
-                if i.name not in self.include:
+                if i.name not in self.include and i.name not in kw['exclude']:
                     kw['exclude'].append(i.name)
         if self.model not in self.TABLE_CLASSES:
             kw['extra_columns'] = self._get_improved_columns()
