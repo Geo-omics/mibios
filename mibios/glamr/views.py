@@ -394,6 +394,7 @@ class ModelTableMixin(ExportMixin):
         Sample: tables.SampleTable,
         TaxonAbundance: tables.TaxonAbundanceTable,
         ReadAbundance: tables.ReadAbundanceTable,
+        TaxNode: tables.TaxNodeTable,
     }
 
     EXTRA_EXPORT_OPTIONS = {

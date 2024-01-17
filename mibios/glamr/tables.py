@@ -4,7 +4,7 @@ from django.utils.html import escape, format_html, mark_safe
 from django_tables2 import Column, Table as Table0, TemplateColumn
 
 from mibios.glamr import models as glamr_models
-from mibios.ncbi_taxonomy.models import TaxName
+from mibios.ncbi_taxonomy.models import TaxName, TaxNode
 from mibios.omics import models as omics_models
 from mibios.umrad.models import UniRef100
 
@@ -276,6 +276,15 @@ class ReadAbundanceTable(Table):
 
         for row in qs:
             yield tuple(convert(row))
+
+
+class TaxNodeTable(Table):
+    taxid = Column(linkify=linkify_record)
+    parent = Column(linkify=linkify_value)
+
+    class Meta:
+        model = TaxNode
+        fields = ('taxid', 'rank', 'name', 'parent')
 
 
 class TaxonAbundanceTable(Table):
