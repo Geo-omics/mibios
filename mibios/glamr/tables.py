@@ -13,9 +13,9 @@ from .utils import get_record_url
 
 class Table(Table0):
     def __init__(self, data=None, view=None, **kwargs):
+        self.view = view
         data = self.customize_queryset(data)
         super().__init__(data=data, **kwargs)
-        self.view = view
 
     def customize_queryset(self, qs):
         """
@@ -199,6 +199,33 @@ class ReadAbundanceTable(Table):
         model = omics_models.ReadAbundance
         order_by = ['-target_cov']
         exclude = ['id']
+
+    def customize_queryset(self, qs):
+        try:
+            is_export = self.view.export_check() is not None
+        except Exception:
+            is_export = False
+        if not is_export:
+            # For normal HTML table get the function names, don't need or want
+            # those for export
+            qs = qs.prefetch_related('ref__function_names')
+        return qs
+
+    def render_ref(self, value):
+        funcs = list(value.function_names.all())
+        if funcs:
+            value = str(funcs[0])
+            for i in funcs[1:]:
+                if len(value) > 80:
+                    value += ', ...'
+                    break
+                value += f', {i}'
+        else:
+            # just the uniref100 accession
+            value = str(value)
+            if value.startswith('UNIREF100_'):
+                value = 'Uniref100: {value.removeprefix("UNIREF100_")}'
+        return value
 
     def as_values(self):
         """
