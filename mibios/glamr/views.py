@@ -1717,7 +1717,7 @@ class TableView(BaseFilterMixin, ModelTableMixin, SingleTableView):
         self.conf = TableConfig(self.model)
 
 
-class ToManyListView(ModelTableMixin, ExportMixin, SingleTableView):
+class ToManyListView(ModelTableMixin, SingleTableView):
     """ List records related to other record """
     template_name = 'glamr/relations_list.html'
 
