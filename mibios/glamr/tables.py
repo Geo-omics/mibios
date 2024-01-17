@@ -401,7 +401,6 @@ class SampleTable(Table):
         empty_values=[],
         verbose_name='Location / site',
     )
-    sample_type = Column()
     dataset = Column(
         linkify=linkify_value,
         verbose_name='Dataset',
@@ -409,11 +408,7 @@ class SampleTable(Table):
 
     class Meta:
         model = glamr_models.Sample
-        fields = [
-            'amplicon_target',
-            'collection_timestamp', 'latitude', 'longitude',
-        ]
-        sequence = ['sample_name', 'sample_type', '...']
+        sequence = ['sample_name', 'sample_type', '...', 'dataset']
         empty_text = 'There are no samples associated with this dataset'
         attrs = {
             "class": "table table-hover",

@@ -427,6 +427,16 @@ class Sample(AbstractSample):
         return value or self.sample_id or super().__str__()
 
     @classmethod
+    def get_internal_fields(cls):
+        fields = super().get_internal_fields()
+        fields += [
+            'collection_ts_partial',
+            'sortchem',
+            'notes',
+        ]
+        return fields
+
+    @classmethod
     def get_record_url(cls, key, ktype=None):
         if ktype is not None:
             ktype.removesuffix(':')

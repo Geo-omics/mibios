@@ -169,6 +169,17 @@ class AbstractSample(Model):
     def __str__(self):
         return self.sample_id
 
+    @classmethod
+    def get_internal_fields(cls):
+        """
+        Return list of fields with non-public usage
+        """
+        fields = ['id', 'analysis_dir', 'sample_id', 'metag_pipeline_reg']
+        for i in cls._meta.get_fields():
+            if i.name.endswith(('_ok', '_loaded')):
+                fields.append(i.name)
+        return fields
+
     def get_samp_no(self):
         """ Get sample_id number: "samp_NNN" -> NNN """
         return int(self.sample_id.removeprefix('samp_'))

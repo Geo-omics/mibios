@@ -114,7 +114,10 @@ class ExportMixin(ExportBaseMixin):
         if option == '':
             # export current table
             if hasattr(self, 'get_table'):
-                return self.get_table().as_values()
+                if self.include:
+                    # Use all fields for export; excludes still apply
+                    self.include = None
+                return self.get_table(**self.get_table_kwargs()).as_values()
             else:
                 raise Http404('export not implemented')
 
@@ -364,7 +367,8 @@ class ModelTableMixin(ExportMixin):
     self.model
     """
     model = None  # model needs to be set by inheriting class
-    exclude = ['id']  # do not display these fields
+    include = None  # a list, display these fields (see implementation details)
+    exclude = None  # a list, do not display these fields
 
     table_class = None
     """ The table class can be set by an implementing class, if it remains
@@ -384,7 +388,20 @@ class ModelTableMixin(ExportMixin):
 
     def get_table_kwargs(self):
         kw = super().get_table_kwargs()
-        kw['exclude'] = self.exclude
+        kw['exclude'] = self.exclude or []
+        if 'id' not in kw['exclude']:
+            kw['exclude'].append('id')
+        if self.include is not None:
+            # We can't tell the table the fields at instantiation (normally
+            # this is what the Meta class' field attribute is for, and this
+            # will not overwrite Table.Meta.fields) but we can exclude
+            # everything we don't want included.  Table.Meta.fields, if
+            # declared, will take precedence, but the excludes calculated here
+            # will also apply, so better not use both Table.Meta.fields and
+            # ModelTableMixin.include!
+            for i in self.model._meta.get_fields():
+                if i.name not in self.include:
+                    kw['exclude'].append(i.name)
         if self.model not in self.TABLE_CLASSES:
             kw['extra_columns'] = self._get_improved_columns()
         kw['view'] = self
@@ -1560,6 +1577,13 @@ class SampleListView(MapMixin, ModelTableMixin, SingleTableView):
     model = get_sample_model()
     template_name = 'glamr/sample_list.html'
     table_class = tables.SampleTable
+    include = [
+        'sample_name', 'sample_type',
+        'amplicon_target',
+        'collection_timestamp', 'latitude', 'longitude', 'geo_loc_name',
+        'dataset',
+    ]
+    exclude = Sample.get_internal_fields()
 
     def get_queryset(self):
         f = dict(dataset_id=f'set_{self.kwargs["set_no"]}')
@@ -1586,15 +1610,7 @@ class SampleView(RecordView):
         'noaa_site',
         RecordView.OTHERS,
     ]
-    exclude = [
-        'sample_id',
-        'collection_ts_partial',
-        'meta_data_loaded',
-        'metag_pipeline_reg',
-        'analysis_dir',
-        'sortchem',
-        'notes',
-    ]
+    exclude = Sample.get_internal_fields()
     related = []
 
     def get_object_lookups(self):
