@@ -6,6 +6,7 @@ from django_tables2 import Column, Table as Table0, TemplateColumn
 from mibios.glamr import models as glamr_models
 from mibios.ncbi_taxonomy.models import TaxName
 from mibios.omics import models as omics_models
+from mibios.umrad.models import UniRef100
 
 from .utils import get_record_url
 
@@ -192,10 +193,62 @@ class OverViewSamplesTable(Table):
 
 class ReadAbundanceTable(Table):
     sample = Column(linkify=linkify_value)
+    ref = Column(linkify=linkify_value, verbose_name='Function/reference')
 
     class Meta:
         model = omics_models.ReadAbundance
-        exclude = ['id', 'ref']
+        order_by = ['-target_cov']
+        exclude = ['id']
+
+    def as_values(self):
+        """
+        Table export, re-implemented for speed with large data
+        """
+        qs = self.data.data.values_list(*self.sequence)
+
+        # Get lookup tables for samples and/or reference,
+        # this depends on whether we have those fields
+        try:
+            sample_key = self.sequence.index('sample')
+        except ValueError:
+            sample_key = None
+        try:
+            ref_key = self.sequence.index('ref')
+        except ValueError:
+            ref_key = None
+
+        sample_pks = set()
+        ref_pks = set()
+        for row in qs:
+            if sample_key is not None:
+                sample_pks.add(row[sample_key])
+            if ref_key is not None:
+                ref_pks.add(row[ref_key])
+        # TODO: these maps could/should be globally cached?
+        replacer = [None] * len(self.sequence)
+        if sample_key is not None:
+            # add sample PK to sample name map
+            replacer[sample_key] = {
+                obj.pk: str(obj)
+                for obj
+                in glamr_models.Sample.objects.filter(pk__in=sample_pks)
+            }
+        if ref_key is not None:
+            # add ref PK to ref text value mapping:
+            replacer[ref_key] = {
+                obj.pk: str(obj)
+                for obj in UniRef100.objects.filter(pk__in=ref_pks)
+            }
+
+        def convert(row):
+            for mapping, value in zip(replacer, row):
+                if mapping is None:
+                    yield value
+                else:
+                    yield mapping[value]
+
+        for row in qs:
+            yield tuple(convert(row))
 
 
 class TaxonAbundanceTable(Table):

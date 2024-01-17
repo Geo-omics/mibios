@@ -393,10 +393,11 @@ class ModelTableMixin(ExportMixin):
         Dataset: tables.DatasetTable,
         Sample: tables.SampleTable,
         TaxonAbundance: tables.TaxonAbundanceTable,
+        ReadAbundance: tables.ReadAbundanceTable,
     }
 
     EXTRA_EXPORT_OPTIONS = {
-        Sample: ['taxonabundance'],
+        Sample: ['taxonabundance', 'readabundance'],
     }
 
     def get_table_kwargs(self):

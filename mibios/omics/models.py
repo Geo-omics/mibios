@@ -529,6 +529,7 @@ class ReadAbundance(Model):
 
     class Meta(Model.Meta):
         unique_together = (('sample', 'ref'),)
+        verbose_name = 'functional abundance'
 
 
 '''
