@@ -6,7 +6,6 @@ from django_tables2 import Column, Table as Table0, TemplateColumn
 from mibios.glamr import models as glamr_models
 from mibios.ncbi_taxonomy.models import TaxName, TaxNode
 from mibios.omics import models as omics_models
-from mibios.umrad.models import UniRef100
 
 from .utils import get_record_url
 
@@ -265,51 +264,40 @@ class ReadAbundanceTable(Table):
         """
         Table export, re-implemented for speed with large data
         """
-        qs = self.data.data.order_by().values_list(*self.sequence)
+        fields = list(self.sequence)
 
-        # Get lookup tables for samples and/or reference,
-        # this depends on whether we have those fields
         try:
-            sample_key = self.sequence.index('sample')
+            ref_field_pos = fields.index('ref')
         except ValueError:
-            sample_key = None
+            pass
+        else:
+            # we want to get the UniRef100 accessions
+            fields[ref_field_pos] = 'ref__accession'
+
+        qs = self.data.data.order_by().values_list(*fields)
+
         try:
-            ref_key = self.sequence.index('ref')
+            sample_field_pos = self.sequence.index('sample')
         except ValueError:
-            ref_key = None
+            # no sample field, yield data as-is:
+            yield from qs
+            return
 
-        sample_pks = set()
-        ref_pks = set()
+        # yield data with sample as string replacement:
+        sample_cache = {}
         for row in qs:
-            if sample_key is not None:
-                sample_pks.add(row[sample_key])
-            if ref_key is not None:
-                ref_pks.add(row[ref_key])
-        # TODO: these maps could/should be globally cached?
-        replacer = [None] * len(self.sequence)
-        if sample_key is not None:
-            # add sample PK to sample name map
-            replacer[sample_key] = {
-                obj.pk: str(obj)
-                for obj
-                in glamr_models.Sample.objects.filter(pk__in=sample_pks)
-            }
-        if ref_key is not None:
-            # add ref PK to ref text value mapping:
-            replacer[ref_key] = {
-                obj.pk: str(obj)
-                for obj in UniRef100.objects.filter(pk__in=ref_pks)
-            }
+            row = list(row)
+            pk = row[sample_field_pos]
+            try:
+                row[sample_field_pos] = sample_cache[pk]
+            except KeyError:
+                # getting Samples one at a time won't impact overall
+                # performance (a few millions rows per sample)
+                sample_cache[pk] = \
+                    str(glamr_models.Sample.objects.get(pk=pk))
+                row[sample_field_pos] = sample_cache[pk]
 
-        def convert(row):
-            for mapping, value in zip(replacer, row):
-                if mapping is None:
-                    yield value
-                else:
-                    yield mapping[value]
-
-        for row in qs:
-            yield tuple(convert(row))
+            yield tuple(row)
 
 
 class TaxNodeTable(Table):
