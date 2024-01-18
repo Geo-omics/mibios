@@ -265,7 +265,7 @@ class ReadAbundanceTable(Table):
         """
         Table export, re-implemented for speed with large data
         """
-        qs = self.data.data.values_list(*self.sequence)
+        qs = self.data.data.order_by().values_list(*self.sequence)
 
         # Get lookup tables for samples and/or reference,
         # this depends on whether we have those fields
@@ -361,7 +361,7 @@ class TaxonAbundanceTable(Table):
         }
 
         # we assume data is a QuerySet
-        qs = self.data.data
+        qs = self.data.data.order_by()
 
         # Output fields, order etc. need to be manually kept in sync with table
         # declarations.
