@@ -53,15 +53,12 @@ class ExportMixin(ExportBaseMixin):
     export_query_param = 'export'
     export_options = None
 
-    include = []
-    """ Controls for which fields to display. Includes all if empty. """
     exclude = ['id']
     """ Which fields to exclude """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Instances get their own lists as they may modify them:
-        self.include = list(self.include)
         self.exclude = list(self.exclude)
 
     def get_filename(self):
@@ -129,9 +126,6 @@ class ExportMixin(ExportBaseMixin):
         if option == '':
             # export current table
             if hasattr(self, 'get_table'):
-                if self.include:
-                    # Use all fields for export; excludes still apply
-                    self.include = []
                 return self.get_table(**self.get_table_kwargs()).as_values()
             else:
                 raise Http404('export not implemented')
@@ -406,17 +400,6 @@ class ModelTableMixin(ExportMixin):
     def get_table_kwargs(self):
         kw = super().get_table_kwargs()
         kw['exclude'] = list(self.exclude)
-        if self.include:
-            # We can't tell the table the fields at instantiation (normally
-            # this is what the Meta class' field attribute is for, and this
-            # will not overwrite Table.Meta.fields) but we can exclude
-            # everything we don't want included.  Table.Meta.fields, if
-            # declared, will take precedence, but the excludes calculated here
-            # will also apply, so better not use both Table.Meta.fields and
-            # ModelTableMixin.include!
-            for i in self.model._meta.get_fields():
-                if i.name not in self.include and i.name not in kw['exclude']:
-                    kw['exclude'].append(i.name)
         if self.model not in self.TABLE_CLASSES:
             kw['extra_columns'] = self._get_improved_columns()
         kw['view'] = self
@@ -1592,13 +1575,6 @@ class SampleListView(MapMixin, ModelTableMixin, SingleTableView):
     model = get_sample_model()
     template_name = 'glamr/sample_list.html'
     table_class = tables.SampleTable
-    include = [
-        'sample_name', 'sample_type',
-        'amplicon_target',
-        'collection_timestamp', 'latitude', 'longitude', 'geo_loc_name',
-        'dataset',
-    ]
-    exclude = Sample.get_internal_fields()
 
     def get_queryset(self):
         f = dict(dataset_id=f'set_{self.kwargs["set_no"]}')

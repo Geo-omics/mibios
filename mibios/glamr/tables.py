@@ -12,10 +12,28 @@ from .utils import get_record_url
 
 
 class Table(Table0):
-    def __init__(self, data=None, view=None, **kwargs):
+    html_fields = None
+    """ Field selection for HTML tables, for model-based tables, if exported
+    tables have all (modulo exclusions) fields.  Do not use this together with
+    Meta.fields. """
+
+    def __init__(self, data=None, view=None, exclude=None, **kwargs):
         self.view = view
+
+        if self.html_fields and not self.is_for_export():
+            # for HTML display, exclude everything not in html_fields:
+            if self._meta.fields:
+                # must only set one of these (or neither)
+                raise ValueError('both html_fields and Meta.fields are set')
+
+            exclude = list(exclude) if exclude else []
+            for i in self._meta.model._meta.get_fields():
+                if i.name not in self.html_fields:
+                    if i.name not in exclude:
+                        exclude.append(i.name)
+
         data = self.customize_queryset(data)
-        super().__init__(data=data, **kwargs)
+        super().__init__(data=data, exclude=exclude, **kwargs)
 
     def customize_queryset(self, qs):
         """
@@ -25,6 +43,26 @@ class Table(Table0):
         select_related() for those additional columns.
         """
         return qs
+
+    def is_for_export(self):
+        """
+        Tell if this table is intended to be exported.
+
+        Return True for export mode, that is we expect as_values() to be called
+        later, possibly returning a large dataset.  Return False if table is to
+        be displayed as HTML and probably paginated.
+
+        Detecting the export mode assumes the table is created by a view with
+        ExportMixin.  Falls back to False.
+
+        Use this method to branch into optimized code for paginated HTML vs.
+        whole dataset export.
+        """
+        try:
+            return self.view.export_check() is not None
+        except Exception:
+            # not a view with ExportMixin
+            return False
 
 
 def linkify_record(record):
@@ -201,11 +239,7 @@ class ReadAbundanceTable(Table):
         exclude = ['id']
 
     def customize_queryset(self, qs):
-        try:
-            is_export = self.view.export_check() is not None
-        except Exception:
-            is_export = False
-        if not is_export:
+        if not self.is_for_export():
             # For normal HTML table get the function names, don't need or want
             # those for export
             qs = qs.prefetch_related('ref__function_names')
@@ -495,6 +529,13 @@ class SampleTable(Table):
         verbose_name='Dataset',
     )
 
+    html_fields = (
+        'sample_name', 'sample_type',
+        'amplicon_target',
+        'collection_timestamp', 'latitude', 'longitude', 'geo_loc_name',
+        'dataset',
+    )
+
     class Meta:
         model = glamr_models.Sample
         sequence = ['sample_name', 'sample_type', '...', 'dataset']
@@ -502,6 +543,14 @@ class SampleTable(Table):
         attrs = {
             "class": "table table-hover",
         }
+
+    def __init__(self, exclude=None, **kwargs):
+        # don't show internal fields:
+        exclude = list(exclude) if exclude else []
+        for i in glamr_models.Sample.get_internal_fields():
+            if i not in exclude:
+                exclude.append(i)
+        super().__init__(exclude=exclude, **kwargs)
 
     def render_sample_name(self, record):
         return str(record)
