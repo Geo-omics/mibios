@@ -167,7 +167,8 @@ class ExportMixin(ExportBaseMixin):
 
         if option == '':
             # default export, the view's model
-            info = self.model._meta.verbose_name_plural
+            link_txt = self.model._meta.verbose_name_plural
+            link_txt += ' (this table)'
         else:
             try:
                 field = self.model._meta.get_field(option)
@@ -175,11 +176,12 @@ class ExportMixin(ExportBaseMixin):
                 raise ValueError(f'unsupported export option value: {option}')
             if not field.one_to_many or field.many_to_many:
                 raise ValueError(f'field {field} is not *-to-many')
-            info = field.name
+            link_txt = field.related_name \
+                or field.related_model._meta.verbose_name_plural
 
         qstr = self.request.GET.copy()
         qstr[self.export_query_param] = option
-        self.export_options.append((f'?{qstr.urlencode()}', info))
+        self.export_options.append((f'?{qstr.urlencode()}', link_txt))
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
