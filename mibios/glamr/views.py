@@ -403,7 +403,7 @@ class ModelTableMixin(ExportMixin):
     }
 
     EXTRA_EXPORT_OPTIONS = {
-        Sample: ['taxonabundance', 'readabundance'],
+        Sample: ['taxonabundance', 'functional_abundance'],
     }
 
     def get_table_kwargs(self):
@@ -878,7 +878,7 @@ class AbundanceView(MapMixin, ModelTableMixin, SingleTableView):
         'uniref100': {
             'model': ReadAbundance,
             'table_class': tables.ReadAbundanceTable,
-            'sample_filter_key': 'readabundance__ref',
+            'sample_filter_key': 'functional_abundance__ref',
         },
         'funcrefdbentry': {
             'model': FuncAbundance,

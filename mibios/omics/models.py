@@ -509,7 +509,11 @@ class ReadAbundance(Model):
     For data from mmseqs2's {contig_}tophit_report files
     """
     # cf. mmseqs2 easy-taxonomy output (tophit_report)
-    sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    sample = models.ForeignKey(
+        settings.OMICS_SAMPLE_MODEL,
+        related_name='functional_abundance',
+        **fk_req,
+    )
     ref = models.ForeignKey(UniRef100, **fk_req, related_name='abundance')
     unique_cov = models.DecimalField(
         **digits(4, 3),

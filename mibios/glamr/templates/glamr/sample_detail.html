@@ -14,7 +14,7 @@
         krona chart
     {% endif %}
     | <a href="{% url 'relations' model='sample' pk=object.pk field='taxonabundance'%}">abundance/taxa</a>
-    | <a href="{% url 'relations' model='sample' pk=object.pk field='readabundance'%}">abundance/uniref100</a>
+    | <a href="{% url 'relations' model='sample' pk=object.pk field='functional_abundance'%}">abundance/functions</a>
 ]
 {% endif %}
 {% endblock %}
