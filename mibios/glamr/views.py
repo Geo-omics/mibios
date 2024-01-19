@@ -61,22 +61,31 @@ class ExportMixin(ExportBaseMixin):
         # Instances get their own lists as they may modify them:
         self.exclude = list(self.exclude)
 
-    def get_filename(self):
-        value = ''
-        if hasattr(self, 'object_model'):
-            value += self.object_model._meta.model_name
-        if hasattr(self, 'object'):
-            if value:
-                value += '-'
-            value += str(self.object)
-        if hasattr(self, 'model'):
-            if value:
-                value += '-'
-            value += self.model._meta.model_name
-        if value:
-            return value
-        else:
-            return self.__class__.__name__.lower() + '-export'
+    def get_filename(self, option=''):
+        parts = []
+        if hasattr(self, 'object_model') and self.object_model:
+            parts.append(self.object_model._meta.verbose_name)
+        if hasattr(self, 'object') and self.object:
+            parts.append(self.object)
+        if hasattr(self, 'model') and self.model:
+            parts.append(self.model._meta.verbose_name_plural)
+
+        if option:
+            try:
+                field = self.model._meta.get_field(option)
+            except Exception:
+                parts.append(option)
+            else:
+                parts.append(field.related_name or field.name)
+
+        if parts:
+            value = '-'.join((str(i) for i in parts if i))
+        if not value:
+            value = self.__class__.__name__.lower() + '-export'
+
+        value = value.replace('_', '-')
+        value = value.replace(' ', '-')
+        return value
 
     def get(self, request, *args, **kwargs):
         export_opt = self.export_check()
@@ -111,7 +120,7 @@ class ExportMixin(ExportBaseMixin):
         name, suffix, renderer_class = self.get_format()
 
         response = HttpResponse(content_type=renderer_class.content_type)
-        filename = self.get_filename() + suffix
+        filename = self.get_filename(option) + suffix
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
 
         renderer = renderer_class(response, filename=filename)
