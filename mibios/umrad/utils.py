@@ -773,18 +773,26 @@ def siter(obj, length=None):
 
 def atomic_dry(f):
     """
-    Replacement for @atomic decorator for Manager methods
+    Replacement for @atomic decorator for Manager methods (and others)
 
-    Supports dry_run keyword arg and calls set_rollback appropriately and
-    coordinates the db alias in case we have multiple databases.  This assumes
-    that the decorated method has self.model available, as it is the case for
-    managers, and that if write operations are used for other models then those
-    must run on the same database connection.
+    Supports dry_run keyword arg and calls set_rollback appropriately and (if
+    possible) coordinates the db alias in case we have multiple databases.
+    This assumes that the decorated method has self.model available, as it is
+    the case for managers, and that if write operations are used for other
+    models then those must run on the same database connection.
     """
     @wraps(f)
     def wrapper(self, *args, **kwargs):
-        dbalias = router.db_for_write(self.model)
-        with transaction.atomic(using=dbalias):
+        try:
+            dbalias = router.db_for_write(self.model)
+        except Exception:
+            using_kw = {}
+            dbalias_args = tuple()
+        else:
+            using_kw = dict(using=dbalias)
+            dbalias_args = (dbalias, )
+
+        with transaction.atomic(**using_kw):
             if 'dry_run' in kwargs:
                 dry_run = kwargs['dry_run']
                 if dry_run or 'dry_run' not in signature(f).parameters:
@@ -796,7 +804,7 @@ def atomic_dry(f):
                 dry_run = None
             retval = f(self, *args, **kwargs)
             if dry_run:
-                transaction.set_rollback(True, dbalias)
+                transaction.set_rollback(True, *dbalias_args)
             return retval
     return wrapper
 
