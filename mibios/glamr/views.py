@@ -834,25 +834,33 @@ class AboutView(DetailView):
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['info'] = self.get_credits(prefix='info_')
-        ctx['credits'] = self.get_credits(prefix='tool_')
+        ctx['credits'] = self.get_credits()
         ctx['have_history'] = self.model.objects.count() >= 2
         return ctx
 
-    def get_credits(self, prefix):
-        """ Compile credits data for given field name prefix """
-        fields = [
-            i for i in self.model._meta.get_fields()
-            if i.name.startswith(prefix)
-        ]
+    def get_credits(self):
+        """ Compile credits data """
         data = []
-        for i in fields:
-            txt = getattr(self.object, i.attname)
-            url = None
-            if txt.startswith('https://'):
-                url, _, txt = txt.partition(' ')
-            if txt:
-                data.append((i.verbose_name, url, txt))
+
+        if self.object.pk is None:
+            # got a blank instance, rf. get_object(), the m2m credits
+            # relationship won't work, so shortcut here and return an empty
+            # list
+            return data
+
+        credits = self.object.credits.order_by('group').all()
+        for _, objs in groupby(credits, key=lambda x: x.group):
+            credit_data = []
+            for i in objs:
+                if i.version:
+                    version = f'version: {i.version}'
+                else:
+                    version = i.version
+                version_info = \
+                    ' '.join((str(i) for i in (version, i.date, i.time) if i))
+                credit_data.append((i.name, i.url, version_info, i.comment))
+            # get human-readable group name from last object
+            data.append((i.get_group_display(), credit_data))
         return data
 
 

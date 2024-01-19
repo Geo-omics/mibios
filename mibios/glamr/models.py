@@ -6,14 +6,18 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.indexes import GinIndex, GistIndex
 from django.contrib.postgres.search import SearchVectorField
+from django.core.exceptions import FieldDoesNotExist, ValidationError
+from django.core.validators import URLValidator
 from django.db import models
 from django.urls import reverse
+from django.utils.dateparse import parse_datetime, parse_date, parse_time
 
 from mibios import __version__ as mibios_version
 from mibios.omics.models import AbstractDataset, AbstractSample
 from mibios.umrad.fields import AccessionField
 from mibios.umrad.models import Model
 from mibios.umrad.model_utils import ch_opt, fk_opt, fk_req, uniq_opt, opt
+from mibios.umrad.utils import atomic_dry
 
 from .fields import OptionalURLField
 from .load import (
@@ -27,16 +31,13 @@ from .queryset import (
 
 
 class AboutInfo(Model):
-    when_published = models.DateTimeField(null=True, unique=True)
+    when_published = models.DateTimeField(null=True, blank=True, unique=True)
     src_version = models.TextField()
     generation = models.PositiveSmallIntegerField(null=True)
-    comment = models.TextField()
+    comment = models.TextField(**ch_opt)
     dataset_count = models.PositiveSmallIntegerField()
     sample_count = models.PositiveSmallIntegerField()
-    info_uniref = models.TextField(verbose_name='UniRef100')
-    info_ncbi_taxonomy = models.TextField(verbose_name='NCBI Taxonomy')
-    tool_krona = models.TextField(verbose_name='Krona')
-    tool_mmseqs2 = models.TextField(verbose_name='MMseqs2')
+    credits = models.ManyToManyField('Credit')
 
     objects = AboutInfoManager()
 
@@ -45,34 +46,161 @@ class AboutInfo(Model):
         return f'{self.__class__.__name__} {when}'
 
     @classmethod
-    def create_from(cls, other):
+    def create_from(cls, parent):
         """
-        Return new instance based on other
+        Return new instance based on parent.
 
-        Copies values from info_ and tool_ fields.  Increments the generation.
-        Does not save the new instance.
+        Re-uses credits.  Increments the generation.
+        Does not save the new instance and does not add credits.
         """
         obj = cls()
-        for i in cls._meta.get_fields():
-            if i.name.startswith(('info_', 'tool_')):
-                setattr(obj, i.name, getattr(other, i.name))
-        obj.generation = other.generation + 1
+        obj.generation = parent.generation + 1
         return obj
 
     def auto_update(self):
+        """ Update some fields to current values """
         self.dataset_count = Dataset.objects.count()
         self.sample_count = Sample.objects.count()
         self.src_version = mibios_version
 
-    def fill_with_example_data(self):
-        """
-        Populate the instance with example content
-        """
-        self.info_ncbi_taxonomy = \
-            'https://www.ncbi.nlm.nih.gov/taxonomy 2023-02-20'
-        self.tool_mmseqs2 = 'https://mmseqs.com/'
-        self.tool_krona = 'https://github.com/marbl/Krona 2.8.1'
-        self.comment = 'This is the initial public release of GLAMR.'
+
+class Credit(Model):
+    DATA = 'S'
+    TOOL = 'T'
+    CREDIT_TYPES = (
+        (DATA, 'reference data sources'),
+        (TOOL, 'other tools'),
+    )
+
+    name = models.TextField()
+    version = models.TextField(**ch_opt)
+    date = models.DateField(**opt)
+    time = models.TimeField(**opt)
+    group = models.CharField(max_length=1, choices=CREDIT_TYPES)
+    url = models.URLField(**ch_opt)
+    comment = models.TextField(**ch_opt)
+
+    class Meta:
+        # unique_together = (('name', 'version', 'date', 'time'), )
+        constraints = [
+            models.UniqueConstraint(
+                fields=('name', 'version', 'date', 'time'),
+                name='credit_uniqueness',
+            ),
+        ]
+
+    def full_clean(self, *args, **kwargs):
+        return super().full_clean(*args, *kwargs)
+
+    def __str__(self):
+        value = self.name
+        extra_items = [i for i in [self.version, self.date, self.time] if i]
+        if extra_items:
+            extra = ' '.join((str(i) for i in extra_items))
+            value += f' ({extra})'
+        return value
+
+    def clean(self):
+        # validate uniqueness including null fields:
+        params = {
+            i: getattr(self, i)
+            for i in ('name', 'version', 'date', 'time')
+        }
+        msg = f'credit with {params} already exists incl. null values'
+
+        qs = self.__class__.objects
+        if self.pk is not None:
+            qs = qs.exclude(pk=self.pk)
+
+        try:
+            qs.get(**params)
+        except self.DoesNotExist:
+            pass
+        except self.MultipleObjectsReturned as e:
+            msg += ', and credits table already has duplicates'
+            raise ValidationError(msg) from e
+        else:
+            raise ValidationError(msg)
+
+        return super().clean()
+
+    @classmethod
+    @atomic_dry
+    def create(cls, name, *args, group=DATA, **kwargs):
+        if not name:
+            raise ValueError('you must give name as first positional arg')
+
+        params = {
+            'name': name,
+            'group': group,
+        }
+
+        for key, val in kwargs.items():
+            try:
+                cls._meta.get_field(key)
+            except FieldDoesNotExist:
+                raise TypeError(f'bad keyword, is not a credit field: {key}')
+            if key in params:
+                # e.g. can't use name here
+                raise TypeError(f'must not use {key} as keyword parameter')
+            params[key] = val
+
+        test_url = URLValidator()
+
+        for i in args:
+            try:
+                test_url(i)
+            except ValidationError:
+                pass
+            else:
+                if 'url' in params:
+                    raise ValueError('parsed additional URL: {i}')
+                params['url'] = i
+                continue
+
+            date = parse_date(i)
+            if date is not None:
+                if 'date' in params:
+                    raise ValueError('parsed additional date: {i}')
+                params['date'] = date
+                continue
+
+            time = parse_time(i)
+            if time is not None:
+                if 'time' in params:
+                    raise ValueError('parsed additional time: {i}')
+                params['time'] = time
+                continue
+
+            # parse datetime after date since pure dates may parse as datetimes
+            datetime = parse_datetime(i)
+            if datetime is not None:
+                if 'date' in params:
+                    raise ValueError('parsed additional date: {i}')
+                if 'time' in params:
+                    raise ValueError('parsed additional time: {i}')
+                params['date'] = datetime.date()
+                params['time'] = datetime.time()
+                continue
+
+            if 'version' not in params:
+                # version is free-form, accespt this just before comments
+                params['version'] = i
+                continue
+
+            if 'comments' not in params:
+                params['comment'] = i
+
+            raise ValueError(
+                f'got too many positional arguments, or they don\'t parse as '
+                f'date/time: {i}'
+            )
+
+        obj = cls(**params)
+        obj.full_clean()
+        obj.save()
+        print(f'Credit saved: {vars(obj)}')
+        return obj
 
 
 class Dataset(AbstractDataset):

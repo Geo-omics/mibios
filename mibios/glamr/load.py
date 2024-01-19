@@ -42,22 +42,25 @@ class BoolColMixin:
 class AboutInfoManager(Manager):
     @atomic_dry
     def new(self, copy_last=True):
-        """ Return a new instance """
-        last = self.order_by('pk').last()
-        if last is not None and last.when_published is None:
+        """ Create and save a new instance """
+        parent = self.order_by('pk').last()
+        if parent is not None and parent.when_published is None:
             raise RuntimeError(
                 'An unpublished entry still exists.  Update it or publish it '
                 'first!'
             )
 
-        if copy_last and last is not None:
-            obj = self.model.create_from(last)
+        obj = self.model()
+        if copy_last and parent is not None:
+            obj.generation = parent.generation + 1
         else:
-            obj = self.model()
             obj.generation = 0
 
         obj.auto_update()
+        obj.full_clean()
         obj.save()
+        if copy_last and parent is not None:
+            obj.credits.add(*parent.credits.all())
         return obj
 
     @atomic_dry

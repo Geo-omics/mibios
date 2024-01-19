@@ -5,22 +5,18 @@
 
 <p>Updated on {{ object.when_published|default:"(unpublished)" }}</p>
 <p>{{ object.comment }}</p>
-<p>Data sources:
-<ul>
-{% for key, url, txt in info %}
-<li>{%if url%}<a href="{{url}}">{{key}}</a>{%else%}{{key}}{%endif%}{% if txt %}: {{txt}}{%endif%}</li>
-{%endfor%}
-</ul>
-</p>
-{%if credits%}
-    <p>
-    Credits:
+<p>
+{% for group_name, credit_data in credits %}
+    {{group_name|capfirst}}:
     <ul>
-    {% for key, url, txt in credits %}
-    <li>{%if url%}<a href="{{url}}">{{key}}</a>{%else%}{{key}}{%endif%}{% if txt %}: {{txt}}{%endif%}</li>
+    {% for name, url, version, comments in credit_data %}
+    <li>{%if url%}<a href="{{url}}">{{name}}</a>{%else%}{{name}}{%endif%}
+        {% if version %}{{version}}{%endif%}
+        {% if comments %} +++ {{comments}}{%endif%}
+    </li>
     {%endfor%}
     </ul>
-    <p>
-{%endif%}
+{%endfor%}
+</p>
 {% if have_history %}<p>[<a href="{%url 'about-history'%}">previous versions</a>]</p>{%endif%}
 {% endblock %}
