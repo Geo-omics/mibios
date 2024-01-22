@@ -640,7 +640,20 @@ class SampleLoader(MetaDataLoader):
     """ Loader manager for Sample """
     def get_omics_import_file(self):
         """ get the omics data import log """
-        return settings.OMICS_DATA_ROOT / 'data' / 'imported_samples.tsv'
+        basedir = settings.OMICS_DATA_ROOT / 'data' / 'import_logs'
+        # log file name begins with date YYYYMMDD:
+        basename = '_sample_status.tsv'
+        most_recent_date = ''
+        most_recent_file = None
+        for i in basedir.glob(f'*{basename}'):
+            date = i.name.removesuffix(basename)
+            if date.isnumeric() and len(date) == 8 and date > most_recent_date:
+                most_recent_date = date
+                most_recent_file = i
+        if most_recent_file is None:
+            raise RuntimeError('sample status file / import log not found')
+        else:
+            return most_recent_file
 
     @atomic_dry
     def update_analysis_status(self, source_file=None, skip_on_error=False,
