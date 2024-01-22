@@ -1,3 +1,36 @@
+from django.conf import settings
 from django.contrib import admin
+from django.contrib.auth.models import User
 
-# Register your models here.
+from .models import AboutInfo, Credit
+
+
+class FakeUser(User):
+    def has_module_perms(self, *args, **kwargs):
+        return True
+
+    def has_perm(self, *args, **kwargs):
+        return True
+
+
+class AdminSite(admin.AdminSite):
+    site_header = 'GLAMR site administration'
+
+    def has_permission(self, request):
+        try:
+            request.user = User.objects.filter(is_staff=True).first()
+        except User.DoesNotExist:
+            # the fake user is good to look at the admin site but when trying
+            # to save changes will fail on the log entry creation as that needs
+            # a user in the database.
+            request.user = FakeUser()
+        return True
+
+
+if settings.ENABLE_OPEN_ADMIN:
+    admin_site = AdminSite(name='glamr_admin')
+    admin_site.register(AboutInfo)
+    admin_site.register(Credit)
+else:
+    # allow for import statement in e.g. urls.py
+    admin_site = None

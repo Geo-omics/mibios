@@ -46,3 +46,7 @@ INTERNAL_DEPLOYMENT = False
 
 # Set to True to enable URLs for testing
 ENABLE_TEST_URLS = False
+
+# Set to True to activate an unauthenticated admin interface, only to be used
+# in restricted environments please
+ENABLE_OPEN_ADMIN = False

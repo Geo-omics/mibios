@@ -42,10 +42,12 @@ Django framework backed by a Postgres database.</p>
 {% for group_name, credit_data in credits %}
     {{group_name|capfirst}}:
     <ul>
-    {% for name, url, version, comments in credit_data %}
+    {% for name, url, version, source_url, paper_url, comments in credit_data %}
     <li>{%if url%}<a href="{{url}}">{{name}}</a>{%else%}{{name}}{%endif%}
         {% if version %}{{version}}{%endif%}
-        {% if comments %} +++ {{comments}}{%endif%}
+        {%if source_url%}<a href="{{source_url}}">(source code)</a>{%endif%}
+        {%if paper_url%}<a href="{{paper_url}}">(paper)</a>{%endif%}
+        {% if comments %} &nbsp; +++ &nbsp; {{comments|urlize}}{%endif%}
     </li>
     {%endfor%}
     </ul>

@@ -72,12 +72,14 @@ class Credit(Model):
         (TOOL, 'other tools'),
     )
 
-    name = models.TextField()
-    version = models.TextField(**ch_opt)
+    name = models.TextField(max_length=70)
+    version = models.TextField(max_length=50, **ch_opt)
     date = models.DateField(**opt)
     time = models.TimeField(**opt)
-    group = models.CharField(max_length=1, choices=CREDIT_TYPES)
-    url = models.URLField(**ch_opt)
+    group = models.CharField(max_length=1, choices=CREDIT_TYPES, default=TOOL)
+    website = models.URLField(**ch_opt)
+    source_code = models.URLField(**ch_opt)
+    paper = models.URLField(**ch_opt)
     comment = models.TextField(**ch_opt)
 
     class Meta:
@@ -88,6 +90,7 @@ class Credit(Model):
                 name='credit_uniqueness',
             ),
         ]
+        ordering = ['name', 'version']
 
     def full_clean(self, *args, **kwargs):
         return super().full_clean(*args, *kwargs)

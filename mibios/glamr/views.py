@@ -1,5 +1,6 @@
 from itertools import groupby
 from logging import getLogger
+import re
 
 from django_tables2 import (
     Column, SingleTableView, TemplateColumn, table_factory,
@@ -841,6 +842,7 @@ class AboutView(DetailView):
     def get_credits(self):
         """ Compile credits data """
         data = []
+        naked_version_pat = re.compile(r'[0-9.]+')
 
         if self.object.pk is None:
             # got a blank instance, rf. get_object(), the m2m credits
@@ -853,12 +855,36 @@ class AboutView(DetailView):
             credit_data = []
             for i in objs:
                 if i.version:
-                    version = f'version: {i.version}'
+                    if naked_version_pat.match(i.version):
+                        version = f'v{i.version}'
+                    else:
+                        version = i.version
                 else:
                     version = i.version
                 version_info = \
                     ' '.join((str(i) for i in (version, i.date, i.time) if i))
-                credit_data.append((i.name, i.url, version_info, i.comment))
+
+                url = None
+                source_url = None
+                paper_url = None
+                if i.website:
+                    url = i.website
+                    source_url = i.source_code
+                    paper_url = i.paper
+                elif i.source_code:
+                    url = i.source_code
+                    paper_url = i.paper
+                elif i.paper:
+                    url = paper_url
+
+                credit_data.append((
+                    i.name,
+                    url,
+                    version_info,
+                    source_url,
+                    paper_url,
+                    i.comment,
+                ))
             # get human-readable group name from last object
             data.append((i.get_group_display(), credit_data))
         return data
