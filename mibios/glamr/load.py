@@ -320,38 +320,37 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
         # step 0. temp fix for some input
         value = value.removesuffix('TNA')
 
-        old_value = value
+        orig_value = value
         del value
 
         try:
-            value = parse_datetime(old_value)
+            value = parse_date(orig_value)
         except ValueError as e:
-            # invalid date/time
-            raise InputFileError(e) from e
+            raise InputFileError(f'is date format but invalid: {e}') from e
 
         if value is None:
-            # failed parsing as datetime, try date
+            # not a date, try datetime
             try:
-                value = parse_date(old_value)
+                value = parse_datetime(orig_value)
             except ValueError as e:
-                # invalid date
-                raise InputFileError(e) from e
+                raise InputFileError(
+                    f'is datetime format but invalid: {e}'
+                ) from e
 
-            if value is not None:
-                # add fake time (midnight)
-                value = datetime(value.year, value.month, value.day)
-                collection_ts_partial = self.model.DATE_ONLY
-        else:
             # got a complete timestamp
             collection_ts_partial = self.model.FULL_TIMESTAMP
+        else:
+            # got a date, add fake time (midnight)
+            value = datetime(value.year, value.month, value.day)
+            collection_ts_partial = self.model.DATE_ONLY
 
         if value is None:
             # failed parsing as ISO 8601, try for year-month and year only
             # which MIMARKS/MIXS allows
-            m = self.partial_date_pat.match(old_value)
+            m = self.partial_date_pat.match(orig_value)
 
             if m is None:
-                raise InputFileError(f'failed parsing timestamp: {old_value}')
+                raise InputFileError(f'failed parsing timestamp: {orig_value}')
             else:
                 year, month = m.groups()
                 year = int(year)
