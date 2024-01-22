@@ -1034,6 +1034,10 @@ class AbundanceGeneView(ModelTableMixin, SingleTableView):
             return super().get_values()
 
 
+class ContactView(TemplateView):
+    template_name = 'glamr/contact.html'
+
+
 class DBInfoView(SingleTableView):
     template_name = 'glamr/dbinfo.html'
     model = None  # set by setup()
