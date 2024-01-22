@@ -4,7 +4,40 @@
 <h3>About GLAMR</h3><br/>
 
 <p>Updated on {{ object.when_published|default:"(unpublished)" }}</p>
-<p>{{ object.comment }}</p>
+
+<p>The Great Lakes Atlas for Multi-omics Research (GLAMR) Database enables
+discovery and exploration of environmental ‘omics’ data from the Laurentian
+Great Lakes. The GLAMR database contains shotgun metagenomic and
+metatranscriptomic sequencing data, amplicon sequencing data, and associated
+metadata including collection and processing metadata, and nutrient and
+environmental measurements. GLAMR can currently be used to explore the content
+of metagenomic datasets; we are currently implementing similar exploration of
+metatranscriptomic and amplicon data sets.</p>
+
+<p>GLAMR facilitates exploration of omics datasets, processed with standardized
+bioinformatics pipelines to enable comparison across studies.  Where possible,
+GLAMR makes use of existing community standards to enable interoperability with
+other services.</p>
+
+<p>GLAMR is a product of the
+<a href="https://sites.lsa.umich.edu/geomicro/">Geomicrobiology Lab</a> at the
+University of Michigan and is supported by the
+<a href="https://ciglr.seas.umich.edu/">Cooperative Institute for Great Lakes Research</a>
+through the
+<a href="https://sciencecouncil.noaa.gov/noaa-science-technology-focus-areas/noaa-omics/">NOAA Omics program</a>.</p>
+
+<p>Abundance / contig annotation data for metagenomic samples are now based on
+an <a href="https://github.com/soedinglab/MMseqs2">MMseqs2</a>-based pipeline
+using the UniRef database with supplemental annotations from our
+<a href="https://github.com/Geo-omics/UMRAD">Universal Multi-omics Reference and Alignment Database</a>
+(UMRAD).</p>
+
+<p>GLAMR software including <a href="https://github.com/Geo-omics/GLAMR_omics_pipelines">bioinformatics pipelines</a>
+and the <a href="https://github.com/Geo-omics/mibios">website and database code</a>
+are available via GitHub. The GLAMR bioinformatics pipelines are
+written using the Snakemake workflow engine, and the website is built using the
+Django framework backed by a Postgres database.</p>
+
 <p>
 {% for group_name, credit_data in credits %}
     {{group_name|capfirst}}:
