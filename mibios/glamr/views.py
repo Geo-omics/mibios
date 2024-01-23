@@ -443,7 +443,7 @@ class ModelTableMixin(ExportMixin):
         cols = []
         try:
             acc_field = self.model.get_accession_field_single()
-        except RuntimeError:
+        except (RuntimeError, LookupError):
             acc_field = None
             col = TemplateColumn(
                 '{%load glamr_extras%}[<a href="{% record_url record %}">'

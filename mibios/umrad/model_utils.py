@@ -348,6 +348,8 @@ class Model(MibiosModel):
                 for i in cls._meta.unique_together[0]
             ))
 
+        # TODO: also consider UniqueContraint
+
         raise LookupError(f'model {cls} has no unique/unique_together fields')
 
     @classmethod
