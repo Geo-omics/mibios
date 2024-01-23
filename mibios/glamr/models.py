@@ -69,7 +69,7 @@ class Credit(Model):
     TOOL = 'T'
     CREDIT_TYPES = (
         (DATA, 'reference data sources'),
-        (TOOL, 'other tools'),
+        (TOOL, 'bioinformatics tools'),
     )
 
     name = models.TextField(max_length=70)

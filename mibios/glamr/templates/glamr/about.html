@@ -38,6 +38,9 @@ are available via GitHub. The GLAMR bioinformatics pipelines are
 written using the Snakemake workflow engine, and the website is built using the
 Django framework backed by a Postgres database.</p>
 
+{% if have_history %}<p>[<a href="{%url 'about-history'%}">previous GLAMR versions</a>]</p>{%endif%}
+
+<h4>Credits</h4>
 <p>
 {% for group_name, credit_data in credits %}
     {{group_name|capfirst}}:
@@ -53,7 +56,6 @@ Django framework backed by a Postgres database.</p>
     </ul>
 {%endfor%}
 </p>
-{% if have_history %}<p>[<a href="{%url 'about-history'%}">previous versions</a>]</p>{%endif%}
 
 <p><img src="{% static 'glamr/img/earthdept.png' %}" alt="umich lsa earth dept logo"></p>
 <p><img src="{% static 'glamr/img/noaaomics.png' %}" alt="NOAA omics logo"></p>

@@ -850,7 +850,7 @@ class AboutView(DetailView):
             # list
             return data
 
-        credits = self.object.credits.order_by('group').all()
+        credits = self.object.credits.order_by('group', 'name').all()
         for _, objs in groupby(credits, key=lambda x: x.group):
             credit_data = []
             for i in objs:
