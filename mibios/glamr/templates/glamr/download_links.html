@@ -8,7 +8,7 @@
 <div class="m-2">
 Download:
 {% for url, info in export_options %}
-[<a href="{{url}}">{{info}}</a>]
+    {%if url%} [<a href="{{url}}">{{info}}</a>] {%else%} [{{info}}] {%endif%}
 {% endfor %}
 </div>
 

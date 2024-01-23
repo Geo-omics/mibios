@@ -166,6 +166,7 @@ class ExportMixin(ExportBaseMixin):
             self.add_export_option('')
 
     def add_export_option(self, option):
+        disable_link = False
         if self.export_options is None:
             self.export_options = []
 
@@ -183,9 +184,17 @@ class ExportMixin(ExportBaseMixin):
             link_txt = field.related_name \
                 or field.related_model._meta.verbose_name_plural
 
+            if not settings.INTERNAL_DEPLOYMENT:
+                # currently impractical, use too much resources
+                if link_txt == 'functional_abundance':
+                    disable_link = True
+
         qstr = self.request.GET.copy()
         qstr[self.export_query_param] = option
-        self.export_options.append((f'?{qstr.urlencode()}', link_txt))
+        url = f'?{qstr.urlencode()}'
+        if disable_link:
+            url = None
+        self.export_options.append((url, link_txt))
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
