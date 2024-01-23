@@ -10,11 +10,16 @@
 [
     {% if object.tax_abund_ok %}
         <a href="{% url 'krona' samp_no=object.get_samp_no %}">krona chart</a>
+        | <a href="{% url 'relations' model='sample' pk=object.pk field='taxonabundance'%}">abundance/taxa</a>
     {% else %}
-        krona chart
+        krona chart | abundance/taxa
     {% endif %}
-    | <a href="{% url 'relations' model='sample' pk=object.pk field='taxonabundance'%}">abundance/taxa</a>
-    | <a href="{% url 'relations' model='sample' pk=object.pk field='functional_abundance'%}">abundance/functions</a>
+    |
+    {% if object.read_abundance_loaded %}
+        <a href="{% url 'relations' model='sample' pk=object.pk field='functional_abundance'%}">abundance/functions</a>
+    {% else %}
+        abundance/functions
+    {% endif %}
 ]
 {% endif %}
 {% endblock %}
