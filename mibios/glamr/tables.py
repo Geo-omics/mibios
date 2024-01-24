@@ -432,7 +432,7 @@ class DatasetTable(Table):
         }
     )
     external_urls = Column(
-        verbose_name='External links',
+        verbose_name='External accessions',
         attrs={
             'showFieldTitle': True,
             'cardTitle': False,
@@ -440,13 +440,25 @@ class DatasetTable(Table):
         }
     )
 
+    html_fields = ['scheme', 'samples', 'reference', 'water_bodies',
+                   'material_type', 'sample_type', 'external_urls']
+
     class Meta:
+        model = glamr_models.Dataset
+        sequence = ['scheme', 'samples', 'reference', 'water_bodies', '...']
         empty_text = 'No dataset / study information available'
         template_name = 'glamr/table_cards.html'
         attrs = {
             "id": "overview-table",
             "class": "table table-hover",
         }
+
+    def get_extra_excludes(self):
+        excludes = list(glamr_models.Dataset.get_internal_fields())
+        if self.is_for_export():
+            # this is duplicate data from other fields and also in HTML
+            excludes.append('external_urls')
+        return excludes
 
     def render_scheme(self, value, record):
         r = record
@@ -505,6 +517,9 @@ class DatasetTable(Table):
             url=url,
             count=record.sample_count,
         )
+
+    def value_samples(self, record):
+        return getattr(record, 'sample_count', '')
 
 
 class SampleTable(Table):

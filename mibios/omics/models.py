@@ -388,6 +388,13 @@ class AbstractDataset(Model):
     _orphan_group_obj = None
     orphan_group_description = 'ungrouped samples'
 
+    @classmethod
+    def get_internal_fields(cls):
+        """
+        Return list of fields with non-public usage
+        """
+        return ['id', 'dataset_id', 'short_name']
+
     def get_set_no(self):
         """ Get dataset number from dataset_id """
         return int(self.dataset_id.removeprefix('set_'))

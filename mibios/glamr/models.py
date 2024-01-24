@@ -281,6 +281,13 @@ class Dataset(AbstractDataset):
     EXTERNAL_ACCN_FIELDS = \
         ['bioproject', 'jgi_project', 'gold_id', 'mgrast_study']
 
+    @classmethod
+    def get_internal_fields(cls):
+        """
+        Return list of fields with non-public usage
+        """
+        return super().get_internal_fields() + ['private', 'note']
+
     def __str__(self):
         if self.reference_id is None:
             ref = ''
