@@ -235,6 +235,10 @@ class Dataset(AbstractDataset):
         max_length=32, **ch_opt,
         verbose_name='GOLD ID',
     )
+    mgrast_study = models.TextField(
+        max_length=32, **ch_opt,
+        verbose_name='MG-RAST study',
+    )
     scheme = models.TextField(
         **ch_opt,
         verbose_name='location and sampling scheme',
@@ -275,7 +279,7 @@ class Dataset(AbstractDataset):
         default_manager_name = 'objects'
 
     EXTERNAL_ACCN_FIELDS = \
-        ['bioproject', 'jgi_project', 'gold_id']
+        ['bioproject', 'jgi_project', 'gold_id', 'mgrast_study']
 
     def __str__(self):
         if self.reference_id is None:
@@ -326,6 +330,7 @@ class Dataset(AbstractDataset):
         'jgi_project':
             'https://genome.jgi.doe.gov/portal/lookup'
             '?keyName=jgiProjectId&keyValue={}&app=Info&showParent=false',
+        'mgrast_study': 'https://www.mg-rast.org/linkin.cgi?project={}',
     }
 
     def external_urls(self):

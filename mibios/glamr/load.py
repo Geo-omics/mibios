@@ -136,7 +136,7 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
         ('NCBI_BioProject', 'bioproject'),
         ('JGI_Project_ID', 'jgi_project'),
         ('GOLD_ID', 'gold_id'),
-        ('MG-RAST_study', None),  # TODO: add
+        ('MG-RAST_study', 'mgrast_study'),
         ('Location and Sampling Scheme', 'scheme'),
         ('Material Type', 'material_type'),
         ('Water Bodies', 'water_bodies'),
