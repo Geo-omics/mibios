@@ -320,7 +320,9 @@ class Dataset(AbstractDataset):
         return reverse('dataset', kwargs=kwargs)
 
     URL_TEMPLATES = {
-        'bioproject': 'https://www.ncbi.nlm.nih.gov/bioproject/{}',
+        'bioproject': {
+            '^PRJNA': 'https://www.ncbi.nlm.nih.gov/bioproject/{}',
+        },
         'gold_id': {
             '^Ga': 'https://gold.jgi.doe.gov/analysis_project?id={}',
             '^Gp': 'https://gold.jgi.doe.gov/project?id={}',
