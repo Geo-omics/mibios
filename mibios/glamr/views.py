@@ -1344,6 +1344,8 @@ class DatasetView(MapMixin, RecordView):
         'sample',
         'bioproject',
         'gold_id',
+        'jgi_project',
+        'mgrast_study',
         'material_type',
         'water_bodies',
         'primers',
@@ -1362,6 +1364,26 @@ class DatasetView(MapMixin, RecordView):
 
     def get_sample_queryset(self):
         return self.object.sample_set.all()
+
+    def get_ordered_fields(self):
+        fields = []
+        external_accn_fields = [
+            'bioproject',
+            'gold_id',
+            'jgi_project',
+            'mgrast_study',
+        ]
+        # hide these fields if they are blank
+        for i in super().get_ordered_fields():
+            try:
+                if i.name in external_accn_fields:
+                    if getattr(self.object, i.name) in i.empty_values:
+                        continue
+            except AttributeError:
+                # wasn't a real field
+                pass
+            fields.append(i)
+        return fields
 
 
 class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
