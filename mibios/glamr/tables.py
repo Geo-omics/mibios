@@ -31,6 +31,7 @@ class Table(Table0):
                     if i.name not in exclude:
                         exclude.append(i.name)
 
+        exclude += ((i for i in self.get_extra_excludes() if i not in exclude))
         data = self.customize_queryset(data)
         super().__init__(data=data, exclude=exclude, **kwargs)
 
@@ -62,6 +63,10 @@ class Table(Table0):
         except Exception:
             # not a view with ExportMixin
             return False
+
+    def get_extra_excludes(self):
+        """ override this to exlude more fields """
+        return []
 
 
 def linkify_record(record):
@@ -532,13 +537,8 @@ class SampleTable(Table):
             "class": "table table-hover",
         }
 
-    def __init__(self, exclude=None, **kwargs):
-        # don't show internal fields:
-        exclude = list(exclude) if exclude else []
-        for i in glamr_models.Sample.get_internal_fields():
-            if i not in exclude:
-                exclude.append(i)
-        super().__init__(exclude=exclude, **kwargs)
+    def get_extra_excludes(self):
+        return list(glamr_models.Sample.get_internal_fields())
 
     def render_sample_name(self, record):
         return str(record)
