@@ -158,7 +158,7 @@ class ReferenceLoader(MetaDataLoader):
 
     def fix_doi(self, value, obj):
         """ Pre-processor to fix issue with some DOIs """
-        if value is not None and 'doi-org.proxy.lib.umich.edu' in value:
+        if value is not None:
             # fix, don't require umich weblogin to follow these links
             value = value.replace('doi-org.proxy.lib.umich.edu', 'doi.org')
         return value
