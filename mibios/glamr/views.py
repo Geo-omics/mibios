@@ -1250,65 +1250,57 @@ class RecordView(DetailView):
                 # this is the m2m field
                 rel_attr = f.name
             value = getattr(self.object, rel_attr).count()
-            if value == 0:
-                # Let's not show zeros
-                value = ''
+            is_blank = (value == 0)  # Let's not show zeros
+        elif f.one_to_one:
+            # 1-1 fields don't have a verbose name
+            name = f.name
+            try:
+                value = getattr(self.object, f.name)
+            except getattr(self.model, f.name).RelatedObjectDoesNotExist:
+                value = None
+            is_blank = (value is None)
         else:
-            if f.one_to_one:
-                # 1-1 fields don't have a verbose name
-                name = f.name
-            else:
-                name = f.verbose_name
-            value = getattr(self.object, f.name, None)
+            name = f.verbose_name
+            value = getattr(self.object, f.name)
+            is_blank = (value in f.empty_values)
 
-        if value:
+        if is_blank:
+            items = []
+        else:
             if f.many_to_one or f.one_to_one:  # TODO: test 1-1 fields
-                urls = [tables.get_record_url(value)]
+                items = [(value, tables.get_record_url(value))]
             elif f.one_to_many or f.many_to_many:
                 url_kw = {
                     'model': self.object._meta.model_name,
                     'pk': self.object.pk,
                     'field': f.name,
                 }
-                urls = [reverse('relations', kwargs=url_kw)]
+                items = [(value, reverse('relations', kwargs=url_kw))]
             elif isinstance(f, URLField):
-                urls = [value]
+                items = [(value, value)]
             else:
-                urls = self.object.get_attr_urls(f.attname)
-        else:
-            urls = None
+                items = self.object.get_attr_urls(f.attname)
 
         if hasattr(f, 'choices') and f.choices:
-            value = getattr(self.object, f'get_{f.name}_display')()
-
-        if value:
-            unit = getattr(f, 'unit', None)
-
-            if urls:
-                if len(urls) > 1:
-                    # Multiple URLs, try to split string values, if that
-                    # doesn't work for any reason just display the original
-                    # value and no URL
-                    if isinstance(value, str):
-                        val = value.replace(',', ' ').replace(';', ' ').split()
-                        if len(val) == len(urls):
-                            items = list(zip(val, urls))
-                        else:
-                            # degrade
-                            items = [(value, None)]
-                    else:
-                        # degrade
-                        items = [(value, None)]
-                else:
-                    # single value + single URL
-                    items = [(value, urls[0])]
+            display_value = getattr(self.object, f'get_{f.name}_display')()
+            if is_blank:
+                if display_value not in f.empty_values:
+                    # let's show the display value for a blank (it could be!)
+                    is_blank = False
+                # assume no URL
+                items = [(display_value, None)]
             else:
-                # single value, no URL
-                items = [(value, None)]
-        else:
-            # blank
-            unit = None
-            items = []
+                if len(items) == 1:
+                    items = [(display_value, items[0][1])]
+                else:
+                    # a bit non-sensical, we could try splitting the display
+                    # value, but let's not do anything, should not ever get
+                    # here
+                    pass
+
+        # only show a unit if there is a value
+        unit = None if is_blank else getattr(f, 'unit', None)
+
         extra_info = getattr(f, 'pseudo_unit', None)
         return (name, extra_info, items, unit)
 

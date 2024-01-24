@@ -274,6 +274,9 @@ class Dataset(AbstractDataset):
     class Meta:
         default_manager_name = 'objects'
 
+    EXTERNAL_ACCN_FIELDS = \
+        ['bioproject', 'jgi_project', 'gold_id']
+
     def __str__(self):
         if self.reference_id is None:
             ref = ''
@@ -320,31 +323,16 @@ class Dataset(AbstractDataset):
             '^Gs': 'https://gold.jgi.doe.gov/study?id={}',
             '^Gb': 'https://gold.jgi.doe.gov/biosample?id={}',
         },
+        'jgi_project':
+            'https://genome.jgi.doe.gov/portal/lookup'
+            '?keyName=jgiProjectId&keyValue={}&app=Info&showParent=false',
     }
-
-    bioproject_url_templ = 'https://www.ncbi.nlm.nih.gov/bioproject/{}'
-    jgi_project_url_templ = 'https://genome.jgi.doe.gov/portal/lookup' \
-        '?keyName=jgiProjectId&keyValue={}&app=Info&showParent=false'
-    gold_id_url_templ = None
 
     def external_urls(self):
         """ collect all external accessions with URLs """
         urls = []
-        for i in ['bioproject', 'jgi_project', 'gold_id']:
-            field_value = getattr(self, i)
-            if field_value is None:
-                items = []
-            else:
-                items = field_value.replace(',', ' ').split()
-            for j in items:
-                template = getattr(self, i + '_url_templ')
-                if i == 'bioproject' and not j.startswith('PRJ'):
-                    # TODO: bad accession, fix at source
-                    template = None
-                if template:
-                    urls.append((j, template.format(j)))
-                else:
-                    urls.append((j, None))
+        for i in self.EXTERNAL_ACCN_FIELDS:
+            urls += self.get_attr_urls(i)
         return urls
 
     def get_accession_url(self):

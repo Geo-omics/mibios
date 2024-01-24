@@ -9,6 +9,7 @@ from itertools import islice
 import os
 import re
 
+from django.core import validators
 from django.core.exceptions import FieldDoesNotExist
 from django.db import connections, models, router
 from django.db.transaction import atomic, set_rollback
@@ -477,31 +478,37 @@ class Model(MibiosModel):
 
     def get_attr_urls(self, attr):
         """
-        Get URL list for supported fields/attribute.
+        Get URLs for supported fields/attribute.
 
         Supports attributes/fields with string or sequence values.  Strings are
         tested for commata or semicolons and split into items.
 
-        Returns None for values evaluating to boolean False (blank values).
-
-        Returns None if the field does not support URLs (that is if no URL
-        template is defined.)
+        Returns list of pairs of values to their URLs.  The returned list is
+        empty if the field is blank.  An URL may be None if the field does not
+        support URLs (that is if no URL template is defined.) of if the URL
+        template does not apply for some reason.
 
         Raises AttributeError for an invalid field/attribute name.
 
-        Otherwise returns a list.  May return an empty list in rare cases, e.g.
-        if a string value only contains space and commas.  If the template
-        contains test patterns then the return list may contain None values in
-        place of items that don't match any pattern.  A pattern of None is
-        interpreted as a fall-back, it should be placed last among the
-        different pattern in a patterned template.
+        May also return an empty list in rare cases, e.g.  if a string value
+        only contains space and commas.  If the template contains test patterns
+        then the return list may contain None URLs for (partial-)values that
+        don't match any pattern.  A pattern of None is interpreted as a
+        fall-back, it should be placed last among the different pattern in a
+        patterned template.
         """
         value = getattr(self, attr)
-        if not value:
-            return None
+        try:
+            field = self._meta.get_field(attr)
+            empty_values = field.empty_values
+        except (FieldDoesNotExist, AttributeError):
+            empty_values = validators.EMPTY_VALUES
+
+        if value in empty_values:
+            return []
 
         if attr not in self.URL_TEMPLATES:
-            return None
+            return [(value, None)]
 
         # auto-listify value
         if isinstance(value, str):
@@ -524,7 +531,11 @@ class Model(MibiosModel):
             else:
                 # no matching pattern
                 urls.append(None)
-        return urls
+
+        if any(urls):
+            return list(zip(vals, urls))
+        else:
+            return [(value, None)]
 
 
 class VocabularyModel(Model):
