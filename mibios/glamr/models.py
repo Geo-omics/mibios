@@ -220,7 +220,12 @@ class Dataset(AbstractDataset):
         default=False,
         help_text='hide this record and related samples from public view',
     )
-    reference = models.ForeignKey('Reference', **fk_opt)
+    references = models.ManyToManyField('Reference')
+    primary_ref = models.ForeignKey(
+        'Reference', **fk_opt,
+        related_name='dataset_primary',
+        verbose_name='primary publication',
+    )
     # project IDs: usually a single accession, but can be ,-sep lists or even
     # other text
     bioproject = models.TextField(
@@ -289,10 +294,10 @@ class Dataset(AbstractDataset):
         return super().get_internal_fields() + ['private', 'note']
 
     def __str__(self):
-        if self.reference_id is None:
+        if self.primary_ref_id is None:
             ref = ''
         else:
-            ref = self.reference.short_reference
+            ref = self.primary_ref.short_reference
         maxlen = 60 - len(ref)  # max length available for scheme part
         scheme = self.scheme
         if scheme and len(scheme) > maxlen:
@@ -372,20 +377,25 @@ class Reference(Model):
         max_length=32,
         help_text='short reference',
     )
+    year = models.PositiveSmallIntegerField(
+        **opt,
+        verbose_name='publication year',
+    )
     authors = models.TextField(
         **ch_opt,
         help_text='author listing',
     )
+    last_author = models.TextField(max_length=32, **ch_opt)
     title = models.TextField(**ch_opt)
     abstract = models.TextField(**ch_opt)
     key_words = models.TextField(**ch_opt)
     publication = models.TextField(max_length=64, **ch_opt)
-    doi = OptionalURLField(**uniq_opt)
+    doi = OptionalURLField(**uniq_opt, verbose_name='DOI')
 
     loader = ReferenceLoader()
 
     class Meta:
-        pass
+        verbose_name = 'publication'
 
     def __str__(self):
         maxlen = 60

@@ -535,7 +535,7 @@ class MapMixin():
         dataset_pks = set((i['dataset_id'] for i in qs))
         datasets = Dataset.objects.filter(pk__in=dataset_pks)
         # str() will access the reference
-        datasets = datasets.select_related('reference')
+        datasets = datasets.select_related('primary_ref')
         dataset_name = {i.pk: str(i) for i in datasets}
         dataset_no = {i.pk: i.get_set_no() for i in datasets}
 
@@ -1340,7 +1340,7 @@ class DatasetView(MapMixin, RecordView):
     model = models.Dataset
     template_name = 'glamr/dataset.html'
     fields = [
-        'reference',
+        'primary_ref',
         'sample',
         'bioproject',
         'gold_id',
@@ -1399,7 +1399,7 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
     def get_queryset(self):
         qs = super().get_queryset()
         qs = qs.filter(private=False)
-        qs = qs.select_related('reference')
+        qs = qs.select_related('primary_ref')
 
         # to get sample type in table
         qs = qs.prefetch_related(Prefetch(

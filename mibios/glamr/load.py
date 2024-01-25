@@ -89,7 +89,7 @@ class AboutInfoManager(Manager):
 
 
 class DatasetLoader(BoolColMixin, MetaDataLoader):
-    empty_values = ['NA', 'Not Listed', 'NF', '#N/A']
+    empty_values = ['NA', 'Not Listed', 'NF', '#N/A', 'TBD']
 
     def get_file(self):
         return settings.GLAMR_META_ROOT\
@@ -130,7 +130,7 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
 
     spec = CSV_Spec(
         ('dataset', 'dataset_id', ensure_id),
-        # ('Primary_pub', 'reference', get_reference_ids),
+        # ('???', 'reference'),
         ('Primary_pub', 'reference.reference_id', 'clean_ref_id'),
         ('primary_pub_title', None),
         ('NCBI_BioProject', 'bioproject'),
@@ -144,8 +144,10 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
         ('Sequencing targets', 'sequencing_target'),
         ('Sequencing Platform', 'sequencing_platform'),
         ('Size Fraction(s)', 'size_fraction'),
+        # ignore study_status, sample_added_by
         ('private', 'private', 'parse_bool'),
         ('Notes', 'note'),
+        # ignoring counts columns
     )
 
 
@@ -173,13 +175,15 @@ class ReferenceLoader(MetaDataLoader):
     spec = CSV_Spec(
         ('PaperID', 'reference_id', check_skip),
         ('Reference', 'short_reference', check_skip),
+        ('pub_year', 'year'),
         ('Authors', 'authors'),
+        ('last_author', 'last_author'),
         ('Title', 'title'),
         ('Abstract', 'abstract'),
         ('Key Words', 'key_words'),
         ('Journal', 'publication'),
         ('DOI', 'doi', fix_doi),
-        ('Associated_datasets', None),  # TODO: handle this
+        # ignoring status, notes, entry priority columns
     )
 
 

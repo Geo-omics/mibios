@@ -414,12 +414,12 @@ class DatasetTable(Table):
             'navID': "samples-sort",
         }
     )
-    reference = Column(
+    primary_ref = Column(
         linkify=linkify_reference,
         attrs={
             'showFieldTitle': True,
             'cardTitle': False,
-            'navID': "reference-sort",
+            'navID': "primary_ref-sort",
         }
     )
     water_bodies = Column(
@@ -455,12 +455,12 @@ class DatasetTable(Table):
         }
     )
 
-    html_fields = ['scheme', 'samples', 'reference', 'water_bodies',
+    html_fields = ['scheme', 'samples', 'primary_ref', 'water_bodies',
                    'material_type', 'sample_type', 'external_urls']
 
     class Meta:
         model = glamr_models.Dataset
-        sequence = ['scheme', 'samples', 'reference', 'water_bodies', '...']
+        sequence = ['scheme', 'samples', 'primary_ref', 'water_bodies', '...']
         empty_text = 'No dataset / study information available'
         template_name = 'glamr/table_cards.html'
         attrs = {
