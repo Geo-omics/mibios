@@ -379,6 +379,21 @@ class TaxonAbundanceTable(Table):
         return
 
 
+def linkify_reference(value):
+    """
+    linkify helper to get URLs for references
+
+    Use as in "reference = Column(linkify=linkify_reference)", the function arg
+    is "value" to trigger the right linkify magic which gets us the reference
+    object passed.  If there is a DOI return that, otherwise return the
+    record's URL
+    """
+    if value.doi:
+        return value.doi
+    else:
+        return get_record_url(value)
+
+
 class DatasetTable(Table):
     scheme = Column(
         empty_values=(),  # so render_foo can still take over for blank scheme
@@ -400,7 +415,7 @@ class DatasetTable(Table):
         }
     )
     reference = Column(
-        linkify=lambda value: getattr(value, 'doi'),
+        linkify=linkify_reference,
         attrs={
             'showFieldTitle': True,
             'cardTitle': False,
