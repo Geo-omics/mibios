@@ -63,8 +63,13 @@ class DatasetQuerySet(QuerySet):
         if otherize:
             greats = set(GREAT_LAKES)
             others = df.loc[[i for i in df.index if i not in greats]].sum()
-            df = df.loc[GREAT_LAKES]
-            df.loc['other'] = others
+            df = df.loc[df.index.intersection(greats)]
+            if df.columns.empty:
+                # no datasets in DB, assigning others would fail with
+                # "ValueError: cannot set a frame with no defined columns"
+                pass
+            else:
+                df.loc['other'] = others
 
         return df
 
@@ -123,8 +128,13 @@ class SampleQuerySet(OmicsSampleQuerySet):
         if otherize and row_field == 'geo_loc_name':
             greats = set(GREAT_LAKES)
             others = df.loc[[i for i in df.index if i not in greats]].sum()
-            df = df.loc[GREAT_LAKES]
-            df.loc['other'] = others
+            df = df.loc[df.index.intersection(greats)]
+            if df.columns.empty:
+                # no datasets in DB, assigning others would fail with
+                # "ValueError: cannot set a frame with no defined columns"
+                pass
+            else:
+                df.loc['other'] = others
 
         return df
 
