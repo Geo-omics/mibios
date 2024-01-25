@@ -31,6 +31,10 @@ class Table(Table0):
                     if i.name not in exclude:
                         exclude.append(i.name)
 
+        if exclude is None:
+            exclude = []
+
+        exclude = list(exclude)
         exclude += ((i for i in self.get_extra_excludes() if i not in exclude))
         data = self.customize_queryset(data)
         super().__init__(data=data, exclude=exclude, **kwargs)
@@ -65,7 +69,7 @@ class Table(Table0):
             return False
 
     def get_extra_excludes(self):
-        """ override this to exlude more fields """
+        """ override this to exclude more fields """
         return []
 
 
