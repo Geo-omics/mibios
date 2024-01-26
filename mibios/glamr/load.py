@@ -131,7 +131,7 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
     spec = CSV_Spec(
         ('dataset', 'dataset_id', ensure_id),
         # ('???', 'reference'),
-        ('Primary_pub', 'reference.reference_id', 'clean_ref_id'),
+        ('Primary_pub', 'primary_ref.reference_id', 'clean_ref_id'),
         ('primary_pub_title', None),
         ('NCBI_BioProject', 'bioproject'),
         ('JGI_Project_ID', 'jgi_project'),
