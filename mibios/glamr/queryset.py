@@ -57,6 +57,7 @@ class DatasetQuerySet(QuerySet):
                 counts.keys(),
                 names=(row_field, column_field),
             ),
+            dtype=int,
         )
         df = counts.unstack(fill_value=0)
 
