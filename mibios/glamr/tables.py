@@ -232,7 +232,7 @@ class OverViewSamplesTable(Table):
     class Meta:
         model = glamr_models.Sample
         fields = [
-            'accession', 'sample_name', 'dataset', 'dataset.water_bodies',
+            'accession', 'sample_name', 'dataset', 'dataset__water_bodies',
             'date', 'Institution/PI', 'latitude', 'longitude',
         ]
 

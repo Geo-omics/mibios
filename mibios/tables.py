@@ -404,7 +404,7 @@ class HistoryTable(tables.Table):
         model = ChangeRecord
         fields = (
             'timestamp', 'is_created', 'is_deleted', 'record_pk', 'changes',
-            'user', 'file.file', 'line', 'comment',
+            'user', 'file__file', 'line', 'comment',
         )
 
 
@@ -414,7 +414,7 @@ class DeletedHistoryTable(tables.Table):
         linkify=(
             'record_history',
             {
-                'dataset': tables.A('record_type.model'),
+                'dataset': tables.A('record_type__model'),
                 'natural': tables.A('record_natural') or tables.A('record_pk'),
             }
         )
@@ -470,7 +470,7 @@ class DetailedHistoryTable(HistoryTable):
         model = ChangeRecord
         fields = (
             'timestamp', 'record_type', 'is_created', 'is_deleted',
-            'record_natural', 'changes', 'user', 'file.file', 'line',
+            'record_natural', 'changes', 'user', 'file__file', 'line',
             'comment',
         )
         exclude = ('record_pk',)
