@@ -19,17 +19,6 @@ FIELD_COL = 'django_field_name'
 VERBOSE_COL = 'verbose_name'
 UNIT_COL = 'Units'
 
-# The expected header of input file:
-INPUT_HEADER = [
-    'Column_name',
-    VERBOSE_COL,
-    UNIT_COL,
-    'MIMARKS compliant',
-    'MIMARKS required',
-    FIELD_COL,
-    'Notes',
-]
-
 
 class Command(BaseCommand):
     help = 'compile the extra_module_attributes module'
@@ -39,28 +28,28 @@ class Command(BaseCommand):
         data = {}
         with infile.open() as ifile:
             header = ifile.readline().rstrip('\n').split('\t')
-            if header != INPUT_HEADER:
-                print(f'WARNING: unexpected input file header:\n'
-                      f'expected: {INPUT_HEADER}\n'
-                      f'     got: {header}')
-            try:
-                field_col_i = header.index(FIELD_COL)
-                verb_col_i = header.index(VERBOSE_COL)
-                unit_col_i = header.index(UNIT_COL)
-            except ValueError:
+            colindex = {}
+            err_msg = []
+            for i in [FIELD_COL, VERBOSE_COL, UNIT_COL]:
+                try:
+                    colindex[i] = header.index(i)
+                except ValueError:
+                    err_msg.append(f'ERROR: no such column: {i}')
+
+            if err_msg:
                 raise CommandError(
-                    'ERROR: failed to find at least one required inputfile '
-                    'column'
+                    '\n' + '\n'.join(err_msg) + '\n'
+                    + f'ERROR: Bad header in input file: {infile}'
                 )
 
             for lineno, line in enumerate(ifile, start=2):
                 row = line.rstrip('\n').split('\t')
-                field_name = row[field_col_i]
+                field_name = row[colindex[FIELD_COL]]
 
                 attrs = {}
-                if row[verb_col_i]:
-                    attrs['verbose_name'] = row[verb_col_i]
-                unit = row[unit_col_i]
+                if row[colindex[VERBOSE_COL]]:
+                    attrs['verbose_name'] = row[colindex[VERBOSE_COL]]
+                unit = row[colindex[UNIT_COL]]
                 if unit:
                     if unit.startswith('"') and unit.endswith('"'):
                         attrs['pseudo_unit'] = unit.strip('"')
