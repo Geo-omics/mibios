@@ -23,6 +23,9 @@ UNIT_COL = 'Units'
 class Command(BaseCommand):
     help = 'compile the extra_module_attributes module'
 
+    def add_arguments(self, parser):
+        parser.add_argument('--output-file', help='Path to output file.')
+
     def handle(self, *args, **options):
         infile = settings.GLAMR_META_ROOT / UNITS_SHEET
         data = {}
@@ -81,16 +84,17 @@ class Command(BaseCommand):
         if not templ_path.is_file():
             raise CommandError(f'template file not found: {templ_path}')
 
-        with templ_path.open() as templ, open(OUTPUT, 'w') as ofile:
+        out_path = Path(options.get('output_file', OUTPUT))
+
+        with templ_path.open() as templ, out_path.open('w') as ofile:
             for line in templ:
                 if line.strip().startswith('# PLACEHOLDER'):
                     for field_name, attrs in data.items():
                         # write literal dict (field name to attr dict) items,
                         # single indentation:
-                        ofile.write(f"    '{field_name}': {attrs},\n")  # noqa: E501
+                        ofile.write(f"    '{field_name}': {attrs},\n")
                 else:
                     ofile.write(line)
 
-        print(f'[OK] Saved to {OUTPUT} in current dir, you will need to '
-              f'manually move the file into the correct package directory, '
-              f'e.g.: {app_conf.path}/')
+        print(f'[OK] Saved as {out_path} --- Move the file into the correct '
+              f'package directory, e.g. to:\n{app_conf.path}/')
