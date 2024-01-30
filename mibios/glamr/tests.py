@@ -1,5 +1,4 @@
 import tempfile
-from unittest import skipUnless
 
 from django.apps import apps
 from django.conf import settings
@@ -10,8 +9,10 @@ from django.urls import reverse
 from mibios.umrad.model_utils import Model
 from .models import Sample
 
+from mibios.glamr import urls0
 
-@override_settings(ROOT_URLCONF='mibios.glamr.urls0')
+
+@override_settings(ROOT_URLCONF=urls0)
 class EmptyDBViewTests(TestCase):
     """ test views that can run on an empty database """
     def test_frontpage(self):
@@ -49,28 +50,60 @@ class EmptyDBViewTests(TestCase):
         resp = self.client.get('/doesnotexist/')
         self.assertEqual(resp.status_code, 404)
 
-    @skipUnless(settings.INTERNAL_DEPLOYMENT is True, 'INTERNAL_DEPLOYMENT not enabled')  # noqa:E501
     def test_internal_pages(self):
         for view_name in ['dbinfo', 'sample_status']:
-            with self.subTest(view_name=view_name):
-                resp = self.client.get(reverse(view_name))
-                self.assertEqual(resp.status_code, 200)
+            with self.settings(INTERNAL_DEPLOYMENT=True):
+                with self.subTest(view_name=view_name, view_enabled=True):
+                    resp = self.client.get(reverse(view_name))
+                    self.assertEqual(resp.status_code, 200)
+            with self.settings(INTERNAL_DEPLOYMENT=False):
+                with self.subTest(view_name=view_name, view_enabled=False):
+                    resp = self.client.get(reverse(view_name))
+                    self.assertEqual(resp.status_code, 404)
 
-    @skipUnless(settings.ENABLE_TEST_URLS is True, 'test urls not enabled')
-    def test_minitest_pages(self):
+    def test_test_view_pages(self):
         for url in ['/minitest/', '/basetest/']:
-            with self.subTest(url=url):
-                resp = self.client.get(url)
-                self.assertEqual(resp.status_code, 200)
+            with self.settings(ENABLE_TEST_VIEWS=True):
+                with self.subTest(url=url):
+                    resp = self.client.get(url)
+                    self.assertEqual(resp.status_code, 200)
+            with self.settings(ENABLE_TEST_VIEWS=False):
+                with self.subTest(url=url):
+                    resp = self.client.get(url)
+                    self.assertEqual(resp.status_code, 404)
 
         url = '/errortest/'
-        with self.subTest(url=url):
-            c = Client()
-            c.raise_request_exception = False
-            resp = c.get(url)
-            self.assertEqual(resp.status_code, 500)
+        with self.settings(ENABLE_TEST_VIEWS=True):
+            with self.subTest(url=url, view_enabled=True):
+                c = Client()
+                c.raise_request_exception = False
+                resp = c.get(url)
+                self.assertEqual(resp.status_code, 500)
+
+        with self.settings(ENABLE_TEST_VIEWS=False):
+            with self.subTest(url=url, view_enabled=False):
+                c = Client()
+                c.raise_request_exception = False
+                resp = c.get(url)
+                self.assertEqual(resp.status_code, 404)
+
+    def test_admin_pages(self):
+        urls = ['/admin/', '/admin/glamr/', '/admin/glamr/aboutinfo/',
+                '/admin/glamr/credit/']
+
+        # The admin interface is setup during django's setup at module loading
+        # time, so we can't dynamically enable/disable it via settings here.
+        if not settings.INTERNAL_DEPLOYMENT:
+            self.skipTest('INTERNAL_DEPLOYMENT is not True')
+        if not settings.ENABLE_OPEN_ADMIN:
+            self.skipTest('ENABLE_OPEN_ADMIN is not True')
+
+        for i in urls:
+            with self.subTest(url=i):
+                self.assertEqual(self.client.get(i).status_code, 200)
 
 
+@override_settings(ROOT_URLCONF=urls0)
 class LoadMetaDataTests(TestCase):
 
     def setUp(self):

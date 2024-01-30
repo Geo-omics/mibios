@@ -40,12 +40,8 @@ MESSAGE_TAGS = {
     message_constants.ERROR: 'alert-danger',
 }
 
-# Set to True to expose extra, non-public functionality via the web-frontend,
-# leave it at False for public-facing deployments
-INTERNAL_DEPLOYMENT = False
-
 # Set to True to enable URLs for testing
-ENABLE_TEST_URLS = False
+ENABLE_TEST_VIEWS = False
 
 # Set to True to activate an unauthenticated admin interface, only to be used
 # in restricted environments please

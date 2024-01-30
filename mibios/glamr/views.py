@@ -34,6 +34,7 @@ from mibios.ncbi_taxonomy.models import TaxNode
 from mibios.umrad.models import FuncRefDBEntry
 from mibios.umrad.utils import DefaultDict
 from mibios.omics.models import Gene
+from mibios.omics.views import RequiredSettingsMixin
 from . import models, tables, GREAT_LAKES
 from .forms import QBuilderForm, QLeafEditForm, SearchForm
 from .search_fields import ADVANCED_SEARCH_MODELS, search_fields
@@ -1047,7 +1048,8 @@ class ContactView(TemplateView):
     template_name = 'glamr/contact.html'
 
 
-class DBInfoView(SingleTableView):
+class DBInfoView(RequiredSettingsMixin, SingleTableView):
+    required_settings = 'INTERNAL_DEPLOYMENT'
     template_name = 'glamr/dbinfo.html'
     model = None  # set by setup()
     table_class = tables.DBInfoTable
@@ -1941,14 +1943,20 @@ def record_view(*args, **kwargs):
 
 
 def test_server_error(request):
-    raise RuntimeError('you were asking for it')
+    if settings.ENABLE_TEST_VIEWS:
+        raise RuntimeError('you were asking for it')
+    else:
+        raise Http404('settings.ENABLE_TEST_VIEWS is set to False')
 
 
-class MiniTestView(View):
+class MiniTestView(RequiredSettingsMixin, View):
+    required_settings = 'ENABLE_TEST_VIEWS'
+
     def get(self, request, *args, **kwargs):
         resp = HttpResponse('ok')
         return resp
 
 
-class BaseTestView(TemplateView):
+class BaseTestView(RequiredSettingsMixin, TemplateView):
+    required_settings = 'ENABLE_TEST_VIEWS'
     template_name = 'glamr/base.html'

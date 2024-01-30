@@ -27,7 +27,7 @@ class AdminSite(admin.AdminSite):
         return True
 
 
-if settings.ENABLE_OPEN_ADMIN:
+if settings.INTERNAL_DEPLOYMENT and settings.ENABLE_OPEN_ADMIN:
     admin_site = AdminSite(name='glamr_admin')
     admin_site.register(AboutInfo)
     admin_site.register(Credit)

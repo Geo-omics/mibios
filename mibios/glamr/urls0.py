@@ -45,21 +45,19 @@ urlpatterns = [
     path('search/<str:model>/', views.SearchResultListView.as_view(), name='search_result'),  # noqa: E501
     path('filter/<str:model>/', views.FilteredListView.as_view(), name='filter_result'),  # noqa: E501
     path('search-adv/<str:model>/', views.SearchModelView.as_view(), name='search_model'),  # noqa: E501
+
+    # URLs are served depending on settings, e.g. RequiredSettingsMixin
+    # see INTERNAL_DEPLOYMENT, ENABLE_TEST_VIEWS, ENABLE_OPEN_ADMIN
+    path('dbinfo/', views.DBInfoView.as_view(), name='dbinfo'),
+    path('admin/', admin_site.urls),
+    path('errortest/', views.test_server_error),
+    path('minitest/', views.MiniTestView.as_view()),
+    path('basetest/', views.BaseTestView.as_view()),
+    path('omics/', include(omics_urls)),
 ]
 
 if settings.INTERNAL_DEPLOYMENT:
     urlpatterns.append(path('tables/', include(mibios_urls)))
-    urlpatterns.append(path('omics/', include(omics_urls)))
-    urlpatterns.append(path('dbinfo/', views.DBInfoView.as_view(), name='dbinfo'))  # noqa:E501
-    if settings.ENABLE_OPEN_ADMIN:
-        urlpatterns.append(path("admin/", admin_site.urls))
-
-if settings.ENABLE_TEST_URLS:
-    urlpatterns += [
-        path('errortest/', views.test_server_error),
-        path('minitest/', views.MiniTestView.as_view()),
-        path('basetest/', views.BaseTestView.as_view()),
-    ]
 
 
 # The default template names are without path, so take up the global name space

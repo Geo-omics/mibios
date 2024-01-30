@@ -46,5 +46,9 @@ def get_db_settings(db_dir='.', db_infix=''):
 
 DATABASES = get_db_settings()
 
+# Set to True to expose extra, non-public functionality via the web-frontend,
+# leave it at False for public-facing deployments
+INTERNAL_DEPLOYMENT = False
+
 OMICS_DATA_ROOT = Path()  # noqa:F405
 KRONA_CACHE_DIR = './krona-cache'
