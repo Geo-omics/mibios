@@ -8,14 +8,14 @@ class OptionalHTTPSURLValidator(URLValidator):
 
     def __call__(self, value):
         if value == '':
-            # Allow passing a blank field with a valid example URL
-            value = 'https://example.net'
+            # Allow blank
+            return
         super().__call__(value)
 
 
 class OptionalURLField(URLField):
     """ Field for https:// URLs but may remain blank """
-    default_validators = [OptionalHTTPSURLValidator]
+    default_validators = [OptionalHTTPSURLValidator()]
 
     def __init__(self, **kwargs):
         kwargs.setdefault('blank', True)
