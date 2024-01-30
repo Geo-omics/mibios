@@ -87,4 +87,5 @@ def get_app_urls():
     return ret
 
 
-urlpatterns += get_app_urls()
+if settings.ROOT_URLCONF == 'mibios.ops.urls':
+    urlpatterns += get_app_urls()
