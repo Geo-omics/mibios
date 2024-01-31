@@ -1,15 +1,33 @@
+"""
+python3 -m coverage run --branch --source=./mibios ./manage.py test
+python3 -m coverage html -d cov_html
+"""
+import re
 import tempfile
+import unittest
 
 from django.apps import apps
 from django.conf import settings
 from django.core.management import call_command
-from django.test import Client, override_settings, TestCase
+from django.db import connections
+from django.test import Client, override_settings, TestCase, tag
 from django.urls import reverse
 
 from mibios.umrad.model_utils import Model
 from .models import Sample
 
-from mibios.glamr import urls0
+from . import urls0, models as glamr_models
+from .views import SearchMixin
+
+
+class TestDataMixin:
+    """ Mixin for TestCase with a populated test database """
+    @classmethod
+    def setUpTestData(cls):
+        call_command(
+            'loaddata',
+            f'{settings.TEST_FIXURES_DIR / "test_metadata.json"}',
+        )
 
 
 @override_settings(ROOT_URLCONF=urls0)
@@ -131,11 +149,139 @@ class LoadMetaDataTests(TestCase):
                 'glamr.dataset',
             )
 
+    def test_compile_extra_field_attributes(self):
+        if not settings.GLAMR_META_ROOT.is_dir():
+            self.skipTest(f'{settings.GLAMR_META_ROOT=} does not exist')
 
-class ViewTests(EmptyDBViewTests):
+        call_command(
+            'compile_extra_field_attributes',
+            output_file=f'{self.tmpd.name}/extra_field_attrs_test.py',
+        )
+
+
+class SearchTests(TestDataMixin, EmptyDBViewTests):
     @classmethod
     def setUpTestData(cls):
-        call_command(
-            'loaddata',
-            f'{settings.TEST_FIXURES_DIR / "test_metadata.json"}',
+        super().setUpTestData()
+        glamr_models.Searchable.objects.reindex()
+        if connections['default'].vendor == 'postgresql':
+            glamr_models.UniqueWord.objects.reindex()
+
+    def test_search(self):
+        search = glamr_models.Searchable.objects.search
+        params = [
+            dict(),
+            dict(abundance=True),
+            dict(models=['sample', 'dataset']),
+            dict(models=['sample'], fields=['geo_loc_name']),
+            dict(lookup='icontains'),
+        ]
+        for kwargs in params:
+            with self.subTest(kwargs=kwargs):
+                search('Lake Erie', **kwargs)
+
+    def test_search_view(self):
+        ANY = SearchMixin.ANY_MODEL_URL_PART
+        for model in [ANY, 'sample', 'dataset']:
+            with self.subTest(model=model):
+                urlkw = dict(model=model)
+                url = reverse('search_result', kwargs=urlkw)
+                r = self.client.get(url, dict(model=model, query='lake+erie'))
+                self.assertEqual(r.status_code, 200)
+
+
+class AboutInfoTest(TestDataMixin, TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+
+        c1 = glamr_models.Credit(
+            name='foo', version='1.0', group=glamr_models.Credit.TOOL
         )
+        c1.full_clean()
+        c1.save()
+        c2 = glamr_models.Credit(
+            name='bar', version='3.2', group=glamr_models.Credit.DATA
+        )
+        c2.full_clean()
+        c2.save()
+
+        info = glamr_models.AboutInfo.objects.new()
+        info.credits.add(c1, c2)
+        glamr_models.AboutInfo.objects.publish()
+        glamr_models.AboutInfo.objects.new()
+        glamr_models.AboutInfo.objects.auto_update()
+
+    def test_about_page(self):
+        resp = self.client.get(reverse('about'))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_about_history_page(self):
+        resp = self.client.get(reverse('about-history'))
+        self.assertEqual(resp.status_code, 200)
+
+
+class DatasetTest(TestDataMixin, TestCase):
+    def test_summaries(self):
+        glamr_models.Dataset.objects.summary()
+        glamr_models.Dataset.objects.summary(otherize=False)
+        glamr_models.Dataset.objects.summary(otherize=False,
+                                             as_dataframe=False)
+        with self.assertRaises(RuntimeError):
+            glamr_models.Dataset.objects.summary(as_dataframe=False)
+
+
+class SampleTest(TestDataMixin, TestCase):
+    def test_summaries(self):
+        glamr_models.Sample.objects.summary()
+        glamr_models.Sample.objects.summary(blank_sample_type=True)
+        glamr_models.Sample.objects.summary(otherize=False)
+
+
+class DeepLinkTests(TestDataMixin, TestCase):
+    MAX_DEPTH = 2
+
+    href_pat = re.compile(r'<a href="([/?][^"]+)"')
+    """ pattern for local links """
+
+    def do_test_for_url(self, url, depth, parent):
+        if url in self.urls_tested:
+            return
+
+        if depth > self.MAX_DEPTH:
+            self.urls_too_deep.add(url)
+            return
+
+        self.urls_tested.add(url)
+        success = False
+        with self.subTest(url=url, parent=parent):
+            r = self.client.get(url)
+            self.assertEqual(r.status_code, 200)
+            success = True
+
+        if not success:
+            return
+
+        if b'<!doctype html>' not in r.content[:50]:
+            return
+
+        for next_url in self.href_pat.findall(r.content.decode()):
+            if next_url.startswith('?'):
+                # a querystring-only URL, relative to parent
+                # need to prepend parent's path to querystring
+                path, _, _ = url.partition('?')
+                next_url = path + next_url
+            self.do_test_for_url(next_url, depth + 1, parent=url)
+
+    def test_from_frontpage(self):
+        self.urls_tested = set()
+        self.urls_too_deep = set()
+        self.do_test_for_url(reverse('frontpage'), depth=1, parent=None)
+        print(f'\nnumber of URLs tested: {len(self.urls_tested)}')
+        print(f'not tested but at next depth: {len(self.urls_too_deep)}')
+
+
+@tag('longrun')
+@unittest.skip('long runtime')
+class VeryDeepLinkTests(DeepLinkTests):
+    MAX_DEPTH = 3
