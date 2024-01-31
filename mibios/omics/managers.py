@@ -661,6 +661,10 @@ class SampleLoader(MetaDataLoader):
         """
         Update sample table with analysis status
         """
+        # Using a special logfile for this loader method
+        log = getLogger('omics_sample_loader')
+        print(f'Logging to {log.handlers[0].baseFilename}')
+
         # Input file columns of interest:
         SAMPLE_ID = 0
         STUDY_ID = 1
