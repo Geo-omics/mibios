@@ -10,11 +10,13 @@ LOGGING['loggers']['mibios.glamr'] = LOGGING['loggers']['mibios']  # noqa:F405
 # add our app
 INSTALLED_APPS.append('mibios.glamr.apps.AppConfig')  # noqa:F405
 
+TEST_RUNNER = 'mibios.glamr.tests.DiscoverRunner'
+
 # add django-filters
-INSTALLED_APPS.append('django_filters') 
+INSTALLED_APPS.append('django_filters')  # noqa:F405
 
 # add crispy forms
-INSTALLED_APPS.append('crispy_forms')
+INSTALLED_APPS.append('crispy_forms')  # noqa:F405
 CRISPY_ALLOWED_TEMPLATE_PACKS = 'bootstrap4'
 CRISPY_TEMPLATE_PACK = 'bootstrap4'
 

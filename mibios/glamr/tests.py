@@ -4,13 +4,12 @@ python3 -m coverage html -d cov_html
 """
 import re
 import tempfile
-import unittest
 
 from django.apps import apps
 from django.conf import settings
 from django.core.management import call_command
 from django.db import connections
-from django.test import Client, override_settings, TestCase, tag
+from django.test import Client, override_settings, runner, TestCase, tag
 from django.urls import reverse
 
 from mibios.umrad.model_utils import Model
@@ -18,6 +17,24 @@ from .models import Sample
 
 from . import urls0, models as glamr_models
 from .views import SearchMixin
+
+
+class DiscoverRunner(runner.DiscoverRunner):
+    """
+    Test runner that excludes some tests by default.
+
+    To run the excluded tests do e.g.:
+
+        ./manage.py test --tag longrun
+    """
+    default_exclude_tags = ('longrun', )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # add default excludes to excludes, except those that are in tags
+        self.exclude_tags.update(
+            set(self.default_exclude_tags).difference(self.tags)
+        )
 
 
 class TestDataMixin:
@@ -282,6 +299,5 @@ class DeepLinkTests(TestDataMixin, TestCase):
 
 
 @tag('longrun')
-@unittest.skip('long runtime')
 class VeryDeepLinkTests(DeepLinkTests):
     MAX_DEPTH = 3
