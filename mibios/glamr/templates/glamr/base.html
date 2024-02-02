@@ -6,15 +6,16 @@
 {% block head_links_and_scripts %}
 {{ block.super }}
     <link rel="stylesheet" href="{% static 'glamr/css/overview_table.css' %}">
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.1/jquery.min.js"></script>
-    <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js" integrity="sha384-KJ3o2DKtIkvYIK3UENzmM7KCkRr/rE9/Qpg6aAZGJwFDMVNA/GpGFF93hXpG5KkN" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.12.9/dist/umd/popper.min.js" integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q" crossorigin="anonymous"></script>
+    {% if map_points is not None %}
     <link rel="stylesheet" type="text/css" href="https://unpkg.com/leaflet/dist/leaflet.css" crossorigin=""/>
-    <script src="https://unpkg.com/leaflet/dist/leaflet.js" crossorigin=""></script>
+    {% endif %}
 {% endblock %}
 
 {% block top_of_body %}
-    <script src="{% static 'glamr/js/bootstrap.min.js' %}" defer></script>
+    <!-- version info:
+    {# version_info comes from the base context_processor #}
+    {% for k, v in version_info.items %}{{ k }}: {{ v|default:'(not available)' }}
+    {% endfor %}-->
 {% endblock %}
 
 {% block nav_items %}
@@ -44,3 +45,10 @@
     </ul>                                                                                            
     <hr>                                                                                             
 {% endif %}{% endblock %}                                                                        
+
+{% block bottom_of_body %}
+{% if map_points is not None %}
+<script src="https://unpkg.com/leaflet/dist/leaflet.js" crossorigin=""> </script>
+{% endif %}
+<script src="{% static 'glamr/js/bootstrap.min.js' %}" defer></script>
+{% endblock %}
