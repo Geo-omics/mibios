@@ -14,7 +14,7 @@ def populate_references_fwd(apps, schema_editor):
     """
     Dataset = apps.get_model('glamr', 'Dataset')
     # use base manager to include private datasets
-    for i in Dataset._base_manager.all():
+    for i in Dataset._base_manager.exclude(primary_ref=None):
         i.references.add(i.primary_ref)
 
 
