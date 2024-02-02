@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth.models import User
@@ -36,4 +38,5 @@ if settings.INTERNAL_DEPLOYMENT and settings.ENABLE_OPEN_ADMIN:
     admin_site.register(Credit)
 else:
     # allow for import statement in e.g. urls.py
-    admin_site = None
+    admin_site = SimpleNamespace()
+    admin_site.urls = ([], 'glamr', 'admin')
