@@ -1,5 +1,5 @@
 {% extends "glamr/basic_base.html" %}
-{% load static %}
+{% load static glamr_extras %}
 
 {% block title %}{{ page_title | join:" | " | default:'GLAMR' }}{% endblock %}
 
@@ -19,20 +19,19 @@
 {% endblock %}
 
 {% block nav_items %}
-            <li class="nav-item basic-item"><a class="nav-link" href="{% url 'search_initial' %}">Advanced Search</a>
-                <li class="nav-item basic-item"><a class="nav-link" href="{%url 'contact'%}">Contact & Data Submission</a>
-                <li class="nav-item basic-item"><a class="nav-link" href="{%url 'about'%}">About</a>
+    <li class="nav-item basic-item">{% nav_linker 'search_initial' 'Advanced Search' %}</li>
+    <li class="nav-item basic-item">{% nav_linker 'contact' 'Contact &amp; Data&nbsp;Submission' %}</li>
+    <li class="nav-item basic-item">{% nav_linker 'about' 'About' %}</li>
 {% endblock %}
 
 {% block right_nav_section %}
     {% if show_internal_nav %}
     <div class="container-fluid">
-        <ul class="navbar-nav">
+        <ul class="navbar-nav ms-auto">
             <li class="nav-item navbar-text">Internal:</li>
-            <li class="nav-item"><a class="nav-link" href="{% url 'top' %}">table interface</a>
-            <li class="nav-item"><a class="nav-link" href="{% url 'schemata_top' %}">DB schemata</a>
-            <li class="nav-item"><a class="nav-link" href="{% url 'sample_status' %}">sample status</a>
-            <li class="nav-item"><a class="nav-link" href="{% url 'dbinfo' %}">DB info</a>
+            <li class="nav-item">{% nav_linker 'schemata_top' 'DB schemata' %}</li>
+            <li class="nav-item">{% nav_linker 'sample_status' 'sample status' %}</li>
+            <li class="nav-item">{% nav_linker 'dbinfo' 'DB info' %}</li>
         </ul>
     </div>
     {% endif %}
