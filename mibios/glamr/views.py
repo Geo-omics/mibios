@@ -46,6 +46,14 @@ from .utils import split_query
 log = getLogger(__name__)
 
 
+class BaseMixin:
+    """ View mixing for rendering the base.html template """
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['show_internal_nav'] = settings.INTERNAL_DEPLOYMENT
+        return ctx
+
+
 class ExportMixin(ExportBaseMixin):
     """
     Allow data download via query string parameter
@@ -833,7 +841,7 @@ class SearchMixin(SearchFormMixin):
         return ctx
 
 
-class AboutView(DetailView):
+class AboutView(BaseMixin, DetailView):
     template_name = 'glamr/about.html'
     model = models.AboutInfo
 
@@ -1044,11 +1052,11 @@ class AbundanceGeneView(ModelTableMixin, SingleTableView):
             return super().get_values()
 
 
-class ContactView(TemplateView):
+class ContactView(BaseMixin, TemplateView):
     template_name = 'glamr/contact.html'
 
 
-class DBInfoView(RequiredSettingsMixin, SingleTableView):
+class DBInfoView(BaseMixin, RequiredSettingsMixin, SingleTableView):
     required_settings = 'INTERNAL_DEPLOYMENT'
     template_name = 'glamr/dbinfo.html'
     model = None  # set by setup()
@@ -1388,7 +1396,7 @@ class DatasetView(MapMixin, RecordView):
         return fields
 
 
-class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
+class FrontPageView(BaseMixin, SearchFormMixin, MapMixin, SingleTableView):
     model = models.Dataset
     search_model = SearchFormMixin.ANY_MODEL
     template_name = 'glamr/frontpage.html'
@@ -1718,7 +1726,7 @@ class TaxonView(RecordView):
         return qs
 
 
-class SearchView(TemplateView):
+class SearchView(BaseMixin, TemplateView):
     """ offer a form for advanced search, offer model list """
     template_name = 'glamr/search_init.html'
 
