@@ -1,4 +1,4 @@
-{% load static %}
+{% load static glamr_extras %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -32,9 +32,7 @@
                 <a class="navbar-brand" href="{% url 'frontpage' %}">GLAMR
                     <img src="{% static 'glamr/img/GLMA_Logo_Icon.png' %}" class="glamr-logo" alt="GLAMR logo"></a>
             </li>
-            <li class="nav-item basic-item">
-                <a class="nav-link active" aria-current="page" href="{% url 'frontpage' %}">Home</a>
-            </li>
+            <li class="nav-item basic-item">{% nav_linker 'frontpage' 'Home' %}</li>
             {% block nav_items %}{% endblock %}
         </ul>
     </div>

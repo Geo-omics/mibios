@@ -1,6 +1,9 @@
 from django import template
 from django.db.models import Field, Q
 from django.template.defaultfilters import capfirst, stringfilter
+from django.urls import resolve, reverse
+from django.urls.exceptions import Resolver404
+from django.utils.html import format_html
 
 from mibios.glamr.utils import get_record_url
 
@@ -98,3 +101,30 @@ def record_url(*args, **kwargs):
     Return URL to given object/record
     """
     return get_record_url(*args, **kwargs)
+
+
+@register.simple_tag(takes_context=True)
+def nav_linker(context, url_name, url_text, html_class=''):
+    """
+    Helper for nav bar links
+
+    Returns the whole href anchor tag <a class="..." href="...">...</a>
+    """
+    html_class = ' '.join(['nav-link', html_class])
+    try:
+        if url_name == resolve(context['request'].path).url_name:
+            html_class += ' active'
+        else:
+            pass
+    except (Resolver404, KeyError):
+        # Resolver404 gets raised on 404 error pages, so items in nav menu can
+        # all be non-active.  KeyError happens, I think, upon a crash when
+        # rendering the Server Error 500 response (no request in context?!)
+        pass
+
+    return format_html(
+        '<a class="{}" href="{}">{}</a>',
+        html_class,
+        reverse(url_name),
+        url_text,
+    )
