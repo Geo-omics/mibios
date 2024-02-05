@@ -53,6 +53,7 @@ urlpatterns = [
     path('errortest/', views.test_server_error),
     path('minitest/', views.MiniTestView.as_view()),
     path('basetest/', views.BaseTestView.as_view()),
+    path('test2/', views.Test2View.as_view()),
     path('omics/', include(omics_urls)),
 ]
 

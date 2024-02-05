@@ -1968,3 +1968,8 @@ class MiniTestView(RequiredSettingsMixin, View):
 class BaseTestView(RequiredSettingsMixin, TemplateView):
     required_settings = 'ENABLE_TEST_VIEWS'
     template_name = 'glamr/base.html'
+
+
+class Test2View(RequiredSettingsMixin, TemplateView):
+    required_settings = 'ENABLE_TEST_VIEWS'
+    template_name = 'glamr/test2.html'
