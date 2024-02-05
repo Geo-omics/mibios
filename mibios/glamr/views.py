@@ -56,6 +56,7 @@ class BaseMixin(VersionInfoMixin):
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
+        ctx['show_internal_nav'] = settings.INTERNAL_DEPLOYMENT
         try:
             # pick up django_table2 table name
             ctx['version_info']['table'] = ctx['table'].__class__.__name__
