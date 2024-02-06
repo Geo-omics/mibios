@@ -37,6 +37,7 @@ class Table(Table0):
         exclude = list(exclude)
         exclude += ((i for i in self.get_extra_excludes() if i not in exclude))
         data = self.customize_queryset(data)
+        kwargs.setdefault('attrs', {'class': 'paleblue'})
         super().__init__(data=data, exclude=exclude, **kwargs)
 
     def customize_queryset(self, qs):

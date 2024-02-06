@@ -6,6 +6,7 @@
 {% block head_links_and_scripts %}
 {{ block.super }}
     <link rel="stylesheet" href="{% static 'glamr/css/overview_table.css' %}">
+    <link rel="stylesheet" href="{% static 'glamr/css/paleblue-screen.css' %}">
     {% if map_points is not None %}
     <link rel="stylesheet" type="text/css" href="https://unpkg.com/leaflet/dist/leaflet.css" crossorigin=""/>
     {% endif %}
