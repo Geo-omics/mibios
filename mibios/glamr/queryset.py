@@ -4,8 +4,9 @@ from operator import attrgetter
 
 from django.contrib.postgres.search import SearchQuery, TrigramDistance
 from django.db import connections
-from django.db.models import Count, Window
+from django.db.models import Count, F, Func, TextField, Window
 from django.db.models.functions import FirstValue, Length
+from django.utils.safestring import mark_safe
 
 import pandas
 
@@ -140,6 +141,19 @@ class SampleQuerySet(OmicsSampleQuerySet):
         return df
 
 
+class ts_headline(Func):
+    """
+    Postgresql's ts_headline function for search result highlighting
+
+    The function's first argument is the document/text which was hit by the
+    query.  The second argument is the tsquery which we can provide with a
+    SearchQuery(query, search_type).
+    """
+    output_field = TextField()
+    function = 'ts_headline'
+    arity = 2
+
+
 class SearchableQuerySet(QuerySet):
     def search(
         self,
@@ -149,6 +163,7 @@ class SearchableQuerySet(QuerySet):
         fields=[],
         lookup=None,
         search_type='websearch',
+        highlight=None,
     ):
         """
         Full-text search
@@ -160,10 +175,29 @@ class SearchableQuerySet(QuerySet):
             list of str of model names, limit search to given models
         :param list fields:
             list of field names, limits results to these fields
-        :param str lookup: Use this lookup to query the text field
+        :param str lookup:
+            Use this lookup to query the text field.  If this is None, then
+            default to 'icontains' on sqlite.  On postgres the default is to do
+            full text search.
+        :param str search_type:
+            The type of search for postresql's full text search.
+        :param bool highlight:
+            Set to True to HTML-highlight the query term in hits.  If this is
+            None / not set, then this defaults to whether highlighting is
+            implemented, currently only with postgresql full text search.
 
         Returns a dict mapping models to dict mapping fields to tuples.
         """
+        # use postgres full-text search if possible
+        pg_textsearch = (
+            connections[self.db].vendor == 'postgresql'
+            and lookup is None
+        )
+
+        if highlight is None:
+            # by default, do highlighting with pg full text search
+            highlight = pg_textsearch
+
         f = {}
         if abundance:
             f['has_hit'] = True
@@ -173,9 +207,9 @@ class SearchableQuerySet(QuerySet):
             f['field__in'] = fields
             qs = self
 
-        # use postgres full-text search if possible
-        if connections[self.db].vendor == 'postgresql' and lookup is None:
-            f['searchvector'] = SearchQuery(query, search_type=search_type)
+        if pg_textsearch:
+            tsquery = SearchQuery(query, search_type=search_type)
+            f['searchvector'] = tsquery
         else:
             # sqlite etc. or specific lookup requested
             if lookup is None:
@@ -187,13 +221,16 @@ class SearchableQuerySet(QuerySet):
             .select_related('content_type') \
             .order_by('content_type', 'field')
 
+        if pg_textsearch and highlight:
+            qs = qs.annotate(high=ts_headline(F('text'), tsquery))
+
         result = {}
         for ctype, out_grp in groupby(qs, key=attrgetter('content_type')):
             model = ctype.model_class()
             result[model] = {}
             for field, in_grp in groupby(out_grp, key=attrgetter('field')):
                 result[model][field] = [
-                    (i.text, i.object_id)
+                    (mark_safe(i.high if highlight else i.text), i.object_id)
                     for i in in_grp
                 ]
 

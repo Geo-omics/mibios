@@ -8,6 +8,7 @@ from django.core.exceptions import FieldDoesNotExist
 from django.db import connections, transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
+from django.utils.html import escape as escape_html
 from django.utils.module_loading import import_string
 
 from mibios.omics.models import AbstractSample
@@ -487,7 +488,7 @@ class SearchableManager(Loader):
                         continue
 
                     yield self.model(
-                        text=txt,
+                        text=escape_html(txt),
                         has_hit=(obj.pk in whits),
                         field=field_name,
                         content_object=obj,

@@ -38,7 +38,7 @@ from mibios.omics.views import RequiredSettingsMixin
 from . import models, tables, GREAT_LAKES
 from .forms import QBuilderForm, QLeafEditForm, SearchForm
 from .search_fields import ADVANCED_SEARCH_MODELS, search_fields
-from .search_utils import get_suggestions, highlight
+from .search_utils import get_suggestions
 from .url_utils import fast_reverse
 from .utils import split_query
 
@@ -1878,19 +1878,6 @@ class SearchResultMixin(MapMixin):
 
 class SearchResultListView(SearchResultMixin, SearchMixin, ListView):
     template_name = 'glamr/result_list.html'
-
-    def highlight(self):
-        return [
-            (flag, model, obj, field, highlight(self.query, value))
-            for (flag, model, obj, field, value)
-            in self.object_list
-        ]
-
-    def get_context_data(self, *ctx):
-        ctx = super().get_context_data(*ctx)
-        if ctx['object_list']:
-            ctx['object_list'] = self.highlight()
-        return ctx
 
 
 class FilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,

@@ -9,8 +9,6 @@ from django.db import connections, router
 from django.db.backends.signals import connection_created
 from django.db.utils import OperationalError
 from django.dispatch import receiver
-from django.utils.html import escape as html_escape
-from django.utils.safestring import mark_safe
 
 from mibios.omics import get_sample_model
 from mibios.umrad.models import (
@@ -145,37 +143,3 @@ def get_suggestions_sqlite(query):
             else:
                 raise
         return [i[0] for i in cur.fetchall()]
-
-
-def highlight(query, document):
-    if connections['default'].vendor == 'postgresql':
-        return highlight_postgresql(query, document)
-    else:
-        # not implemented; return document unchanged
-        return document
-
-
-def highlight_postgresql(query, document, search_type='websearch'):
-    FUNCS = dict(
-        websearch='websearch_to_tsquery',
-    )
-    SQL = 'SELECT ts_headline(%(document)s, {to_tsquery_func}(%(query)s))'
-
-    try:
-        to_tsquery_func = FUNCS[search_type]
-    except KeyError:
-        raise ValueError('search type not supported: {search_type}')
-
-    sql = SQL.format(to_tsquery_func=to_tsquery_func)
-    params = dict(
-        query=query,
-        document=html_escape(document),
-    )
-
-    with connections['default'].cursor() as cur:
-        cur.execute(sql, params)
-        res = list(cur.fetchall())
-        assert len(res) == 1, f'A: got more (or less) than expected: {res=}'
-        assert len(res[0]) == 1, f'B: got more (or less) than expected: {res=}'
-        # return a str
-        return mark_safe(res[0][0])
