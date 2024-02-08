@@ -16,8 +16,12 @@
     <p>Tried searching for "{{query}}"
     <ul>
     {% for bad, alternatives in suggestions.items %}
-        <li><del>{{bad}}</del>? Did you mean:
-            {% for good, alturl in alternatives %}<a href="{{alturl}}">{{good}}</a> {%endfor%}?
+        <li><del>{{bad}}</del>
+            {%if alternatives%}Did you mean:
+                {% for good, alturl in alternatives %}<a href="{{alturl}}">{{good}}</a> {%endfor%}?
+            {%else%}
+                (I have no suggestion)
+            {%endif%}
         </li>
     {% endfor %}
     </ul></p>

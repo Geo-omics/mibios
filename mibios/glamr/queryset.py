@@ -238,6 +238,9 @@ class SearchableQuerySet(QuerySet):
 
 
 class UniqueWordQuerySet(QuerySet):
+    DISTANCE_CUTOFF = 0.8
+    """ don't suggest spellings further away than this """
+
     def suggest_word(self, word, always=False, check_length=1, limit=20):
         """
         Suggest spelling for a single word
@@ -268,6 +271,11 @@ class UniqueWordQuerySet(QuerySet):
         )
         return qs
 
+    CHECK_LENGTHS = {
+        5: 1,
+        10: 4,
+    }
+
     def suggest_word_always(self, word, check_length=1, limit=20):
         """
         Suggest spelling for a single word
@@ -275,6 +283,17 @@ class UniqueWordQuerySet(QuerySet):
         This method always returns variations, even if word is a perfect match.
         """
         qs = self.annotate(dist=TrigramDistance('word', word))
+        qs = qs.filter(dist__lte=self.DISTANCE_CUTOFF)
+
+        if check_length is None:
+            # Allow less length variation for short words (about +1/-1 seems
+            # right.  For very long, unknown words there are often good matches
+            # among the shorter vocabulary,
+            for cutoff, check_length in self.CHECK_LENGTHS.items():
+                if len(word) >= cutoff:
+                    break
+            else:
+                check_length = int(len(word) / 1.5)
 
         if isinstance(check_length, int):
             if check_length >= 0:
@@ -286,7 +305,7 @@ class UniqueWordQuerySet(QuerySet):
         elif check_length:
             raise ValueError('expect an int or evaluate to False')
 
-        qs = qs.order_by('dist')
+        qs = qs.order_by('dist', 'word')
 
         if limit:
             return qs[:limit]
@@ -298,7 +317,10 @@ class UniqueWordQuerySet(QuerySet):
         Suggest spelling for a phrase
 
         Returns a dict mapping words (in original order) to list of closest
-        matches.
+        matches.  Matches are tuples (distance, word) and are sorted from small
+        to large distance.  An empty list indicates that the word wasn't found
+        and no spelling is suggested, possibly because of distance cutoff.  A
+        None value means correct spelling.
         """
         if isinstance(txt, str):
             auto_mode = True
@@ -306,10 +328,12 @@ class UniqueWordQuerySet(QuerySet):
         else:
             auto_mode = False
 
-        suggestions = {word: [] for word in txt}
+        suggestions = {}
         for word in txt:
             if auto_mode and word.startswith(('-', "'", '"')):
                 # auto mode: don't check quoted text or negated words
+                # Same as if spelled correctly.
+                suggestions[word] = None
                 continue
             matches = list(self.suggest_word(
                 word,
@@ -318,18 +342,20 @@ class UniqueWordQuerySet(QuerySet):
                 limit=limit,
             ))
             if not matches:
-                return []
-            if matches[0].dist == 0.0:
+                suggestions[word] = []
+            elif matches[0].dist == 0.0:
                 # spelled correctly
-                pass
+                suggestions[word] = None
             else:
                 suggestions[word] = [(i.dist, i.word) for i in matches]
 
         return suggestions
 
-    def suggest(self, txt, check_length=1, limit=20):
+    def suggest(self, txt, check_length=None, limit=20):
         """
         Get spelling suggestions
+
+        :params int limit: Limit to thois many suggestions (per word!)
 
         This is the main entry-point for the whole spelling suggestion feature,
         usually called on the unfiltered table, as in
@@ -340,30 +366,9 @@ class UniqueWordQuerySet(QuerySet):
             check_length=check_length,
             limit=limit,
         )
-        unique_dists = sorted(set((
-            i
-            for _, lst in suggestions.items()
-            for i, _ in lst
-        )))
-        if not unique_dists:
-            # all spelled correctly
-            return suggestions
 
-        # limit to first few most-similar matches
-        picked = {i: [] for i in suggestions.keys()}
-        picked_count = 0
-        while picked_count < limit:
-            if unique_dists:
-                cur = unique_dists.pop(0)
-
-            for word in suggestions.keys():
-                if suggestions[word] and suggestions[word][0][0] <= cur:
-                    # word has suggestion with least distance, pick it
-                    picked[word].append(suggestions[word].pop(0)[1])
-                    picked_count += 1
-
-            if not any(suggestions.values()):
-                # nothing left, all suggestions got picked
-                break
-
-        return picked
+        return {
+            # suggestions w/o distance
+            word: None if lst is None else [i for _, i in lst]
+            for word, lst in suggestions.items()
+        }

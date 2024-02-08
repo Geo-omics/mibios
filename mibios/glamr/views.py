@@ -748,11 +748,15 @@ class SearchMixin(SearchFormMixin):
             # get and process spelling suggestions
             suggs = get_suggestions(self.query)
             orig_phrase = suggs.keys()
-            suggestions = {}
+            suggestions = {}  # these are to be displayed
             real_query = {}
             urlpath = reverse('search_result', kwargs=self.kwargs)
             for idx, (word, match_list) in enumerate(suggs.items()):
-                if match_list:
+                if match_list is None:
+                    # word is good
+                    real_query[word] = True
+                    continue
+                else:
                     # word is misspelled
                     real_query[word] = False
                     suggestions[word] = []
@@ -762,10 +766,7 @@ class SearchMixin(SearchFormMixin):
                         alt_query = '+'.join(alt_query)
                         url = f'{urlpath}?query={alt_query}'
                         suggestions[word].append((i, url))
-                else:
-                    # word is good
-                    real_query[word] = True
-                    continue
+
             self.suggestions = suggestions
 
             if any(real_query.values()):
