@@ -201,11 +201,13 @@ class SearchTests(TestDataMixin, EmptyDBViewTests):
     def test_search_view(self):
         ANY = SearchMixin.ANY_MODEL_URL_PART
         for model in [ANY, 'sample', 'dataset']:
-            with self.subTest(model=model):
-                urlkw = dict(model=model)
-                url = reverse('search_result', kwargs=urlkw)
-                r = self.client.get(url, dict(model=model, query='lake+erie'))
-                self.assertEqual(r.status_code, 200)
+            for search_term in ['lake erie', 'lake nosuchthingneverfindthis']:
+                with self.subTest(model=model, search_term=search_term):
+                    urlkw = dict(model=model)
+                    url = reverse('search_result', kwargs=urlkw)
+                    qstr_data = dict(model=model, query=search_term)
+                    r = self.client.get(url, data=qstr_data)
+                    self.assertEqual(r.status_code, 200)
 
 
 class AboutInfoTest(TestDataMixin, TestCase):
