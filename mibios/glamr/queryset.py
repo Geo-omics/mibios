@@ -297,7 +297,8 @@ class UniqueWordQuerySet(QuerySet):
         """
         Suggest spelling for a phrase
 
-        Returns a dict mapping words to list of closest matches.
+        Returns a dict mapping words (in original order) to list of closest
+        matches.
         """
         if isinstance(txt, str):
             auto_mode = True
@@ -348,15 +349,21 @@ class UniqueWordQuerySet(QuerySet):
             # all spelled correctly
             return suggestions
 
-        # limit to most-similar matches
-        limited = [(i, []) for i, _ in suggestions.items()]
-        total = 0
-        while total < limit:
+        # limit to first few most-similar matches
+        picked = {i: [] for i in suggestions.keys()}
+        picked_count = 0
+        while picked_count < limit:
             if unique_dists:
                 cur = unique_dists.pop(0)
-            for (_, lim_lst), (_, full_lst) in zip(limited, suggestions.items()):  # noqa:E501
-                if full_lst and full_lst[0][0] <= cur:
-                    lim_lst.append(full_lst.pop(0)[1])
-                    total += 1
 
-        return dict(limited)
+            for word in suggestions.keys():
+                if suggestions[word] and suggestions[word][0][0] <= cur:
+                    # word has suggestion with least distance, pick it
+                    picked[word].append(suggestions[word].pop(0)[1])
+                    picked_count += 1
+
+            if not any(suggestions.values()):
+                # nothing left, all suggestions got picked
+                break
+
+        return picked
