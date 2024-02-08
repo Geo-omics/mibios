@@ -43,7 +43,7 @@ class TestDataMixin:
     def setUpTestData(cls):
         call_command(
             'loaddata',
-            f'{settings.TEST_FIXURES_DIR / "test_metadata.json"}',
+            f'{settings.TEST_FIXTURES_DIR / "test_metadata.json"}',
         )
 
 
@@ -160,7 +160,8 @@ class LoadMetaDataTests(TestCase):
                 'dumpdata',
                 '--all',
                 '--indent=4',
-                f'--output={settings.TEST_FIXURES_DIR / "test_metadata.json"}',
+                f'--output='
+                f'{settings.TEST_FIXTURES_DIR / "test_metadata.json"}',
                 'glamr.sample',
                 'glamr.reference',
                 'glamr.dataset',
