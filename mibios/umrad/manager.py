@@ -762,7 +762,7 @@ class BaseLoader(MibiosBaseManager):
 
         if m2m_data:
             # get accession -> pk map
-            qs = self.model.objects.values_list(
+            qs = self.model._base_manager.values_list(
                 *self.model.get_accession_lookups(),
                 'pk',
             )
@@ -813,7 +813,7 @@ class BaseLoader(MibiosBaseManager):
             return
 
         # get existing
-        qs = model.objects.all()
+        qs = model._base_manager.all()
         qs = qs.values_list(model.get_accession_lookup_single(), 'pk')
         a2pk = dict(qs.iterator())
         print(f' / known: {len(a2pk)}', end='', flush=True)
