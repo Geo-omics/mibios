@@ -543,40 +543,40 @@ class BaseLoader(MibiosBaseManager):
                     row_skip_count += 1
                     break  # skips line / avoids for-else block
 
-                if obj is None:
-                    # the first field
-                    if update:
-                        # first field MUST identify the object, the value's
-                        # type must match that of the obj pool's keys
-                        if value is None:
-                            row_skip_count += 1
-                            break  # skips line
+                # obj is always None for first field
+                if obj is None and update:
+                    # Try locating obj in obj_pool; first field MUST identify
+                    # the object, the value's type must match that of the obj
+                    # pool's keys
+                    if value is None:
+                        row_skip_count += 1
+                        break  # skips line
 
-                        value = field.to_python(value)
-                        if value in obj_pool:
-                            obj = obj_pool[value]
-                            if obj is None:
-                                raise InputFileError(
-                                    f'duplicate key value: {value} at line '
-                                    f'{lineno}'
-                                )
-                            obj_pool[value] = None
-                            obj_is_new = False
-                            # the value is already set, go to next field please
-                            continue
-                        elif strict_update:
+                    value = field.to_python(value)
+                    if value in obj_pool:
+                        obj = obj_pool[value]
+                        if obj is None:
                             raise InputFileError(
-                                f'strict update violation at line {lineno}: '
-                                f'record with ID value "{value}" does not '
-                                f'exist in DB'
+                                f'duplicate key value: {value} at line '
+                                f'{lineno}'
                             )
-                        else:
-                            obj = self.model(**template)
-                            obj_is_new = True
-
+                        obj_pool[value] = None
+                        obj_is_new = False
+                        # the value is already set, go to next field please
+                        continue
+                    elif strict_update:
+                        raise InputFileError(
+                            f'strict update violation at line {lineno}: '
+                            f'record with ID value "{value}" does not '
+                            f'exist in DB'
+                        )
                     else:
-                        obj = self.model(**template)
-                        obj_is_new = True
+                        # not found, obj remains None, create new one below
+                        pass
+
+                if obj is None:
+                    obj = self.model(**template)
+                    obj_is_new = True
 
                 if field.many_to_many:
                     # the "value" here is a list of tuples of through model
