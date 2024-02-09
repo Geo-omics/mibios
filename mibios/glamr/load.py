@@ -103,36 +103,13 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
 
         return value
 
-    def get_reference_ids(self, value, obj):
-        # FIXME: is unused, can this be removed?
-        if value is None or value == '':
-            return self.spec.IGNORE_COLUMN
-
-        Reference = self.model._meta.get_field('reference').related_model
-        id_lookups = Reference.get_accession_lookups()
-
-        try:
-            ref = Reference.objects.get(short_reference=value)
-        except Reference.DoesNotExist as e:
-            msg = f'unknown reference: {value}'
-            raise InputFileError(msg) from e
-        except Reference.MultipleObjectsReturned as e:
-            # FIXME: keep this for initial dev
-            msg = f'reference is not unique: {value}'
-            raise InputFileError(msg) from e
-
-        return tuple((getattr(ref, i) for i in id_lookups))
-
-    def clean_ref_id(self, value, obj):
-        """ handle some too-human temposrary field content """
-        if value == 'TBD':
-            return None
-        return value
+    def split_by_comma(self, value, obj):
+        return [(i, ) for i in self.split_m2m_value(value, sep=',')]
 
     spec = CSV_Spec(
         ('dataset', 'dataset_id', ensure_id),
-        # ('???', 'reference'),
-        ('Primary_pub', 'primary_ref.reference_id', 'clean_ref_id'),
+        ('Associated_papers', 'references', split_by_comma),
+        ('Primary_pub', 'primary_ref.reference_id'),
         ('primary_pub_title', None),
         ('NCBI_BioProject', 'bioproject'),
         ('JGI_Project_ID', 'jgi_project'),
