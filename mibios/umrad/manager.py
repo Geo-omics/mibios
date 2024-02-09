@@ -907,19 +907,19 @@ class BaseLoader(MibiosBaseManager):
 
         return partial(prep_choice_value, self)
 
-    def split_m2m_value(self, value, row=None):
+    def split_m2m_value(self, value, row=None, sep=';'):
         """
         Pre-processor to split semi-colon-separated list-field values
 
-        This will additionally sort and remove duplicates.  If you don't want
+        This will additionally strip leading or trailing white-space, ignore
+        extra semicolons, and sort and remove duplicates.  If you don't want
         this use the split_m2m_value_simple() method.
         """
-        # split and remove empties:
-        items = (i for i in value.split(';') if i)
-        # TODO: duplicates in input data (NAME/function column), tell Teal?
-        # TODO: check with Teal if order matters or if it's okay to sort
-        items = sorted(set(items))
-        return items
+        if value is None:
+            return []
+
+        items = (val for i in value.split(sep) if (val := i.strip()))
+        return sorted(set(items))
 
     def split_m2m_value_simple(self, value, row=None):
         """
