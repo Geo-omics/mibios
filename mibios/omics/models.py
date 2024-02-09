@@ -47,10 +47,12 @@ class AbstractSample(Model):
     TYPE_AMPLICON = 'amplicon'
     TYPE_METAGENOME = 'metagenome'
     TYPE_METATRANS = 'metatranscriptome'
+    TYPE_ISOLATE = 'isolate_genome'
     SAMPLE_TYPES_CHOICES = (
         (TYPE_AMPLICON, TYPE_AMPLICON),
         (TYPE_METAGENOME, TYPE_METAGENOME),
         (TYPE_METATRANS, TYPE_METATRANS),
+        (TYPE_ISOLATE, TYPE_ISOLATE),
     )
 
     sample_id = models.CharField(
