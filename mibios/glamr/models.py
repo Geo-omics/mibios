@@ -313,6 +313,26 @@ class Dataset(AbstractDataset):
 
         return s
 
+    def display_simple(self):
+        """
+        Get string for display without reference
+
+        May save a DB query compared to __str__().
+        """
+        maxlen = 60
+        scheme = self.scheme
+        if scheme and len(scheme) > maxlen:
+            scheme = scheme[:maxlen]
+            # remove last word and add [...]
+            scheme = ' '.join(scheme.split(' ')[:-1]) + '[\u2026]'
+
+        s = scheme or self.short_name or super().__str__()
+
+        if settings.INTERNAL_DEPLOYMENT:
+            s = f'{s} ({self.dataset_id})'
+
+        return s
+
     @classmethod
     def get_record_url(cls, key, ktype=None):
         if ktype is not None:

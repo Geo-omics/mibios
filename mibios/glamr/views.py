@@ -40,7 +40,7 @@ from .forms import QBuilderForm, QLeafEditForm, SearchForm
 from .search_fields import ADVANCED_SEARCH_MODELS, search_fields
 from .search_utils import get_suggestions
 from .url_utils import fast_reverse
-from .utils import split_query
+from .utils import get_record_url, split_query
 
 
 log = getLogger(__name__)
@@ -1109,6 +1109,7 @@ class RecordView(DetailView):
     """ a list of field names, setting the order of display, invalid names are
     ignored, fields not listed go last, in the order they are declared in the
     model class """
+    # FIXME: doc for fields is not accurate
 
     related = None
     """ *-to-many fields for which to show objects """
@@ -1522,8 +1523,20 @@ class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
 
 
 class ReferenceView(RecordView):
+    """
+    Display fields in roughly in bibliographic order.
+
+    Shows related datasets at last (if any), depending if this is a primary
+    paper or not.
+    """
     model = models.Reference
+    fields = ['authors', 'title', 'publication', 'doi', 'key_words',
+              'abstract', 'dataset_primary', 'dataset']
     exclude = ['reference_id', 'short_reference']
+    related = []
+
+    def get_queryset(self):
+        return super().get_queryset().prefetch_related('dataset_set')
 
     def get_object_lookups(self):
         key = self.kwargs['key']
@@ -1532,6 +1545,48 @@ class ReferenceView(RecordView):
         else:
             # default to lookup via paper number
             return dict(reference_id=f'paper_{key}')
+
+    def get_publication_detail(self, field, item):
+        name, info, values, unit = item
+        values = [(f'{self.object.publication} ({self.object.year})', None)]
+        return ('published in', info, values, unit)
+
+    def get_dataset_primary_detail(self, field, item):
+        name, info, _, _ = item
+        values = [
+            (i.display_simple(), get_record_url(i))
+            for i in self.object.dataset_set.all()
+            if i.primary_ref_id == self.object.pk
+        ]
+        if values:
+            return (name, 'for which this is the primary paper', values, None)
+        else:
+            return None
+
+    def get_dataset_detail(self, field, item):
+        """
+        Show any non-primary datasets
+        """
+        name, info, _, _ = item
+        values = [
+            (i.display_simple(), get_record_url(i))
+            for i in self.object.dataset_set.all()
+            if i.primary_ref_id != self.object.pk
+        ]
+
+        is_primary = any((
+            i.primary_ref_id == self.object.pk
+            for i in self.object.dataset_set.all()
+        ))
+        if is_primary:
+            name = f'Other associated {name}'
+        else:
+            name = f'Associated {name}'
+
+        if values:
+            return (name, info, values, None)
+        else:
+            return None
 
 
 class OverView(SingleTableView):
