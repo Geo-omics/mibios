@@ -585,7 +585,7 @@ class BaseLoader(MibiosBaseManager):
                     # models this is just the remote object's accession (which
                     # will later be replaced by the pk/id.)  If value comes in
                     # as a str, this list-of-tuples is generated below.  If it
-                    # is neither None nor a str, the we assume that a
+                    # is neither None nor a str, then we assume that a
                     # pre-processing method has taken care of everything.  For
                     # through models with additional data the parameters must
                     # be in the correct order.
@@ -766,11 +766,11 @@ class BaseLoader(MibiosBaseManager):
                 *self.model.get_accession_lookups(),
                 'pk',
             )
-            accpk = {tuple(accs): pk for *accs, pk in qs.iterator()}
+            accpk = {tuple(accs): pk for *accs, pk in qs}
 
             # replace accession with pk in m2m data keys
             m2m_data = {accpk[i]: data for i, data in m2m_data.items()}
-            del accpk
+            del accpk, qs
 
             # collecting all m2m entries
             for field in (i for i in fields if i.many_to_many):
