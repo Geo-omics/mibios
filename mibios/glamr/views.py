@@ -1331,6 +1331,8 @@ class RecordView(DetailView):
             detail_fn_name = f'get_{attrname}_detail'
             if detail_fn := getattr(self, detail_fn_name, None):
                 item = detail_fn(i, item)
+                if item is None:
+                    continue
             details.append(item)
 
         if exturl := self.object.get_external_url():
