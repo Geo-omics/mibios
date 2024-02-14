@@ -22,8 +22,9 @@ from django.db.models import Q
 # 'getiterator' inside xlrd when trying to pandas.read_excel().  See also
 # https://stackoverflow.com/questions/64264563
 import xlrd
-xlrd.xlsx.ensure_elementtree_imported(False, None)
-xlrd.xlsx.Element_has_iter = True
+if xlrd.__version__.startswith('1.2'):
+    xlrd.xlsx.ensure_elementtree_imported(False, None)
+    xlrd.xlsx.Element_has_iter = True
 
 
 thread_data = local()
