@@ -139,7 +139,13 @@ class EmptyDBViewTests(TestCase):
 
 
 @override_settings(ROOT_URLCONF=urls0)
-class LoadMetaDataTests(TestCase):
+class AAALoadMetaDataTests(TestCase):
+    """
+    Test loading the meta data and save as a fixture
+
+    The test class' name starts with AAA so it runs first and provides the
+    fistures to be used by other tests.
+    """
 
     def setUp(self):
         self.tmpd = tempfile.TemporaryDirectory()
