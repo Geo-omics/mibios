@@ -57,7 +57,9 @@ urlpatterns = [
 ]
 
 if settings.INTERNAL_DEPLOYMENT:
-    urlpatterns.append(path('tables/', include((mibios_urls, 'mibios'))))
+    urlpatterns.append(
+        path('', include(mibios_urls.model_graph_urls))
+    )
 
 
 # The default template names are without path, so take up the global name space

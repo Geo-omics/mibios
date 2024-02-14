@@ -43,6 +43,11 @@ data_name_urls = [
          name='record_history'),
 ]
 
+model_graph_urls = [
+    path('model-graphs/', views.ModelGraphView.as_view(), name='schemata_top'),
+    path('model-graphs/<str:app_name>/', views.ModelGraphView.as_view(), name='app_schema'),  # noqa:E501
+]
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', views.FrontPageView.as_view(), name='top'),
@@ -60,8 +65,7 @@ urlpatterns = [
     path(settings.MEDIA_URL.lstrip('/') + 'imported/<int:year>/<str:name>',
          views.ImportFileDownloadView.as_view(), name='import_file_download'),
     path('log/<int:import_file_pk>/', views.LogView.as_view(), name='log'),
-    path('model-graphs/', views.ModelGraphView.as_view(), name='schemata_top'),
-    path('model-graphs/<str:app_name>/', views.ModelGraphView.as_view(), name='app_schema'),  # noqa:E501
+    path('', include(model_graph_urls)),
     # fixed string paths go above this comment
     path('<str:data_name>/', include(data_name_urls)),
 ]
