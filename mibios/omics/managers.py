@@ -3,6 +3,7 @@ Module for data load managers
 """
 
 from collections import defaultdict
+from datetime import date
 from functools import partial
 from itertools import groupby, islice
 from logging import getLogger
@@ -10,6 +11,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 from django.conf import settings
@@ -661,10 +663,6 @@ class SampleLoader(MetaDataLoader):
         """
         Update sample table with analysis status
         """
-        # Using a special logfile for this loader method
-        log = getLogger('omics_sample_loader')
-        print(f'Logging to {log.handlers[0].baseFilename}')
-
         # Input file columns of interest:
         SAMPLE_ID = 0
         STUDY_ID = 1
@@ -680,10 +678,31 @@ class SampleLoader(MetaDataLoader):
             (SUCCESS, 'import_success'),
         )
 
+        # setup log file output
+        if log_dir := getattr(settings, 'IMPORT_DIFF_DIR', ''):
+            # find a unique log file name and set up the log handler
+            path = Path(log_dir) / 'omics_status_update'
+            today = date.today()
+            suffix = f'.{today}.log'
+            num = 0
+            while path.with_suffix(suffix).exists():
+                num += 1
+                suffix = f'.{today}.{num}.log'
+
+            log_file = path.with_suffix(suffix).open('w')
+            print(f'Logging to: {log_file.name}')
+        else:
+            log_file = sys.stdout
+
+        def log(msg):
+            if quiet and msg.startswith('INFO'):
+                return
+            print(msg, file=log_file)
+
         def err(msg):
-            msg = f'line {lineno}: {msg}'
+            msg = f'ERROR: {msg}'
             if skip_on_error:
-                log.error(msg)
+                log(msg)
             else:
                 raise RuntimeError(msg)
 
@@ -728,15 +747,15 @@ class SampleLoader(MetaDataLoader):
 
                 if success != 'TRUE':
                     if not quiet:
-                        log.info(f'ignoring {sample_id}: no import success')
+                        log(f'INFO ignoring {sample_id}: no import success')
                     nosuccess += 1
                     continue
 
                 try:
                     obj = objs[sample_id]
                 except KeyError:
-                    log.warning(f'line {lineno}: unknown sample: {sample_id} '
-                                f'(skipping)')
+                    log(f'WARNING line {lineno}: unknown sample: {sample_id} '
+                        f'(skipping)')
                     notfound += 1
                     continue
 
@@ -763,7 +782,7 @@ class SampleLoader(MetaDataLoader):
                         change_set.append(attr)
                 if change_set:
                     need_save = True
-                    save_info = (f'update: {obj} change_set: '
+                    save_info = (f'INFO update: {obj} change_set: '
                                  f'{", ".join(change_set)}')
                 else:
                     need_save = False
@@ -773,36 +792,35 @@ class SampleLoader(MetaDataLoader):
                     obj.metag_pipeline_reg = True
                     obj.full_clean()
                     obj.save()
-                    log.info(save_info)
+                    log(save_info)
                     changed += 1
 
                 good_seen.append(obj.pk)
 
-        log.info('Summary:')
-        log.info(f'  records read from file: {lineno}')
-        log.info(f'  (unique) samples listed: {len(samp_id_seen)}')
-        log.info(f'  samples updated: {changed}')
+        log('Summary:')
+        log(f'  records read from file: {lineno}')
+        log(f'  (unique) samples listed: {len(samp_id_seen)}')
+        log(f'  samples updated: {changed}')
         if notfound:
-            log.warning(
-                f'Samples missing from database (or hidden): {notfound}'
-            )
+            log(f'WARNING Samples missing from database (or hidden): '
+                f'{notfound}')
 
         if nosuccess:
-            log.warning(f'Samples not marked "import_success": {nosuccess}')
+            log(f'WARNING Samples not marked "import_success": {nosuccess}')
 
         if unchanged:
-            log.info(f'Data for {unchanged} listed samples remain unchanged.')
+            log(f'Data for {unchanged} listed samples remain unchanged.')
 
         missing_or_bad = self.exclude(pk__in=good_seen)
         if missing_or_bad.exists():
-            log.warning(f'The DB has {missing_or_bad.count()} samples '
-                        f'which are missing from {source_file} or which had '
-                        f'to be skipped for other reasons.')
+            log(f'WARNING The DB has {missing_or_bad.count()} samples '
+                f'which are missing from {source_file} or which had '
+                f'to be skipped for other reasons.')
 
         missing = self.exclude(sample_id__in=samp_id_seen)
         if missing.exists():
-            log.warning(f'The DB has {missing.count()} samples not at all '
-                        f'listed in {source_file}')
+            log(f'WARNING The DB has {missing.count()} samples not at all '
+                f'listed in {source_file}')
 
     def status(self):
         if not self.exists():

@@ -16,19 +16,6 @@ OMICS_DATASET_MODEL = 'omics.Dataset'
 
 # register logging
 LOGGING['loggers']['omics'] = LOGGING['loggers']['mibios']  # noqa:F405
-LOGGING['handlers']['omics_sample_import_log'] = {  # noqa:F405
-    'formatter': 'verbose',
-    'level': 'DEBUG',
-    'class': 'logging.FileHandler',
-    'filename': 'omics_sample_loader.log',  # add dest dir at runtime
-    'encoding': 'UTF-8',
-}
-LOGGING['loggers']['omics_sample_loader'] = {  # noqa:F405
-    'handlers': ['omics_sample_import_log'],
-    'propagate': False,
-    'level': 'DEBUG',
-}
-
 
 METAGENOMIC_LOADING_LOG = None
 
