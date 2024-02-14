@@ -22,6 +22,7 @@ from django.utils.html import format_html
 from rest_framework.serializers import HyperlinkedModelSerializer
 from rest_framework.viewsets import ReadOnlyModelViewSet
 
+from django_tables2 import table_factory
 
 import pandas
 from pandas.api.types import is_numeric_dtype
@@ -645,6 +646,23 @@ class QuerySet(models.QuerySet):
         c._rev_rel_count_fields = list(self._rev_rel_count_fields)
         c._manager = self._manager
         return c
+
+    def save_csv(self, path, sep='\t'):
+        table = table_factory(self.model)(data=self)
+        count = 0
+        with Path(path).open('w') as ofile:
+            for values in table.as_values():
+                row = []
+                for val in values:
+                    if val is None:
+                        val = ''
+                    else:
+                        val = str(val)
+                    row.append(val)
+
+                ofile.write(sep.join(row) + '\n')
+                count += 1
+        print(f'Saved {count} rows to {ofile.name}')
 
 
 class BaseManager(models.manager.BaseManager):
