@@ -183,6 +183,39 @@ class AAALoadMetaDataTests(TestCase):
         )
 
 
+class LoaderTests(TestDataMixin, TestCase):
+    def setUp(self):
+        self.tmpd = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmpd.cleanup()
+
+    def test_loader_delete(self):
+        """ test loader delete mode """
+        if not settings.GLAMR_META_ROOT.is_dir():
+            self.skipTest(f'{settings.GLAMR_META_ROOT=} does not exist')
+
+        qs = glamr_models.Sample.objects.all()
+        count = qs.count()
+
+        # create a sample which does not exist in input data
+        obj = qs.first()
+        obj.sample_id = obj.sample_id + '_foo'
+        obj.id = None  # trigger an INSERT
+        obj.save()
+
+        self.assertEqual(qs.count(), count + 1)
+
+        with self.settings(IMPORT_DIFF_DIR=self.tmpd.name):
+            # should delete the above sample
+            Sample.loader.load(delete=True, no_input=True)
+
+        self.assertEqual(qs.count(), count)
+
+        with self.assertRaises(glamr_models.Sample.DoesNotExist):
+            qs.get(pk=obj.id)
+
+
 class SearchTests(TestDataMixin, EmptyDBViewTests):
     @classmethod
     def setUpTestData(cls):

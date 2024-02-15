@@ -884,6 +884,7 @@ def save_import_diff(
     new_pk_min=None,
     new_pk_max=None,
     missing_objs=[],
+    delete_info=None,
     path=None,
     dry_run=False,
 ):
@@ -893,22 +894,30 @@ def save_import_diff(
     if path is None:
         path = settings.IMPORT_DIFF_DIR
 
-    summary = (f'new: {new_count},  changed: {len(change_set)},  unchanged: '
-               f'{unchanged_count},  missing: {len(missing_objs)}')
+    summary = (
+        f'new: {new_count},  changed: {len(change_set)},  unchanged: '
+        f'{unchanged_count},  missing: {len(missing_objs)},  '
+        f'deleted: {delete_info}'
+    )
+
     print('Summary:', summary)
     now = datetime.now()
 
     if dry_run:
-        opath = Path(path) / f'{model._meta.model_name}.dryrun.txt'
+        opath = Path(path) / f'{model._meta.model_name}.dryrun.log'
     else:
         # try to make a unique filename, but overwrite after last attempt
         def suffixes():
             yield '.txt'
             for i in range(1, 99):
                 yield f'.{i}.txt'
-        obase = Path(path) / f'{model._meta.model_name}.{now.date()}.txt'
+
+        obase = f'{model._meta.model_name}.{now.date()}'
+        if delete_info:
+            obase += '.deleted'
+
         for suf in suffixes():
-            opath = obase.with_suffix(suf)
+            opath = Path(path) / (obase + suf)
             if not opath.exists():
                 break
 

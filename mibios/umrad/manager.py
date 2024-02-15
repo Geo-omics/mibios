@@ -281,11 +281,13 @@ class BaseLoader(MibiosBaseManager):
     _DEFAULT_LOAD_KWARGS = dict(
         sep=None,
         skip_on_error=0,
+        delete=False,
         update=False,
         strict_update=False,
         bulk=False,
         validate=False,
         diff_stats=False,
+        no_input=False,
     )
     # Inheriting classes can set default kwargs for load() here.  In __init__()
     # anything missing is set from _DEFAULT_LOAD_KWARGS above, which inheriting
@@ -333,6 +335,14 @@ class BaseLoader(MibiosBaseManager):
             step as it hurts performance.  Turn this on if the DB raises in
             issue as this way the error message will point to the offending
             line.
+        :param bool delete:
+            Set to True for delete mode.  Defaults to False.  In delete mode
+            the input file is read as usual and records already in the database
+            but which do not occur in the input file are deleted.  Nothing else
+            changes, no updates or record creations.
+        :param bool no_input:
+            If True, then this NOT prompt the user to confirm deleting data
+            (when in delete mode).  Defaults to False.
 
         """
         # Most work is delegated to _load_rows(), here in the body of load() we
@@ -341,6 +351,11 @@ class BaseLoader(MibiosBaseManager):
         # set default kwargs if any are missing
         for k, v in self.default_load_kwargs.items():
             kwargs.setdefault(k, v)
+
+        if kwargs['delete'] and not kwargs['update']:
+            raise ValueError(
+                'Incompatible options: delete mode requires the update option'
+            )
 
         # setup spec
         setup_kw = dict(spec=spec)
@@ -412,20 +427,28 @@ class BaseLoader(MibiosBaseManager):
             else:
                 raise
 
-        if diff:
-            if diff['new_count'] or diff['change_set'] or diff['missing_objs']:
-                try:
-                    diff_dir = settings.IMPORT_DIFF_DIR
-                except AttributeError:
-                    diff_dir = ''
+        if not diff:
+            return
 
-                if diff_dir:
-                    save_import_diff(self.model, **diff, dry_run=dry_run)
-                else:
-                    print('WARNING: IMPORT_DIFF_DIR not configured - not '
-                          'saving import diff')
+        something_changed = any((
+            diff.get(i, None)
+            for i
+            in ('delete_info', 'new_count', 'change_set', 'missing_objs')
+        ))
+
+        if something_changed:
+            try:
+                diff_dir = settings.IMPORT_DIFF_DIR
+            except AttributeError:
+                diff_dir = ''
+
+            if diff_dir:
+                save_import_diff(self.model, **diff, dry_run=dry_run)
             else:
-                print('diff: no changes recorded')
+                print('WARNING: IMPORT_DIFF_DIR not configured - not '
+                      'saving import diff')
+        else:
+            print('diff: no changes recorded')
 
     def setup_spec(self, spec=None, **kwargs):
         if spec is None:
@@ -443,9 +466,11 @@ class BaseLoader(MibiosBaseManager):
         template={},
         skip_on_error=0,
         validate=False,
+        delete=False,
         update=False,
         strict_update=False,
         bulk=True,
+        no_input=False,
         first_lineno=None,
         diff_stats=False,
     ):
@@ -664,7 +689,7 @@ class BaseLoader(MibiosBaseManager):
 
         del fkmap, field, value, pk, obj, m2m
 
-        if update:
+        if update or delete:
             missing_objs = [(j.pk, i) for i, j in obj_pool.items() if j]
             if missing_objs:
                 print(f'WARNING: {len(missing_objs)} existing {model_name} '
@@ -690,6 +715,10 @@ class BaseLoader(MibiosBaseManager):
                   f'see file spec)')
 
         if not new_objs and not upd_objs:
+            # Assume the empty file (or what else?) is an error.  In
+            # particular, an empty input file can not be used to delete all
+            # data.  Accordingly, all data changes happen further down in this
+            # method.
             print('WARNING: nothing saved, empty file or all got skipped')
             return
 
@@ -700,33 +729,55 @@ class BaseLoader(MibiosBaseManager):
         update_fields = [i.name for i in fields if not i.many_to_many]
 
         if diff_stats:
-            diff = {
-                'change_set': [],
-                'unchanged_count': 0,
-                'new_count': len(new_objs),
-            }
-            if update:
+            diff = {}
+            if update or delete:
                 diff['missing_objs'] = missing_objs
-            # retrieve old objects again
-            upd_q = make_int_in_filter('pk', [i.pk for i in upd_objs])
-            old_objs = self.filter(upd_q)
-            upd_objs_by_pk = {i.pk: i for i in upd_objs}  # for fast access
-            old_value, upd_value, items = None, None, None
-            for i in old_objs.iterator():
-                # compile differences
-                items = []
-                for j in update_fields:
-                    old_value = getattr(i, j)
-                    upd_value = getattr(upd_objs_by_pk[i.pk], j)
-                    if old_value != upd_value:
-                        items.append((j, old_value, upd_value))
-                if items:
-                    diff['change_set'].append(
-                        (i.pk, getattr(i, fields[0].name), items)
-                    )
-                else:
-                    diff['unchanged_count'] += 1
-            del upd_q, old_objs, old_value, upd_value, items
+
+            if not delete:
+                diff['change_set'] = []
+                diff['unchanged_count'] = 0
+                diff['new_count'] = len(new_objs)
+
+                # retrieve old objects again
+                upd_q = make_int_in_filter('pk', [i.pk for i in upd_objs])
+                old_objs = self.filter(upd_q)
+                upd_objs_by_pk = {i.pk: i for i in upd_objs}  # for fast access
+                old_value, upd_value, items = None, None, None
+                for i in old_objs.iterator():
+                    # compile differences
+                    items = []
+                    for j in update_fields:
+                        old_value = getattr(i, j)
+                        upd_value = getattr(upd_objs_by_pk[i.pk], j)
+                        if old_value != upd_value:
+                            items.append((j, old_value, upd_value))
+                    if items:
+                        diff['change_set'].append(
+                            (i.pk, getattr(i, fields[0].name), items)
+                        )
+                    else:
+                        diff['unchanged_count'] += 1
+                del upd_q, old_objs, old_value, upd_value, items
+
+        if delete:
+            del_info = self.model._base_manager \
+                           .filter(pk__in=[pk for pk, _ in missing_objs]) \
+                           .delete()
+            if not no_input:
+                input(
+                    f'Deleted objects info:\n'
+                    f'{del_info}\n'
+                    f'Press ^C to abort the transaction.\n'
+                    f'Press <Enter> to commit to the deletion.\n'
+                )
+            # delete mode: only deletes data, so no
+            # update or creation just return here.
+            if diff_stats:
+                if del_info != (0, {}):
+                    diff['delete_info'] = del_info
+                return diff
+            else:
+                return
 
         if upd_objs:
             if bulk:
