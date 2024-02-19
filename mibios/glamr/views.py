@@ -15,6 +15,7 @@ from django.http import Http404, HttpResponse
 from django.urls import reverse
 from django.utils.functional import classproperty
 from django.utils.html import format_html
+from django.views.decorators.cache import cache_page
 from django.views.generic import DetailView
 from django.views.generic.base import TemplateView, View
 from django.views.generic.list import ListView
@@ -47,6 +48,12 @@ log = getLogger(__name__)
 
 
 class BaseMixin(VersionInfoMixin):
+    def dispatch(self, request, *args, cache=True, **kwargs):
+        if cache:
+            return cache_page(300)(super().dispatch)(request, *args, **kwargs)
+        else:
+            return super().dispatch(request, *args, **kwargs)
+
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         try:
@@ -62,6 +69,7 @@ class ExportMixin(ExportBaseMixin):
     Allow data download via query string parameter
 
     Should be used together with a django_tables2 table view.
+    Also requires BaseMixin to pass around the cache option.
     """
     export_query_param = 'export'
     export_options = None
@@ -99,6 +107,11 @@ class ExportMixin(ExportBaseMixin):
         value = value.replace('_', '-')
         value = value.replace(' ', '-')
         return value
+
+    def dispatch(self, request, *args, cache=False, **kwargs):
+        # do not cache data export
+        cache = cache or self.export_check() is None
+        return super().dispatch(request, *args, cache=cache, **kwargs)
 
     def get(self, request, *args, **kwargs):
         export_opt = self.export_check()
