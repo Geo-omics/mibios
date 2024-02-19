@@ -51,7 +51,6 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
-    'mibios.utils.StatsMiddleWare',
     'django.middleware.common.BrokenLinkEmailsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
