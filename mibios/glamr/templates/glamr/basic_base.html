@@ -13,6 +13,16 @@
 </head>
 <body>
 {% block top_of_body %}{% endblock %}
+<!-- version info:
+{% if version_info %}
+    {% for k, v in version_info.items %}{{ k }}: {{ v|default:'(not available)' }}
+    {% endfor %}
+{% else %} {# error_version_info comes from the base context_processor #}
+    (error)
+    {% for k, v in error_version_info.items %}{{ k }}: {{ v|default:'(not available)' }}
+    {% endfor %}
+{% endif %}-->
+
 <div class="container-fluid">
     
     <nav class="navbar navbar-expand-md navbar-dark navbar-main">

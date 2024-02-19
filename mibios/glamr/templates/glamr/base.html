@@ -16,10 +16,6 @@
 {% endblock %}
 
 {% block top_of_body %}
-    <!-- version info:
-    {# version_info comes from the base context_processor #}
-    {% for k, v in version_info.items %}{{ k }}: {{ v|default:'(not available)' }}
-    {% endfor %}-->
     <script src="{% static 'glamr/js/bootstrap.min.js' %}" defer></script>
 {% endblock %}
 

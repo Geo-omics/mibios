@@ -73,7 +73,37 @@ class CuratorRequiredMixin(CuratorMixin, UserRequiredMixin,
         return self.user_is_curator
 
 
-class BasicBaseMixin(CuratorMixin, ContextMixin):
+class VersionInfoMixin:
+    """
+    inject some debug info into template context
+
+    Use together with a ContextMixin
+    """
+    def get_version_info(self):
+        """
+        Compile some debugging info that can be inserted as comment into an
+        html response.
+        """
+        info = {
+            'mibios': __version__,
+        }
+        for conf in get_registry().apps.values():
+            info[conf.name] = getattr(conf, 'version', None)
+        if settings.DEBUG:
+            info['DEBUG'] = 'True'
+        for db_alias, db_info in get_db_connection_info().items():
+            info[f'DB {db_alias}'] = db_info
+        info['view'] = self.__class__.__name__
+        info['template'] = getattr(self, 'template_name', '???')
+        return info
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['version_info'] = self.get_version_info()
+        return ctx
+
+
+class BasicBaseMixin(CuratorMixin, VersionInfoMixin, ContextMixin):
     """
     Mixin to populate context for the base template without model/dataset info
     """
@@ -93,13 +123,6 @@ class BasicBaseMixin(CuratorMixin, ContextMixin):
             apps.get_app_config('mibios').verbose_name
         )]
         ctx['user_is_curator'] = self.user_is_curator
-        ctx['version_info'] = {'mibios': __version__}
-        for conf in get_registry().apps.values():
-            ctx['version_info'][conf.name] = getattr(conf, 'version', None)
-        if settings.DEBUG:
-            ctx['version_info']['DEBUG'] = 'True'
-        for db_alias, db_info in get_db_connection_info().items():
-            ctx['version_info'][f'DB {db_alias}'] = db_info
         return ctx
 
     @staticmethod

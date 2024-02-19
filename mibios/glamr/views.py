@@ -25,7 +25,7 @@ from mibios.glamr.filters import DatasetFilter
 from mibios.glamr.forms import DatasetFilterFormHelper
 from mibios.glamr.models import Sample, Dataset, pg_class, dbstat
 from mibios.models import Q
-from mibios.views import ExportBaseMixin, TextRendererZipped
+from mibios.views import ExportBaseMixin, TextRendererZipped, VersionInfoMixin
 from mibios.omics import get_sample_model
 from mibios.omics.models import (
     CompoundAbundance, FuncAbundance, ReadAbundance, TaxonAbundance
@@ -44,6 +44,17 @@ from .utils import get_record_url, split_query
 
 
 log = getLogger(__name__)
+
+
+class BaseMixin(VersionInfoMixin):
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        try:
+            # pick up django_table2 table name
+            ctx['version_info']['table'] = ctx['table'].__class__.__name__
+        except Exception:
+            ctx['version_info']['table'] = 'none'
+        return ctx
 
 
 class ExportMixin(ExportBaseMixin):
@@ -834,7 +845,7 @@ class SearchMixin(SearchFormMixin):
         return ctx
 
 
-class AboutView(DetailView):
+class AboutView(BaseMixin, DetailView):
     template_name = 'glamr/about.html'
     model = models.AboutInfo
 
@@ -901,13 +912,13 @@ class AboutView(DetailView):
         return data
 
 
-class AboutHistoryView(SingleTableView):
+class AboutHistoryView(BaseMixin, SingleTableView):
     template_name = 'glamr/about_history.html'
     model = models.AboutInfo
     table_class = tables.AboutHistoryTable
 
 
-class AbundanceView(MapMixin, ModelTableMixin, SingleTableView):
+class AbundanceView(MapMixin, ModelTableMixin, BaseMixin, SingleTableView):
     """
     Lists abundance data for a single object of certain models
     """
@@ -982,7 +993,7 @@ class AbundanceView(MapMixin, ModelTableMixin, SingleTableView):
         return Sample.objects.filter(**f)
 
 
-class AbundanceGeneView(ModelTableMixin, SingleTableView):
+class AbundanceGeneView(ModelTableMixin, BaseMixin, SingleTableView):
     """
     Views genes for a sample/something combo
 
@@ -1045,11 +1056,11 @@ class AbundanceGeneView(ModelTableMixin, SingleTableView):
             return super().get_values()
 
 
-class ContactView(TemplateView):
+class ContactView(BaseMixin, TemplateView):
     template_name = 'glamr/contact.html'
 
 
-class DBInfoView(RequiredSettingsMixin, SingleTableView):
+class DBInfoView(RequiredSettingsMixin, BaseMixin, SingleTableView):
     required_settings = 'INTERNAL_DEPLOYMENT'
     template_name = 'glamr/dbinfo.html'
     model = None  # set by setup()
@@ -1098,7 +1109,7 @@ class DBInfoView(RequiredSettingsMixin, SingleTableView):
         return qs
 
 
-class RecordView(DetailView):
+class RecordView(BaseMixin, DetailView):
     """
     View details of a single object of any model
     """
@@ -1392,7 +1403,7 @@ class DatasetView(MapMixin, RecordView):
         return fields
 
 
-class FrontPageView(SearchFormMixin, MapMixin, SingleTableView):
+class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
     model = models.Dataset
     search_model = SearchFormMixin.ANY_MODEL
     template_name = 'glamr/frontpage.html'
@@ -1589,7 +1600,7 @@ class ReferenceView(RecordView):
             return None
 
 
-class OverView(SingleTableView):
+class OverView(BaseMixin, SingleTableView):
     template_name = 'glamr/overview.html'
     table_class = tables.OverViewTable
 
@@ -1652,7 +1663,7 @@ class OverView(SingleTableView):
         return ctx
 
 
-class OverViewSamplesView(SingleTableView):
+class OverViewSamplesView(BaseMixin, SingleTableView):
     template_name = 'glamr/overview_samples.html'
     table_class = tables.OverViewSamplesTable
 
@@ -1700,7 +1711,7 @@ class OverViewSamplesView(SingleTableView):
         return ctx
 
 
-class SampleListView(MapMixin, ModelTableMixin, SingleTableView):
+class SampleListView(MapMixin, ModelTableMixin, BaseMixin, SingleTableView):
     """ List of samples belonging to a given dataset  """
     model = get_sample_model()
     template_name = 'glamr/sample_list.html'
@@ -1776,7 +1787,7 @@ class TaxonView(RecordView):
         return qs
 
 
-class SearchView(TemplateView):
+class SearchView(BaseMixin, TemplateView):
     """ offer a form for advanced search, offer model list """
     template_name = 'glamr/search_init.html'
 
@@ -1803,7 +1814,7 @@ class SearchView(TemplateView):
         return ctx
 
 
-class SearchModelView(EditFilterMixin, TemplateView):
+class SearchModelView(EditFilterMixin, BaseMixin, TemplateView):
     """ offer model-based searching """
     template_name = 'glamr/search_model.html'
     model = None
@@ -1813,7 +1824,7 @@ class SearchModelView(EditFilterMixin, TemplateView):
         return ctx
 
 
-class TableView(BaseFilterMixin, ModelTableMixin, SingleTableView):
+class TableView(BaseFilterMixin, ModelTableMixin, BaseMixin, SingleTableView):
     template_name = 'glamr/table.html'
 
     def get_queryset(self):
@@ -1826,7 +1837,7 @@ class TableView(BaseFilterMixin, ModelTableMixin, SingleTableView):
         self.conf = TableConfig(self.model)
 
 
-class ToManyListView(ModelTableMixin, SingleTableView):
+class ToManyListView(ModelTableMixin, BaseMixin, SingleTableView):
     """ List records related to other record """
     template_name = 'glamr/relations_list.html'
 
@@ -1934,11 +1945,12 @@ class SearchResultMixin(MapMixin):
         return Sample.objects.filter(pk__in=sample_pks)
 
 
-class SearchResultListView(SearchResultMixin, SearchMixin, ListView):
+class SearchResultListView(SearchResultMixin, SearchMixin, BaseMixin,
+                           ListView):
     template_name = 'glamr/result_list.html'
 
 
-class FilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
+class FilteredListView(SearchFormMixin, MapMixin, ModelTableMixin, BaseMixin,
                        SingleTableView):
     template_name = 'glamr/filter_list.html'
 
@@ -2007,7 +2019,7 @@ def test_server_error(request):
         raise Http404('settings.ENABLE_TEST_VIEWS is set to False')
 
 
-class MiniTestView(RequiredSettingsMixin, View):
+class MiniTestView(RequiredSettingsMixin, BaseMixin, View):
     required_settings = 'ENABLE_TEST_VIEWS'
 
     def get(self, request, *args, **kwargs):
@@ -2015,6 +2027,6 @@ class MiniTestView(RequiredSettingsMixin, View):
         return resp
 
 
-class BaseTestView(RequiredSettingsMixin, TemplateView):
+class BaseTestView(RequiredSettingsMixin, BaseMixin, TemplateView):
     required_settings = 'ENABLE_TEST_VIEWS'
     template_name = 'glamr/base.html'
