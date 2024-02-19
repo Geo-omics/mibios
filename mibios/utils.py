@@ -284,10 +284,16 @@ class StatsMiddleWare:
         t0 = datetime.now()
         pt0 = time.process_time()
         response = self.get_response(request)
-        t1 = datetime.now()
-        pt1 = time.process_time()
-        self.log.debug('stats:', self.count, 'clock delta:', t1 - t0,
-                       'proc delta:', pt1 - pt0)
+        clock = (datetime.now() - t0).total_seconds()
+        proc = time.process_time() - pt0
+        msg = (
+            f'stats: {self.count}'
+            f' clock: {clock:.3f}'
+        )
+        if not (0.9 <= clock / proc <= 1.1):
+            # show process time if it differes a lot from clock
+            msg += f' proc: {proc:.3f}'
+        self.log.debug(msg)
         return response
 
 
