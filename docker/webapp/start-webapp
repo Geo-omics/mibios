@@ -1,5 +1,6 @@
 #!/bin/bash
 set -eu
+memcached -d -m 64 -p 11211 -l 127.0.0.1
 manage_mibios collectstatic --no-input
 manage_mibios generate_model_graphs
 manage_mibios migrate --no-input

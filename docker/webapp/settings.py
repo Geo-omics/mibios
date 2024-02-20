@@ -61,6 +61,10 @@ ALLOWED_HOSTS.append('vondamm.earth.lsa.umich.edu')
 
 # Uncomment this do disable caching, for testing/debugging only
 # CACHES['default']['BACKEND'] = 'django.core.cache.backends.dummy.DummyCache'
+CACHES['default'] = {
+    'BACKEND': 'django.core.cache.backends.memcached.PyMemcacheCache',
+    'LOCATION': '127.0.0.1:11211',
+}
 
 SITE_NAME = 'GLAMR'
 SITE_NAME_VERBOSE = 'GLAMR DB testing'

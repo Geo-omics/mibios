@@ -23,6 +23,7 @@ RUN apt-get update && apt-get upgrade --assume-yes --quiet && apt-get install --
     iproute2 \
     iputils-ping \
     locales \
+    memcached \
     postgresql-client \
     procps \
     python3-biopython \
@@ -34,12 +35,14 @@ RUN apt-get update && apt-get upgrade --assume-yes --quiet && apt-get install --
     python3-django-filters \
     python3-django-tables2 \
     python3-matplotlib \
+    python3-pymemcache \
     python3-pandas \
     python3-pip \
     python3-psycopg2 \
     python3-pygraphviz \
     python3-xlrd \
     python3-zipstream \
+    # radiant is krona!
     radiant \
     uwsgi \
     uwsgi-plugin-python3
@@ -47,7 +50,7 @@ RUN apt-get update && apt-get upgrade --assume-yes --quiet && apt-get install --
 RUN echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen && locale-gen && update-locale
 ENV LANG=en_US.utf8
 
-RUN echo "increment for mibios upgrade: 79"
+RUN echo "increment for mibios upgrade: 111"
 # this is Debian's pip so the below cmd line with --b-s-p will install mibios
 # (and nothing else) under /usr/local
 # Also, currently, just "pip install" would install for python3.10, hence
@@ -58,16 +61,15 @@ RUN python3.11 -m pip install --no-index --no-deps --break-system-packages --pyt
 COPY uwsgi.ini /etc/uwsgi.ini
 
 # openshift must supply APPLICATION_USER_ID
-RUN adduser --system --home=$APP_BASE_DIR --group $APP_USER
+RUN addgroup --gid 555 $APP_GROUP
+RUN adduser --system --uid 555 --home=$APP_BASE_DIR --group $APP_USER
 RUN adduser $APP_USER root
 
 WORKDIR ${APP_BASE_DIR}
 COPY settings.py start-webapp ./
 RUN chmod ugo+rwx+t $APP_BASE_DIR
 USER $APP_USER:$APP_GROUP
-RUN mkdir static_var krona-cache
-
-RUN manage_mibios collectstatic --no-input
+RUN mkdir static_var krona-cache static
 
 EXPOSE 3032/tcp
 HEALTHCHECK CMD echo | curl --silent telnet://127.0.0.1:9191 | grep -q accepting
