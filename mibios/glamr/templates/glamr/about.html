@@ -1,6 +1,7 @@
 {% extends "glamr/base.html" %}
 {% load static %}
 {% block content %}
+<div class="container" style="max-width:50rem;">
 <h3>About GLAMR</h3><br/>
 
 <p>Updated on {{ object.when_published|default:"(unpublished)" }}</p>
@@ -24,7 +25,7 @@ other services.</p>
 University of Michigan and is supported by the
 <a href="https://ciglr.seas.umich.edu/">Cooperative Institute for Great Lakes Research</a>
 through the
-<a href="https://sciencecouncil.noaa.gov/noaa-science-technology-focus-areas/noaa-omics/">NOAA Omics program</a>.</p>
+<a href="https://sciencecouncil.noaa.gov/noaa-science-technology-focus-areas/noaa-omics/">NOAA ‘Omics program</a>.</p>
 
 <p>Abundance / contig annotation data for metagenomic samples are now based on
 an <a href="https://github.com/soedinglab/MMseqs2">MMseqs2</a>-based pipeline
@@ -56,9 +57,13 @@ Django framework backed by a Postgres database.</p>
     </ul>
 {%endfor%}
 </p>
+</div>
 
-<p><img src="{% static 'glamr/img/earthdept.png' %}" alt="umich lsa earth dept logo"></p>
-<p><img src="{% static 'glamr/img/noaaomics.png' %}" alt="NOAA omics logo"></p>
-<p><img src="{% static 'glamr/img/ciglr.png' %}" alt="CIGLR logo"></p>
-
+<div class="container">
+<div class="row">
+<img class="about-img col-sm-5" src="{% static 'glamr/img/earthdept.png' %}" alt="umich lsa earth dept logo">
+<img class="about-img col-sm-3" src="{% static 'glamr/img/noaaomics.png' %}" alt="NOAA omics logo">
+<img class="about-img col-sm-4" src="{% static 'glamr/img/ciglr.png' %}" alt="CIGLR logo">
+</div>
+</div>
 {% endblock %}
