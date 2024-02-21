@@ -20,6 +20,9 @@ INSTALLED_APPS.append('crispy_forms')  # noqa:F405
 CRISPY_ALLOWED_TEMPLATE_PACKS = 'bootstrap4'
 CRISPY_TEMPLATE_PACK = 'bootstrap4'
 
+# find bootstrap icons as template
+TEMPLATES[0]['DIRS'].append('/usr/share/bootstrap-icons/svg/')  # noqa:F405
+
 # override mibios' urls since glamr has it's own
 ROOT_URLCONF = 'mibios.glamr.urls0'
 
