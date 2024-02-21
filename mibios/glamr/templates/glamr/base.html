@@ -19,15 +19,15 @@
 {% endblock %}
 
 {% block nav_items %}
-    <li class="nav-item basic-item">{% nav_linker 'search_initial' 'Advanced Search' %}</li>
-    <li class="nav-item basic-item">{% nav_linker 'contact' 'Contact &amp; Data&nbsp;Submission' %}</li>
-    <li class="nav-item basic-item">{% nav_linker 'about' 'About' %}</li>
+    <li class="nav-item">{% nav_linker 'search_initial' 'Advanced Search' %}</li>
+    <li class="nav-item">{% nav_linker 'contact' 'Contact &amp; Data&nbsp;Submission' %}</li>
+    <li class="nav-item">{% nav_linker 'about' 'About' %}</li>
 {% endblock %}
 
 {% block right_nav_section %}
     {% if show_internal_nav %}
         <ul class="navbar-nav ms-auto">
-            <li class="nav-item navbar-text">Internal:</li>
+            <li class="navbar-text">Internal:</li>
             <li class="nav-item">{% nav_linker 'schemata_top' 'DB schemata' %}</li>
             <li class="nav-item">{% nav_linker 'sample_status' 'sample status' %}</li>
             <li class="nav-item">{% nav_linker 'dbinfo' 'DB info' %}</li>
