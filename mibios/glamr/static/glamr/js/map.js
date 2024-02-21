@@ -20,12 +20,21 @@ const fit_map_to_points = data.fit_map_to_points;
 // leaflet legend help from https://gis.stackexchange.com/questions/133630/adding-leaflet-legend
 var legend = L.control({position: 'bottomright'});
 legend.onAdd = function (map) {
-	var div = L.DomUtil.create('div', 'info legend p-1');
+    let div = L.DomUtil.create('div', 'info legend p-1');
 	
-	categories = ['Amplicon','Metagenome','Metatranscriptome'];
-	div.innerHTML = '<strong>Sample Type</strong><br/><i class="bi bi-circle-fill m-1 amplicon-legend"></i>Amplicon<br/><i class="bi bi-circle-fill m-1 metagenome-legend"></i>Metagenome<br/><i class="bi bi-circle-fill m-1 metatranscriptome-legend"></i>Metatranscriptome<br/>';
-	
-	return div;
+    const categories = ['amplicon','metagenome','metatranscriptome'];
+    const items = ["<strong>Sample Type</strong>"];
+
+    for (let i=0; i<categories.length; i++) {
+        items.push(
+            '<i class="' + categories[i] + '-icon" '
+            + 'style="display:inline-block;height:13px;width:13px;vertical-align:middle;margin-left:0.2rem;margin-right:0.2rem;">'
+            + '</i>'
+            + categories[i].slice(0, 1).toUpperCase() + categories[i].slice(1)
+        );
+    }
+    div.innerHTML = items.join('<br>');
+    return div;
 };
 legend.addTo(map);
 
