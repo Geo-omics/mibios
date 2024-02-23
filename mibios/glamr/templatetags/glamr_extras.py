@@ -128,3 +128,11 @@ def nav_linker(context, url_name, url_text, html_class=''):
         reverse(url_name),
         url_text,
     )
+
+
+@register.filter(name='url2text')
+def url2text(url):
+    """
+    Textify a URL for search result listing
+    """
+    return ' > '.join(url.strip('/').split('/'))

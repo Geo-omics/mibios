@@ -13,29 +13,29 @@
 <br/>
 
 {% if suggestions %}
-    <p>Tried searching for "{{query}}"
-    <ul>
+    <p>One or more search terms did not yield anything:
+    <ul class="list-unstyled">
     {% for bad, alternatives in suggestions.items %}
         <li><del>{{bad}}</del>
             {%if alternatives%}Did you mean:
                 {% for good, alturl in alternatives %}<a href="{{alturl}}">{{good}}</a> {%endfor%}?
             {%else%}
-                (I have no suggestion)
+                (We have no suggestion)
             {%endif%}
         </li>
     {% endfor %}
     </ul></p>
 {% endif %}{# suggestions #}
 
-{% if object_list and last_resort %}Nothing for "{{ query }}"{%endif%}
-<h3>
+{% if object_list and last_resort %}Nothing for "<b>{{ query }}</b>"{%endif%}
+<h3 class="fw-light">
     {% if object_list %}
         {% if search_model %}
         Searching {{search_model|meta:"verbose_name_plural"}}
         {% else %}
         Global search
         {% endif %}
-        for <small>"
+        for <small class="fw-bolder">
         {% for word, good in real_query.items %}
             {%if last_resort %}
                 {{word}}{%if not forloop.last%} OR {%endif%}
@@ -45,19 +45,19 @@
                 {%if not good%}</del>{%endif%}
             {%endif%}
         {%endfor%}
-        "</small> returned {{ object_list | length }} records:
+        </small> returned {{ object_list | length }} records:
 
     {% else %}
-        No results for <small>"{{ real_query.keys|join:" " }}"</small>
-        {% if search_model %}among {{search_model|meta:"verbose_name_plural"}}{% endif %}
+        No results for <small class="fw-bolder">"{{ real_query.keys|join:" " }}"</small>
+        {% if search_model %}among {{search_model|meta:"verbose_name_plural"}}.{% endif %}
     {% endif %}
 </h3>
 
 {% if result_stats %}
 <div class="m-2">
-    <ul>
+    <ul class="list-unstyled">
         {% for model, count in result_stats %}
-        <li><a href="#{{model|meta:"model_name"}}_first_item">{{count}} {{model|meta:"verbose_name_plural"}}</a></li>
+        <li><a href="#{{model|meta:"model_name"}}_first_item">{{model|meta:"verbose_name_plural"}}  <span class="badge bg-primary">{{count}}</span></a></li>
         {% endfor %}
     </ul
 </div>
