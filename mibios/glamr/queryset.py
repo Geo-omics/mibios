@@ -4,7 +4,7 @@ from operator import attrgetter
 
 from django.contrib.postgres.search import SearchQuery, TrigramDistance
 from django.db import connections
-from django.db.models import Count, F, Func, TextField, Window
+from django.db.models import Count, F, Func, TextField, Value, Window
 from django.db.models.functions import FirstValue, Length
 from django.utils.safestring import mark_safe
 
@@ -145,13 +145,15 @@ class ts_headline(Func):
     """
     Postgresql's ts_headline function for search result highlighting
 
-    The function's first argument is the document/text which was hit by the
-    query.  The second argument is the tsquery which we can provide with a
-    SearchQuery(query, search_type).
+    This functions recevies three arguments:
+        * the document/text which was hit by the query
+        * the tsquery which we can provide with a SearchQuery(query,
+          search_type)
+        * options string, a str with a ,-separated list of key=val options
     """
-    output_field = TextField()
     function = 'ts_headline'
-    arity = 2
+    arity = 3
+    output_field = TextField()
 
 
 class SearchableQuerySet(QuerySet):
@@ -222,7 +224,11 @@ class SearchableQuerySet(QuerySet):
             .order_by('content_type', 'field')
 
         if pg_textsearch and highlight:
-            qs = qs.annotate(high=ts_headline(F('text'), tsquery))
+            qs = qs.annotate(high=ts_headline(
+                F('text'),
+                tsquery,
+                Value('StartSel=<mark>, StopSel=</mark>'),
+            ))
 
         result = {}
         for ctype, out_grp in groupby(qs, key=attrgetter('content_type')):
