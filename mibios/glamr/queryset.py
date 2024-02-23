@@ -157,7 +157,7 @@ class ts_headline(Func):
 
 
 class SearchableQuerySet(QuerySet):
-    def search(
+    def search_qs(
         self,
         query,
         abundance=False,
@@ -168,7 +168,7 @@ class SearchableQuerySet(QuerySet):
         highlight=None,
     ):
         """
-        Full-text search
+        Helper for search().  Returns the qeryset.
 
         :param bool abundance:
             If True, then results are limited to those with abundance / related
@@ -183,12 +183,6 @@ class SearchableQuerySet(QuerySet):
             full text search.
         :param str search_type:
             The type of search for postresql's full text search.
-        :param bool highlight:
-            Set to True to HTML-highlight the query term in hits.  If this is
-            None / not set, then this defaults to whether highlighting is
-            implemented, currently only with postgresql full text search.
-
-        Returns a dict mapping models to dict mapping fields to tuples.
         """
         # use postgres full-text search if possible
         pg_textsearch = (
@@ -229,6 +223,22 @@ class SearchableQuerySet(QuerySet):
                 tsquery,
                 Value('StartSel=<mark>, StopSel=</mark>'),
             ))
+        return qs
+
+    def search(self, query, highlight=None, **kwargs):
+        """
+        Full-text search
+
+        :param str query: The search string.
+        :param bool highlight:
+            Set to True to HTML-highlight the query term in hits.  If this is
+            None / not set, then this defaults to whether highlighting is
+            implemented, currently only with postgresql full text search.
+        :param dict kwargs: Parameters passed on to search_qs().
+
+        Returns a dict mapping models to dict mapping fields to tuples.
+        """
+        qs = self.search_qs(query, highlight=highlight, **kwargs)
 
         result = {}
         for ctype, out_grp in groupby(qs, key=attrgetter('content_type')):
@@ -236,7 +246,7 @@ class SearchableQuerySet(QuerySet):
             result[model] = {}
             for field, in_grp in groupby(out_grp, key=attrgetter('field')):
                 result[model][field] = [
-                    (mark_safe(i.high if highlight else i.text), i.object_id)
+                    (mark_safe(getattr(i, 'high', i.text)), i.object_id)
                     for i in in_grp
                 ]
 
