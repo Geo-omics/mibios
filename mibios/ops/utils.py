@@ -96,7 +96,7 @@ def profile(func):
 
         prof.disable()
         for sortby in ['cumulative', 'tottime']:
-            with open(f'profile.{sortby}.txt', 'w') as f:
+            with open(f'profile.{func.__name__}.{sortby}.txt', 'w') as f:
                 ps = pstats.Stats(prof, stream=f).sort_stats(sortby)
                 ps.print_stats()
 
