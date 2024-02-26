@@ -12,7 +12,7 @@ import pandas
 
 from mibios.omics.queryset import SampleQuerySet as OmicsSampleQuerySet
 from mibios.umrad.manager import QuerySet
-from . import GREAT_LAKES
+from . import GREAT_LAKES, HORIZONTAL_ELLIPSIS
 from .utils import split_query
 
 
@@ -218,7 +218,7 @@ class SearchableQuerySet(QuerySet):
             .order_by('content_type', 'field')
 
         if pg_textsearch and highlight:
-            qs = qs.annotate(high=ts_headline(
+            qs = qs.annotate(snippet=ts_headline(
                 F('text'),
                 tsquery,
                 Value('StartSel=<mark>, StopSel=</mark>'),
@@ -236,19 +236,30 @@ class SearchableQuerySet(QuerySet):
             implemented, currently only with postgresql full text search.
         :param dict kwargs: Parameters passed on to search_qs().
 
-        Returns a dict mapping models to dict mapping fields to tuples.
+        Returns a dict mapping models to dict mapping PKs to "snippets."
+        Snippets are lists of (field, text) tuples.
         """
         qs = self.search_qs(query, highlight=highlight, **kwargs)
 
         result = {}
-        for ctype, out_grp in groupby(qs, key=attrgetter('content_type')):
+        for ctype, model_hits in groupby(qs, key=attrgetter('content_type')):
             model = ctype.model_class()
             result[model] = {}
-            for field, in_grp in groupby(out_grp, key=attrgetter('field')):
-                result[model][field] = [
-                    (mark_safe(getattr(i, 'high', i.text)), i.object_id)
-                    for i in in_grp
-                ]
+            key = attrgetter('object_id')
+            for object_id, obj_hits in groupby(model_hits, key=key):
+                result[model][object_id] = []
+                for i in sorted(obj_hits, key=attrgetter('field')):
+                    if snippet := getattr(i, 'snippet', None):
+                        plain = snippet.replace('<mark>', '').replace('</mark>', '')  # noqa:E501
+                        if not i.text.startswith(plain):
+                            snippet = f'{HORIZONTAL_ELLIPSIS} {snippet}'
+                        if not i.text.endswith(plain):
+                            snippet = f'{snippet} {HORIZONTAL_ELLIPSIS}'
+                    else:
+                        snippet = i.text
+
+                    snippet = mark_safe(snippet)
+                    result[model][object_id].append((i.field, snippet))
 
         return result
 

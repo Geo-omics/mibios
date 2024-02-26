@@ -1,3 +1,4 @@
+from functools import cache
 import re
 
 from django.urls import reverse
@@ -73,3 +74,10 @@ def get_record_url(*args, **kwargs):
         if ktype is not None:
             kwargs['ktype'] = ktype + ':'
         return reverse('record', kwargs=kwargs)
+
+
+@cache
+def verbose_field_name(model, accessor):
+    if isinstance(model, str):
+        model = get_registry()[model]
+    return model.get_field(accessor).verbose_name

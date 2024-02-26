@@ -64,12 +64,9 @@
 {% endif %}{# result_stats #}
 
 {% if object_list %}
-    {% if search_model_name == 'dataset' %}
+    {% if search_model_name == 'dataset' or search_model_name == 'sample' %}
         <div class="m-2">{% include "glamr/map.html"%}</div>
-        {% include "glamr/result_list_dataset.html" %}
-    {% elif search_model_name == 'sample' %}
-        <div class="m-2">{% include "glamr/map.html"%}</div>
-        {% include "glamr/result_list_sample.html" %}
+        {% include "glamr/result_list_details.html" %}
     {% else %}
         {% include "glamr/result_list_generic.html" %}
     {% endif %}

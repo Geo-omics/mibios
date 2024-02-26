@@ -33,3 +33,7 @@ GREAT_LAKES = [
     'Lake Ontario',
     'Lake Superior',
 ]
+
+
+# unicode ...
+HORIZONTAL_ELLIPSIS = '\u2026'

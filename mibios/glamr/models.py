@@ -19,6 +19,7 @@ from mibios.umrad.models import Model
 from mibios.umrad.model_utils import ch_opt, fk_opt, fk_req, uniq_opt, opt
 from mibios.umrad.utils import atomic_dry
 
+from . import HORIZONTAL_ELLIPSIS
 from .fields import OptionalURLField
 from .load import (
     AboutInfoManager,
@@ -423,7 +424,8 @@ class Reference(Model):
         if len(value) > maxlen:
             value = value[:maxlen]
             # rm last word, add ellipsis
-            value = ' '.join(value.split(' ')[:-1]) + '[\u2026]"'
+            value = ' '.join(value.split(' ')[:-1])
+            value += f'[{HORIZONTAL_ELLIPSIS}]"'
         if settings.INTERNAL_DEPLOYMENT:
             value = f'{value} ({self.reference_id})'
         return value

@@ -32,7 +32,7 @@ from mibios.omics.models import (
     CompoundAbundance, FuncAbundance, ReadAbundance, TaxonAbundance
 )
 from mibios.ncbi_taxonomy.models import TaxNode
-from mibios.umrad.models import FuncRefDBEntry
+from mibios.umrad.models import FuncRefDBEntry, Model
 from mibios.umrad.utils import DefaultDict
 from mibios.omics.models import Gene
 from mibios.omics.views import RequiredSettingsMixin
@@ -41,7 +41,7 @@ from .forms import QBuilderForm, QLeafEditForm, SearchForm
 from .search_fields import ADVANCED_SEARCH_MODELS, search_fields
 from .search_utils import get_suggestions
 from .url_utils import fast_reverse
-from .utils import get_record_url, split_query
+from .utils import get_record_url, verbose_field_name, split_query
 
 
 log = getLogger(__name__)
@@ -685,29 +685,6 @@ class SearchMixin(SearchFormMixin):
 
     Implementing classes need to call the search() method.
     """
-    _verbose_field_name = None
-
-    @classproperty
-    def verbose_field_name(cls):
-        """
-        map field names to field's verbose_name
-
-        Returns a dict-of-dict mapping model names to dicts field
-        names->verbose field name.
-        """
-        if cls._verbose_field_name is None:
-            cls._verbose_field_name = {}
-            for model, fields in search_fields.items():
-                verbose = {}
-                for i in fields:  # list of field names
-                    if '__' in i:
-                        # TODO: get the real verbose name
-                        verbose[i] = i.replace('__', ' ')
-                    else:
-                        verbose[i] = model._meta.get_field(i).verbose_name
-                cls._verbose_field_name[model._meta.model_name] = verbose
-        return cls._verbose_field_name
-
     def setup(self, request, *args, **kwargs):
         super().setup(request, *args, **kwargs)
         try:
@@ -847,7 +824,6 @@ class SearchMixin(SearchFormMixin):
         ctx['query'] = self.query
         ctx['real_query'] = self.real_query
         ctx['last_resort'] = self.last_resort
-        ctx['verbose_field_name'] = self.verbose_field_name
         if self.search_result and self.model is None:
             # issue results statistics unless a single model was searched
             ctx['result_stats'] = [
@@ -1904,18 +1880,14 @@ class SearchResultMixin(MapMixin):
         ctx['suggestions'] = self.suggestions
         return ctx
 
-    def mangle_to_list(self, model, items_per_field):
+    def mangle_to_list(self, model, model_hits):
         """
         Helper to turn SearchMixin.search_result into something suitable for
         ListView.object_list.
         """
         res = []
         model_name = model._meta.model_name
-        items = {
-            pk: (field, text)
-            for field, items in items_per_field.items()
-            for text, pk in items
-        }
+
         qs = model.objects.all()
         if model is TaxNode:
             # do not incur extra query to display each node's name
@@ -1923,15 +1895,48 @@ class SearchResultMixin(MapMixin):
             # TODO: other models with potentially 1000s of search hits may need
             # something like this too?
             qs = qs.prefetch_related('taxname_set')
-        objs = qs.in_bulk(items.keys())
+        elif model is Dataset:
+            qs = qs.select_related('primary_ref')
+        elif model is Sample:
+            qs = qs.select_related('dataset__primary_ref')
+        objs = qs.in_bulk(model_hits.keys())
+
+        DETAIL_FIELDS = {
+            Dataset: ('primary_ref', 'scheme', 'water_bodies',
+                      'material_type',),
+            Sample: ('dataset', 'geo_loc_name', 'sample_type',
+                     'collection_timestamp', 'project_id'),
+        }
+        if self.search_model is self.ANY_MODEL:
+            detail_fields = {}
+        else:
+            detail_fields = DETAIL_FIELDS.get(model, {})
+
         is_first = True  # True for the first item of each model
-        for pk, (field, text) in items.items():
+        for pk, snippets in model_hits.items():
             if pk not in objs:
                 # search index out-of-sync
                 continue
-            field = self.verbose_field_name[model_name][field]
-            res.append((is_first, model_name, objs[pk], field, text))
+
+            # Get field values, with URLs for FKs, skip blanks,
+            # then overwrite with snippets:
+            details = {
+                i:
+                (get_record_url(v), v) if isinstance(v, Model) else (None, v)
+                for i in detail_fields
+                if (v := getattr(objs[pk], i))
+            }
+            for field, text in snippets:
+                details[field] = (None, text)
+
+            details = [
+                (verbose_field_name(model_name, k), url, val)
+                for k, (url, val) in details.items()
+            ]
+
+            res.append((is_first, model_name, objs[pk], details))
             is_first = False
+
         return res
 
     def get_queryset(self):
@@ -1941,21 +1946,17 @@ class SearchResultMixin(MapMixin):
             return []
 
         res = []
-        for model, items_per_field in self.search_result.items():
-            res += self.mangle_to_list(model, items_per_field)
+        for model, hits in self.search_result.items():
+            res += self.mangle_to_list(model, hits)
         return res
 
     def get_sample_queryset(self):
-        sample_pks = set()
-        for _, result_items in self.search_result.get(Sample, {}).items():
-            for _, pk in result_items:
-                sample_pks.add(pk)
-        for _, result_items in self.search_result.get(Dataset, {}).items():
-            dataset_pks = [pk for _, pk in result_items]
-            sample_pks.update(
-                Sample.objects.filter(dataset__pk__in=dataset_pks)
-                .values_list('pk', flat=True)
-            )
+        sample_pks = set(self.search_result.get(Sample, {}).keys())
+        dataset_pks = self.search_result.get(Dataset, {}).keys()
+        sample_pks.update(
+            Sample.objects.filter(dataset__pk__in=dataset_pks)
+            .values_list('pk', flat=True)
+        )
         return Sample.objects.filter(pk__in=sample_pks)
 
 
