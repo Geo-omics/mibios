@@ -1705,7 +1705,7 @@ class Model(models.Model):
         data = [('', cls, [])]
         while True:
             for pos, item in enumerate(data):
-                if type(item) == tuple:
+                if isinstance(item, tuple):
                     # get first tuple item
                     break
             else:
@@ -1770,7 +1770,7 @@ class Model(models.Model):
         data = [([], cls, [])]
         while True:
             for pos, item in enumerate(data):
-                if type(item) == tuple:
+                if isinstance(item, tuple):
                     # get first tuple item
                     break
             else:
