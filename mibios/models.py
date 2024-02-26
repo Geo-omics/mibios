@@ -1,5 +1,6 @@
 from collections import namedtuple, OrderedDict
 from decimal import Decimal
+from functools import cache
 from itertools import groupby
 import json
 from operator import itemgetter
@@ -1614,6 +1615,7 @@ class Model(models.Model):
             return True
 
     @classmethod
+    @cache
     def get_fields(
         cls,
         skip_auto=False,
