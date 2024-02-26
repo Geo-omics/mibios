@@ -1952,6 +1952,11 @@ class SearchResultMixin(MapMixin):
         return res
 
     def get_sample_queryset(self):
+        if self.search_model == self.ANY_MODEL:
+            # we won't show a map with global search, so let's skip all the
+            # when after get_map_points() calls this
+            return Sample.objects.none()
+
         sample_pks = set(self.search_result.get(Sample, {}).keys())
         dataset_pks = self.search_result.get(Dataset, {}).keys()
         sample_pks.update(
