@@ -565,6 +565,7 @@ class MapMixin():
         dataset_name = {i.pk: str(i) for i in datasets}
         dataset_no = {i.pk: i.get_set_no() for i in datasets}
 
+        base_cnf = DataConfig(Sample)
         map_data = []
         by_coords = groupby(qs, key=lambda x: (x['longitude'], x['latitude']))
         for coords, grp in by_coords:
@@ -601,10 +602,10 @@ class MapMixin():
                     elif self.conf.model is Sample:
                         cnf = self.conf
                     else:
-                        cnf = DataConfig(Sample)
+                        cnf = base_cnf
                 else:
-                    cnf = DataConfig(Sample)
-                others_cnf = cnf.add_filter(
+                    cnf = base_cnf
+                cnf = cnf.add_filter(
                     longitude=item['longitude'],
                     latitude=item['latitude'],
                 )
@@ -613,7 +614,7 @@ class MapMixin():
                     '<a href="{}?{}">samples at these coordinates</a>',
                     len(grp) - 1,
                     reverse('filter_result', kwargs=dict(model='sample')),
-                    others_cnf.url_query(),
+                    cnf.url_query(),
                 )
 
             map_data.append(item)
