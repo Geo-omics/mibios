@@ -250,12 +250,18 @@ class SearchableQuerySet(QuerySet):
                 result[model][object_id] = []
                 for i in sorted(obj_hits, key=attrgetter('field')):
                     if snippet := getattr(i, 'snippet', None):
+                        # ts_highlight() individually marks consequtive words
+                        # of a matching phrase, let's highlight the whole
+                        # phrase
+                        snippet = snippet.replace('</mark> <mark>', ' ')
+                        # add ... if snippet is inside the text
                         plain = snippet.replace('<mark>', '').replace('</mark>', '')  # noqa:E501
                         if not i.text.startswith(plain):
                             snippet = f'{HORIZONTAL_ELLIPSIS} {snippet}'
                         if not i.text.endswith(plain):
                             snippet = f'{snippet} {HORIZONTAL_ELLIPSIS}'
                     else:
+                        # highlighting is OFF
                         snippet = i.text
 
                     snippet = mark_safe(snippet)
