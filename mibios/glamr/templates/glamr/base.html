@@ -11,13 +11,6 @@
     {% endif %}
 {% endblock %}
 
-{% block top_of_body %}
-    <!-- version info:
-    {# version_info comes from the base context_processor #}
-    {% for k, v in version_info.items %}{{ k }}: {{ v|default:'(not available)' }}
-    {% endfor %}-->
-{% endblock %}
-
 {% block nav_items %}
     <li class="nav-item">{% nav_linker 'search_initial' 'Advanced Search' %}</li>
     <li class="nav-item">{% nav_linker 'contact' 'Contact &amp; Data&nbsp;Submission' %}</li>
