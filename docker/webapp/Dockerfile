@@ -56,7 +56,7 @@ RUN apt-get update && apt-get upgrade --assume-yes --quiet && apt-get install --
 RUN echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen && locale-gen && update-locale
 ENV LANG=en_US.utf8
 
-RUN echo "increment for mibios upgrade: 114"
+RUN echo "increment for mibios upgrade: 115"
 # this is Debian's pip so the below cmd line with --b-s-p will install mibios
 # (and nothing else) under /usr/local
 # Also, currently, just "pip install" would install for python3.10, hence
