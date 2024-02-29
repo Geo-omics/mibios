@@ -45,10 +45,14 @@
 
 
 
-    <div class="container-fluid pt-4">
+    <div class="container-fluid py-4">
     {% block notifications %}{% endblock %}
     {% block content %}{% endblock %}                                                                
     </div>
+    <footer class="d-flex flex-wrap justify-content-center py-2 mt-4 border-top">
+        <a href="https://umich.edu/" class="text-muted text-decoration-none mx-4">University of Michigan</a>
+        <span class="text-muted">© 2024 <a href="https://regents.umich.edu/" class="text-muted text-decoration-none">Regents of the University of Michigan</a></span>
+    </footer>
 </div>
 {% block bottom_of_body %}{% endblock %}
 </body>
