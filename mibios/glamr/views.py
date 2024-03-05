@@ -13,7 +13,7 @@ from django.db import OperationalError, connection
 from django.db.models import Count, Field, Prefetch, URLField
 from django.http import Http404, HttpResponse
 from django.urls import reverse
-from django.utils.functional import classproperty
+from django.utils.functional import cached_property, classproperty
 from django.utils.html import format_html
 from django.views.decorators.cache import cache_page
 from django.views.generic import DetailView
@@ -1404,7 +1404,8 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
     formhelper_class = DatasetFilterFormHelper
     context_filter_name = 'filter'
 
-    def get_queryset(self):
+    @cached_property
+    def _queryset(self):
         qs = super().get_queryset()
         qs = qs.filter(private=False)
         qs = qs.select_related('primary_ref')
@@ -1421,6 +1422,10 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
         self.filter.form.helper = self.formhelper_class()
 
         return self.filter.qs.order_by("-sample_count")
+
+    def get_queryset(self):
+        # use caching as this gets called multiple times (maps etc.)
+        return self._queryset
 
     def get_context_data(self, **ctx):
         # Make the frontpage resilient to database connection issues: Any DB
