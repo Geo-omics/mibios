@@ -929,9 +929,6 @@ class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
 
     def get_file(self, sample):
         """ Get path to lca_abund_summarized file """
-        if sample.sample_id == 'samp_447':
-            from pathlib import Path
-            return Path('/tmp/heinro/samp_447_lca_abund_summarized.tsv')
         return sample.get_metagenome_path() \
             / f'{sample.sample_id}_lca_abund_summarized.tsv'
 
