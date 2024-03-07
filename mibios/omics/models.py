@@ -2,6 +2,7 @@ from logging import getLogger
 from pathlib import Path
 import re
 from subprocess import PIPE, Popen, TimeoutExpired
+from time import time
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -213,8 +214,18 @@ class AbstractSample(Model):
             self.save()
 
     def get_metagenome_path(self):
-        return settings.OMICS_DATA_ROOT / 'data' / 'omics' / 'metagenomes' \
+        """
+        Get path to data analysis / pipeline results
+        """
+        path = settings.OMICS_DATA_ROOT / 'data' / 'omics' / 'metagenomes' \
             / self.sample_id
+        now = time()
+        for i in path.iterdir():
+            if now - i.stat().st_mtime < 86400:
+                # interpret as "sample is still being processed by pipeline"
+                # FIXME TODO this is not a proper design
+                raise RuntimeError('too new')
+        return path
 
     def get_fq_paths(self):
         base = settings.OMICS_DATA_ROOT / 'READS'
