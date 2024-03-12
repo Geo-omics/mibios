@@ -1,15 +1,25 @@
-For testing on a local machine:
+Docker containers for GLAMR
+===========================
+
+To run the staging instance you'll need apache2, webapp, and database tied
+together by docker-compose.  To recover from a data loss of the staging
+instance use the recover-staging container, read the instructions in the
+run-recover-staging script. 
 
 To build container images, run:
 
 docker build --tag glamr.apache2 apache2/
 docker build --tag glamr.webapp webapp/
 docker build --tag glamr.database database/
-docker build --tag glamr.restore-to-public restore-to-public
+docker build --tag glamr.recover-staging recover-staging/
 
-To (re-)start the containers run, e.g.:
+To (re-)start the staging instance run, e.g.:
 
 COMPOSE_PROJECT_NAME=glamr docker-compose --env-file env.dev.txt up --detach
+
+
+Initializing a database
+=======================
 
 If the host's database data directory is not set up with a database, the db
 connection will fail and django app will probably respond with a 500 server

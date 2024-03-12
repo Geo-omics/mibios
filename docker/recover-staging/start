@@ -1,0 +1,57 @@
+#!/bin/bash
+#
+# Script to restore the GLAMR staging database on vondamm
+#
+# Assume complete data loss.  Backup should be available on dataden:/lsa-dd-gregdicku/GLAMR-DB/
+# or /geomicro/data7/GLAMR-Website/backups/
+#
+# 0. Ensure the regular docker database container is stopped.
+# 1. sudo mkdir -p $STORAGE/data
+# 2. sudo chown postgres:postgres $STORAGE/data
+# 3. sudo chmod 700 $STORAGE/data
+# 4. Re-create SSL key and certificate according to postgres doc 19.9.5, e.g.:
+#    cd $STORAGE
+#    openssl req -new -x509 -days 365 -nodes -text -out server.crt -keyout server.key -subj "/CN=vondamm.earth.lsa.umich.edu" 
+# 5. Repeat the chown/chmod for the key file, distribute the crt any users.
+# 6. Run this script, e.g. ./restore-staging /geomicro/data7/GLAMR-Website/backups/glamr.XYZ
+
+
+set -eu
+
+trap 'echo "ERROR in $0 exit status $? at line $LINENO" >&2' ERR
+
+# Paths inside docker container
+DOCKER_PGBASE=/var/local/postgresql
+DOCKER_DUMPDIR=/dumpdir
+
+DBUSER=glamr_django
+DBNAME=glamr
+
+err () {
+    echo "[ABORT] $*" >&2
+    exit 1
+}
+
+[[ -z "$(ls -A "$DOCKER_PGBASE/data")" ]] && /usr/lib/postgresql/15/bin/initdb $DOCKER_PGBASE/data
+/usr/lib/postgresql/15/bin/postgres --config-file=/etc/postgresql/15/main/postgresql.conf &
+
+until pg_isready; do sleep 1; done
+
+if [[ -e "$DOCKER_DUMPDIR/toc.dat" ]]; then
+    createuser --echo $DBUSER
+    createdb --echo --owner $DBUSER $DBNAME
+    pg_restore \
+        --dbname=$DBNAME \
+        --verbose \
+        -U postgres \
+        --exit-on-error \
+        --disable-triggers \
+        --no-owner \
+        --role $DBUSER \
+        --jobs 12 \
+        "$DOCKER_DUMPDIR"
+    psql -c 'ANALYZE VERBOSE'
+else
+    echo "No backup provided, keeping container running..."
+    wait
+fi

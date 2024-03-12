@@ -1,0 +1,68 @@
+#!/bin/bash
+#
+# Recovery of the GLAMR staging database on vondamm
+#
+# Assume complete data loss.  Backup should be available on dataden:/lsa-dd-gregdicku/GLAMR-DB/
+# or /geomicro/data7/GLAMR-Website/backups/
+#
+# 0. Ensure the regular docker database container is stopped.
+# 1. sudo mkdir -p $STORAGE/data
+# 2. sudo chown postgres:postgres $STORAGE $STORAGE/data
+# 3. sudo chmod 700 $STORAGE/data
+# 4. Re-create SSL key and certificate according to postgres doc 19.9.5, e.g.:
+#    cd $STORAGE
+#    openssl req -new -x509 -days 365 -nodes -text -out server.crt -keyout server.key -subj "/CN=vondamm.earth.lsa.umich.edu" 
+# 5. Repeat the chown/chmod for the key file, distribute the crt any users.
+# 6. Run this script, e.g. ./run-recover-staging /geomicro/data7/GLAMR-Website/backups/glamr.XYZ
+# 7. Ensure the recover container has stopped, the apache+database+webapp containers should be able to re-start and work now
+# 8. Add any remote users to database, e.g.:
+#    CREATE ROLE robert WITH LOGIN PASSWORD 'geheim' IN GROUP glamr_django;
+#    Then run psql with new user and /password to set a real pasword.
+# 9. If missing from backup, create a django superuser (for editing about info):
+#    ./manage.py createsuperuser --noinput --username admin --email heinro@umich.edu
+
+
+set -eu
+
+trap 'echo "ERROR in $0 exit status $? at line $LINENO" >&2' ERR
+trap 'clean' EXIT
+
+STORAGE=/ssd/glamr-db-staging
+
+# Paths inside docker container
+DOCKER_PGBASE=/var/local/postgresql
+DOCKER_DUMPDIR=/dumpdir
+# docker container name
+DOCKER_NAME=recover
+DOCKER_IMAGE_NAME=glamr.recover-staging
+
+err () {
+    echo "[ABORT] $*" >&2
+    exit 1
+}
+
+clean () {
+    echo "Cleaning up docker containers..."
+    docker stop --time 10 $DOCKER_NAME && docker rm $DOCKER_NAME || echo >&2 "docker stop fail"
+    echo "[cleanup ok]"
+}
+
+if [[ $# -eq 0 ]]; then
+    dumpdir=
+elif [[ $# -eq 1 ]]; then
+    dumpdir=$(realpath "$1")
+    [[ -d "$dumpdir" ]] || err "no such backup dump directory: $dumpdir"
+else
+    err "usage: $0 <dumdir>"
+fi
+
+cmd=(docker run --name "$DOCKER_NAME" -v "$STORAGE:$DOCKER_PGBASE")
+if [[ -n "${dumpdir:-}" ]]; then
+    cmd+=(-v "$dumpdir:$DOCKER_DUMPDIR:ro")
+fi
+cmd+=(--shm-size=1g "$DOCKER_IMAGE_NAME")
+
+echo -e "docker command:\n${cmd[*]}\n"
+"${cmd[@]}"
+
+clean
