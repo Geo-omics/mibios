@@ -1,4 +1,6 @@
 #!/bin/bash
 set -eu
+memcached -d -m 64 -p 11211 -l 127.0.0.1
 manage_mibios collectstatic --no-input
+manage_mibios migrate --no-input
 uwsgi --chdir "$APP_BASE_DIR" --ini /etc/uwsgi.ini

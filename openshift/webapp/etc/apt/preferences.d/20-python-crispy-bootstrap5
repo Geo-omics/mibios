@@ -1,0 +1,4 @@
+Explanation: stuff GLAMR needs from unstable but unavailable in bookworm
+Package: python3-crispy-bootstrap5
+Pin: release a=unstable
+Pin-Priority: 990

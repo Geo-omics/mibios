@@ -7,17 +7,25 @@ USER root
 
 ARG DEBIAN_FRONTEND=noninteractive 
 RUN ln -sf /usr/share/zoneinfo/America/Detroit /etc/localtime
+COPY etc/apt/preferences.d/10-no-sid /etc/apt/preferences.d/10-no-sid
+COPY etc/apt/preferences.d/20-python-crispy-bootstrap5 /etc/apt/preferences.d/20-python-crispy-bootstrap5
+COPY etc/apt/sources.list.d/sid.list /etc/apt/sources.list.d/sid.list
+
 RUN apt-get update && apt-get upgrade --assume-yes --quiet && apt-get install --assume-yes --no-install-recommends --quiet \
     adduser \
+    bootstrap-icons \
     curl \
     bind9-dnsutils \
     git \
+    less \
     iproute2 \
     iputils-ping \
     locales \
+    memcached \
     postgresql-client \
     procps \
     python3-biopython \
+    python3-crispy-bootstrap5 \
     python3-defusedxml \
     python3-django \
     python3-django-crispy-forms \
@@ -26,12 +34,14 @@ RUN apt-get update && apt-get upgrade --assume-yes --quiet && apt-get install --
     python3-django-filters \
     python3-django-tables2 \
     python3-matplotlib \
+    python3-pymemcache \
     python3-pandas \
     python3-pip \
     python3-psycopg2 \
     python3-pygraphviz \
     python3-xlrd \
     python3-zipstream \
+    # radiant is krona!
     radiant \
     uwsgi \
     uwsgi-plugin-python3
@@ -56,7 +66,7 @@ WORKDIR ${APP_BASE_DIR}
 COPY settings.py start-webapp ./
 RUN chmod ugo+rwx+t $APP_BASE_DIR
 USER $APP_USER:$APP_GROUP
-RUN mkdir static_var
+RUN mkdir static_var krona-cache static
 RUN ln -s /glamr-django-secret-key/django-secret-key secret.key
 
 RUN manage_mibios collectstatic --no-input
