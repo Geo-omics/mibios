@@ -1,5 +1,5 @@
 FROM debian:bookworm-slim
-ARG POSTGRES_BASE=/var/local/postgresql
+ARG PGHOME=/var/local/postgresql
 ARG POSTGRES_UID=121
 ARG POSTGRES_GID=130
 ARG DEBIAN_FRONTEND=noninteractive 
@@ -15,7 +15,7 @@ ENV LANG=en_US.utf8
 
 # assign postgreq user/group corresponding to external storage
 RUN addgroup --gid $POSTGRES_GID postgres
-RUN adduser --system --home=$POSTGRES_BASE --no-create-home --uid $POSTGRES_UID --ingroup postgres postgres
+RUN adduser --system --home=$PGHOME --no-create-home --uid $POSTGRES_UID --ingroup postgres postgres
 
 RUN apt-get update && apt-get install --assume-yes --no-install-recommends \
     postgresql-15
@@ -26,14 +26,11 @@ RUN apt-get update && apt-get install --assume-yes --no-install-recommends \
 # configuration alone.  The new place needs to have something mounted via
 # docker-compose's volumes directive or docker-run's --volume option that
 # contains a ready-to-use database or have initdb run manually.
-ENV PGDATA=$POSTGRES_BASE/data
+ENV PGDATA=$PGHOME/data
 COPY postgresql.conf /etc/postgresql/15/main/conf.d/local.conf
 RUN chown postgres:postgres /etc/postgresql/15/main/conf.d/local.conf
-RUN ls -la /etc/postgresql/15/main/conf.d/
+RUN sed -i '/^data_directory = / s/^/#/' /etc/postgresql/15/main/postgresql.conf
 USER postgres
-RUN echo "data_directory = '$PGDATA'" >> /etc/postgresql/15/main/conf.d/local.conf
-RUN echo "ssl_cert_file = '$POSTGRES_BASE/server.crt'" >> /etc/postgresql/15/main/conf.d/local.conf
-RUN echo "ssl_key_file = '$POSTGRES_BASE/server.key'" >> /etc/postgresql/15/main/conf.d/local.conf
 # allow DB access from webapp between containers
 RUN echo "host glamr glamr_django glamr_webapp_1.glamr_default trust" >> /etc/postgresql/15/main/pg_hba.conf
 # allow SSL+password for development:
