@@ -9,7 +9,7 @@ from mibios.glamr.models import Sample
 
 
 TEMPLATE = 'extra_field_attributes.py.template'
-OUTPUT = 'extra_field_attributes.py'
+DEFAULT_OUTPUT = 'extra_field_attributes.py'
 
 # Name of input file under GLAMR_META_ROOT
 UNITS_SHEET = 'Great_Lakes_Omics_Datasets.xlsx - metadata_units_and_notes.tsv'
@@ -24,7 +24,11 @@ class Command(BaseCommand):
     help = 'compile the extra_module_attributes module'
 
     def add_arguments(self, parser):
-        parser.add_argument('--output-file', help='Path to output file.')
+        parser.add_argument(
+            '--output-file',
+            default=DEFAULT_OUTPUT,
+            help=f'Path to output file, by default this is {DEFAULT_OUTPUT}',
+        )
 
     def handle(self, *args, **options):
         infile = settings.GLAMR_META_ROOT / UNITS_SHEET
@@ -84,7 +88,7 @@ class Command(BaseCommand):
         if not templ_path.is_file():
             raise CommandError(f'template file not found: {templ_path}')
 
-        out_path = Path(options.get('output_file', OUTPUT))
+        out_path = Path(options['output_file'])
 
         with templ_path.open() as templ, out_path.open('w') as ofile:
             for line in templ:
