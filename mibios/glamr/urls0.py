@@ -12,6 +12,7 @@ from functools import partial
 from django.conf import settings
 from django.urls import include, path, re_path
 from django.views import defaults
+from django.views.decorators.cache import never_cache
 
 from mibios import urls as mibios_urls
 from mibios.omics import urls as omics_urls
@@ -48,11 +49,11 @@ urlpatterns = [
 
     # URLs are served depending on settings, e.g. RequiredSettingsMixin
     # see INTERNAL_DEPLOYMENT, ENABLE_TEST_VIEWS, ENABLE_OPEN_ADMIN
-    path('dbinfo/', views.DBInfoView.as_view(), name='dbinfo'),
+    path('dbinfo/', never_cache(views.DBInfoView.as_view()), name='dbinfo'),
     path('admin/', admin_site.urls),
-    path('errortest/', views.test_server_error),
-    path('minitest/', views.MiniTestView.as_view()),
-    path('basetest/', views.BaseTestView.as_view()),
+    path('errortest/', never_cache(views.test_server_error)),
+    path('minitest/', never_cache(views.MiniTestView.as_view())),
+    path('basetest/', never_cache(views.BaseTestView.as_view())),
     path('omics/', include(omics_urls)),
 ]
 
