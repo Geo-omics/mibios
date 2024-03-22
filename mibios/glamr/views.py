@@ -1,6 +1,8 @@
 from itertools import groupby
 from logging import getLogger
+import pprint
 import re
+import sys
 
 from django_tables2 import (
     Column, SingleTableView, TemplateColumn, table_factory,
@@ -2046,13 +2048,26 @@ def test_server_error(request):
 
 
 class MiniTestView(RequiredSettingsMixin, BaseMixin, View):
+    """
+    minimalistic display and print request/response to stderr
+
+    GET /minitest
+    """
     required_settings = 'ENABLE_TEST_VIEWS'
 
     def get(self, request, *args, **kwargs):
-        resp = HttpResponse('ok')
-        return resp
+        print(f'{self}: {request=}', file=sys.stderr)
+        for k, v in vars(request).items():
+            if k == 'environ':
+                continue  # same as META
+            print(f'{k}: {pprint.pformat(v)}', file=sys.stderr)
+
+        response = HttpResponse('ok')
+        print(f'{self}: {pprint.pformat(vars(response))=}', file=sys.stderr)
+        return response
 
 
 class BaseTestView(RequiredSettingsMixin, BaseMixin, TemplateView):
+    """ Display rendered base template via GET /basetest """
     required_settings = 'ENABLE_TEST_VIEWS'
     template_name = 'glamr/base.html'
