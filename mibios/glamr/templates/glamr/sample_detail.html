@@ -8,14 +8,14 @@
 {% block detail_header %}{{ block.super }}
 {% if object.sample_type == "metagenome" %}
 [
-    {% if object.tax_abund_ok %}
+    {% if object.tax_abund_ok and not object.private %}
         <a href="{% url 'krona' samp_no=object.get_samp_no %}">krona chart</a>
         | <a href="{% url 'relations' model='sample' pk=object.pk field='taxonabundance'%}">abundance/taxa</a>
     {% else %}
         krona chart | abundance/taxa
     {% endif %}
     |
-    {% if object.read_abundance_loaded %}
+    {% if object.read_abundance_loaded and not object.private %}
         <a href="{% url 'relations' model='sample' pk=object.pk field='functional_abundance'%}">abundance/functions</a>
     {% else %}
         abundance/functions

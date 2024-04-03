@@ -1743,6 +1743,11 @@ class SampleView(RecordView):
     exclude = Sample.get_internal_fields()
     related = []
 
+    def get_queryset(self):
+        qs = self.model.objects.with_privates()
+        qs = qs.select_related('dataset', 'dataset__primary_ref')
+        return qs
+
     def get_object_lookups(self):
         key = self.kwargs['key']
         if self.kwargs.get('ktype', None) == 'pk:':
@@ -1766,6 +1771,22 @@ class SampleView(RecordView):
                 pass
             fields.append(i)
         return fields
+
+    def get_details(self):
+        if self.object.private:
+            # limit fields and add a special notice for private samples
+            self.fields = ['sample_name', 'collection_timestamp',
+                           'geo_loc_name', 'noaa_site']
+            special_note = [(
+                'status',
+                None,
+                [('sample from non-public dataset', None)],
+                None
+            )]
+        else:
+            special_note = []
+
+        return special_note + super().get_details()
 
     def get_collection_timestamp_detail(self, field, item):
         name, info, _, _ = item

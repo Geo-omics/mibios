@@ -11,6 +11,7 @@ from django.core.validators import URLValidator
 from django.db import models
 from django.urls import reverse
 from django.utils.dateparse import parse_datetime, parse_date, parse_time
+from django.utils.functional import cached_property
 
 from mibios import __version__ as mibios_version
 from mibios.omics.models import AbstractDataset, AbstractSample
@@ -602,6 +603,10 @@ class Sample(AbstractSample):
             if self.sample_id and settings.INTERNAL_DEPLOYMENT:
                 value = f'{value} ({self.sample_id})'
         return value or self.sample_id or super().__str__()
+
+    @cached_property
+    def private(self):
+        return self.dataset.private
 
     @classmethod
     def get_internal_fields(cls):
