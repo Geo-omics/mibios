@@ -203,12 +203,12 @@ LOGGING = {
             # FIXME: this does not work as we want to
             'handlers': ['file', 'mail_admins'],
             'level': 'DEBUG',
-            'propagate': True,
+            'propagate': False,
         },
         'mibios': {
             'handlers': ['console', 'file', 'mail_admins'],
             'level': 'DEBUG',
-            'propagate': True,
+            'propagate': False,
         },
         'dataimport': {
             'handlers': ['import_log_file'],
