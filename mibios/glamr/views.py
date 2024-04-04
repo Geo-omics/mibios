@@ -2,7 +2,6 @@ from itertools import groupby
 from logging import getLogger
 import pprint
 import re
-import sys
 
 from django_tables2 import (
     Column, SingleTableView, TemplateColumn, table_factory,
@@ -2077,14 +2076,16 @@ class MiniTestView(RequiredSettingsMixin, BaseMixin, View):
     required_settings = 'ENABLE_TEST_VIEWS'
 
     def get(self, request, *args, **kwargs):
-        print(f'{self}: {request=}', file=sys.stderr)
+        log.debug(f'{self}: {request=}')
+        log_msg = ''
         for k, v in vars(request).items():
             if k == 'environ':
                 continue  # same as META
-            print(f'{k}: {pprint.pformat(v)}', file=sys.stderr)
+            log_msg += f'{k}: {pprint.pformat(v)}\n'
+        log.debug(log_msg)
 
         response = HttpResponse('ok')
-        print(f'{self}: {pprint.pformat(vars(response))=}', file=sys.stderr)
+        log.debug(f'{self}: {pprint.pformat(vars(response))=}')
         return response
 
 
