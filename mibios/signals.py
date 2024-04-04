@@ -20,5 +20,5 @@ def clear_cache_on_save(sender, **kwargs):
         return
 
     if c._cache:
-        log.debug(f'cache: clearing all {len(c._cache.keys())} entries')
         c.clear()
+        log.debug('post_save: cache cleared')
