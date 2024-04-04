@@ -1,4 +1,11 @@
 """
+Tests for GLAMR
+
+How to run tests with postgres:  As postgres user, create a test DB
+"test_glamr" owned by the developer's role.  Then run tests with --keepdb
+option.
+
+How to get test  coverage:
 python3 -m coverage run --branch --source=./mibios ./manage.py test
 python3 -m coverage html -d cov_html
 """
