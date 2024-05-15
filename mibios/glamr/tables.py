@@ -264,9 +264,7 @@ class ReadAbundanceTable(Table):
                 value += f', {i}'
         else:
             # just the uniref100 accession
-            value = str(value)
-            if value.startswith('UNIREF100_'):
-                value = f'Uniref100: {value.removeprefix("UNIREF100_")}'
+            value = value.accession
         return value
 
     def as_values(self):

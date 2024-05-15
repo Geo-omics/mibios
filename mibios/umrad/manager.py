@@ -1430,7 +1430,10 @@ class UniRef100Loader(BulkLoader):
         self.selected_accns = None
         if selection_from:
             with open(selection_from) as ifile:
-                self.selected_accns = {line.strip() for line in ifile}
+                self.selected_accns = {
+                    self.parse_ur100(line.strip())
+                    for line in ifile
+                }
             print(f'Selectively loading {len(self.selected_accns)} UR100 '
                   f'accessions.')
 
@@ -1458,15 +1461,18 @@ class UniRef100Loader(BulkLoader):
         pp = ProgressPrinter('func xrefs db values assigned')
         FuncRefDBEntry.name_loader.fast_bulk_update(pp(objs), ['db'])
 
-    def check_selection(self, value, obj):
+    @classmethod
+    def parse_ur100(cls, value):
+        """ helper to parse UniRef100 accessions """
+        return value.upper().removeprefix('UNIREF100_')
+
+    def parse_and_filter(self, value, obj):
         """ for selective loading, check if row is to be skipped """
-        if self.selected_accns is None:
-            return value
-        else:
-            if value.removeprefix('UNIREF100_') in self.selected_accns:
-                return value
-            else:
+        value = self.parse_ur100(value)
+        if self.selected_accns is not None:
+            if value not in self.selected_accns:
                 return CSV_Spec.SKIP_ROW
+        return value
 
     def process_func_xrefs(self, value, obj):
         """ Pre-processor ro collect COG through EC columns """
@@ -1512,7 +1518,7 @@ class UniRef100Loader(BulkLoader):
         return [(i, ) for i in taxids]
 
     spec = CSV_Spec(
-        ('UR100', 'accession', check_selection),
+        ('UR100', 'accession', parse_and_filter),
         ('UR90', 'uniref90'),
         ('Name', 'function_names'),
         ('Length', 'length'),

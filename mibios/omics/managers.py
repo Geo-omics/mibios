@@ -458,8 +458,8 @@ class UniRefMixin:
     """ Mixin for dealing with uniref100 columns """
     def parse_ur100(self, value, obj):
         """ Preprocessing method, add this to spec line """
-        # UniRef100_ --> UNIREF100_
-        return value.upper()
+        # UniRef100_XYZ --> XYZ
+        return UniRef100.loader.parse_ur100(value)
 
     def uniref100_helper(self, field_name, spec=None, create_missing=True):
         """
@@ -480,7 +480,7 @@ class UniRefMixin:
         rows = self.spec.iterrows()
         print('Extracting distinct UniRef100s...', end='', flush=True)
         # get accessions w/o prefix, unique values only
-        urefs = {row[col].upper() for row in rows}
+        urefs = {UniRef100.loader.parse_ur100(row[col]) for row in rows}
         print(f' [{len(urefs)} OK]')
 
         # Create placeholders for missing UR100 records ...

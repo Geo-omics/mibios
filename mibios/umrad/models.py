@@ -233,7 +233,7 @@ class UniRef100(Model):
     # OUT_UNIREF.txt in order.
 
     #  1 UR100
-    accession = AccessionField(prefix='UNIREF100_')
+    accession = AccessionField()
     #  2 UR90
     uniref90 = AccessionField(prefix='UNIREF90_', unique=False)
     #  3 Name
@@ -270,9 +270,7 @@ class UniRef100(Model):
         return self.accession
 
     def get_external_url(self):
-        # ensure correct casing for UniRef100 prefix
-        _, _, accession = self.accession.partition('_')
-        return f'https://www.uniprot.org/uniref/UniRef100_{accession}'
+        return f'https://www.uniprot.org/uniref/UniRef100_{self.accession}'
 
 
 # development stuff
