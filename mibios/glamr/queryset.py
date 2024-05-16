@@ -6,7 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.search import SearchQuery, TrigramDistance
 from django.db import connections
 from django.db.models import Count, F, Func, TextField, Value, Window
-from django.db.models.functions import FirstValue, Length
+from django.db.models.functions import FirstValue, Length, RowNumber
 from django.utils.safestring import mark_safe
 
 import pandas
@@ -252,7 +252,25 @@ class SearchableQuerySet(QuerySet):
             ))
         return qs
 
-    def search(self, query, highlight=None, **kwargs):
+    def limit(self, limit=None):
+        """ Limit result set per model """
+        if limit is None:
+            return self
+
+        if not isinstance(limit, int):
+            raise ValueError('If not Nont, then limit must be an integer')
+
+        # For Django <= 4.2? (where they added filtering on window function
+        # annotations), we do this subquery/raw dance.  No idea how to do this
+        # without raw()
+        qs = self.annotate(
+            rownum=Window(RowNumber(), partition_by=F('content_type_id'))
+        )
+        sub_sql, params = qs.query.sql_with_params()
+        sql = f'SELECT * FROM ({sub_sql}) as foo where rownum <= %s'
+        return self.model.objects.raw(sql, params + (limit,))
+
+    def search(self, query, highlight=None, limit_per_model=None, **kwargs):
         """
         Full-text search
 
@@ -267,6 +285,7 @@ class SearchableQuerySet(QuerySet):
         Snippets are lists of (field, text) tuples.
         """
         qs = self.search_qs(query, highlight=highlight, **kwargs)
+        qs = qs.limit(limit=limit_per_model)
 
         result = {}
         for ctpk, model_hits in groupby(qs, key=attrgetter('content_type_id')):

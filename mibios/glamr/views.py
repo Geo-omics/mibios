@@ -744,6 +744,7 @@ class SearchMixin(SearchFormMixin):
             query=self.query,
             models=[self.model._meta.model_name] if self.model else [],
             abundance=self.check_abundance,
+            limit_per_model=20,
         )
 
         if search_result:
@@ -782,6 +783,7 @@ class SearchMixin(SearchFormMixin):
                         query=' '.join(new_query),
                         models=[self.model._meta.model_name] if self.model else [],  # noqa:E501
                         abundance=self.check_abundance,
+                        limit_per_model=20,
                     )
 
         if not search_result:
@@ -808,6 +810,7 @@ class SearchMixin(SearchFormMixin):
                     query=query,
                     models=[self.model._meta.model_name] if self.model else [],
                     abundance=self.check_abundance,
+                    limit_per_model=20,
                 )
                 self.last_resort = True
 
