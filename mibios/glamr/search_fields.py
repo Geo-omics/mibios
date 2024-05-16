@@ -49,7 +49,7 @@ SEARCH_FIELDS = {
         'taxnode': ['taxname__name'],
     },
     'umrad': {
-        'compoundname': ['entry'],
+        # 'compoundname': ['entry'],
         'functionname': ['entry'],
     },
 }
