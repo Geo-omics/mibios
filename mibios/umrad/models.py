@@ -235,7 +235,7 @@ class UniRef100(Model):
     #  1 UR100
     accession = AccessionField()
     #  2 UR90
-    uniref90 = AccessionField(prefix='UNIREF90_', unique=False)
+    uniref90 = AccessionField(unique=False, verbose_name='UniRef90')
     #  3 Name
     function_names = models.ManyToManyField(FunctionName)
     #  4 Length
@@ -265,6 +265,10 @@ class UniRef100(Model):
     class Meta:
         verbose_name = 'UniRef100'
         verbose_name_plural = verbose_name
+
+        indexes = [
+            models.Index(fields=['uniref90']),
+        ]
 
     def __str__(self):
         return self.accession

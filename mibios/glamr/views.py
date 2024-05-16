@@ -33,7 +33,7 @@ from mibios.omics.models import (
     CompoundAbundance, FuncAbundance, ReadAbundance, TaxonAbundance
 )
 from mibios.ncbi_taxonomy.models import TaxNode
-from mibios.umrad.models import FuncRefDBEntry, Model
+from mibios.umrad.models import FuncRefDBEntry, Model, UniRef100
 from mibios.umrad.utils import DefaultDict
 from mibios.omics.models import Gene
 from mibios.omics.views import RequiredSettingsMixin
@@ -2039,11 +2039,27 @@ class FilteredListView(SearchFormMixin, MapMixin, ModelTableMixin, BaseMixin,
         return ctx
 
 
+class UniRef100View(RecordView):
+    model = UniRef100
+
+    def get_uniref90_detail(self, field, details):
+        """ inject URL """
+        name, info, val_items, unit = details
+        val_items = [
+            (val, f'https://www.uniprot.org/uniref/UniRef90_{val}')
+            for val, _ in val_items
+        ]
+        if val_items:
+            info = 'external URL'
+        return (name, info, val_items, unit)
+
+
 record_view_registry = DefaultDict(
     dataset=DatasetView.as_view(),
     sample=SampleView.as_view(),
     reference=ReferenceView.as_view(),
     taxnode=TaxonView.as_view(),
+    uniref100=UniRef100View.as_view(),
     default=RecordView.as_view(),
 )
 """
