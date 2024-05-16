@@ -2,6 +2,7 @@ from collections import Counter
 from itertools import groupby
 from operator import attrgetter
 
+from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.search import SearchQuery, TrigramDistance
 from django.db import connections
 from django.db.models import Count, F, Func, TextField, Value, Window
@@ -157,6 +158,34 @@ class ts_headline(Func):
 
 
 class SearchableQuerySet(QuerySet):
+
+    _model_cache = None
+
+    @classmethod
+    def get_model_cache(cls):
+        if cls._model_cache is None:
+            cls._model_cache = {
+                i.pk: i.model_class()
+                for i in ContentType.objects.all()
+                if i.model_class() is not None  # stale contenttype
+            }
+        return cls._model_cache
+
+    @classmethod
+    def get_content_type_ids(cls, *model_names):
+        """
+        Helper to get content type PKs for given models
+        """
+        pks = []
+        for pk, model in cls.get_model_cache().items():
+            if model._meta.model_name in model_names:
+                pks.append(pk)
+        if len(pks) == len(model_names):
+            return pks
+        else:
+            raise ValueError('some given model names do not correspond to a '
+                             'content type')
+
     def search_qs(
         self,
         query,
@@ -168,7 +197,7 @@ class SearchableQuerySet(QuerySet):
         highlight=None,
     ):
         """
-        Helper for search().  Returns the qeryset.
+        Helper for search().  Returns the queryset.
 
         :param bool abundance:
             If True, then results are limited to those with abundance / related
@@ -198,7 +227,7 @@ class SearchableQuerySet(QuerySet):
         if abundance:
             f['has_hit'] = True
         if models:
-            f['content_type__model__in'] = models
+            f['content_type_id__in'] = self.get_content_type_ids(*models)
         if fields:
             f['field__in'] = fields
             qs = self
@@ -213,9 +242,7 @@ class SearchableQuerySet(QuerySet):
                 lookup = 'icontains'
             f[f'text__{lookup}'] = query
 
-        qs = self.filter(**f) \
-            .select_related('content_type') \
-            .order_by('content_type', 'field')
+        qs = self.filter(**f).order_by('content_type_id')
 
         if pg_textsearch and highlight:
             qs = qs.annotate(snippet=ts_headline(
@@ -242,8 +269,8 @@ class SearchableQuerySet(QuerySet):
         qs = self.search_qs(query, highlight=highlight, **kwargs)
 
         result = {}
-        for ctype, model_hits in groupby(qs, key=attrgetter('content_type')):
-            model = ctype.model_class()
+        for ctpk, model_hits in groupby(qs, key=attrgetter('content_type_id')):
+            model = self.get_model_cache()[ctpk]
             result[model] = {}
             key = attrgetter('object_id')
             for object_id, obj_hits in groupby(model_hits, key=key):
