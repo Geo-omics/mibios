@@ -1,10 +1,10 @@
 from django.forms.widgets import CheckboxSelectMultiple
 
-from django_filters import CharFilter, ChoiceFilter, DateFromToRangeFilter, \
+from django_filters import ChoiceFilter, DateFromToRangeFilter, \
         FilterSet, MultipleChoiceFilter
 from django_filters.widgets import RangeWidget
 
-from mibios.glamr.models import Dataset
+from mibios.glamr.models import Dataset, Sample
 
 from . import GREAT_LAKES
 
@@ -16,13 +16,29 @@ class AutoChoiceMixin:
     Choices get cached at first access and will not get updated as the
     databases changes.
     """
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
     _choices = {}
+    widget_class = None
 
     @classmethod
-    def populate_choices(cls, model, field_name):
+    def _get_choices(cls, model, field_name, instance):
+        """
+        populate and retrieve choices from class-level cache
+
+        Choices are kept per model/field pair so that a filter class can
+        support multiple filters.
+        """
+        if (model, field_name) not in cls._choices:
+            cls._choices[(model, field_name)] = \
+                instance.get_choices(model, field_name)
+        return cls._choices[(model, field_name)]
+
+    def get_choices(self, model, field_name):
+        """
+        Build the list of choices.
+
+        Returns a list of pairs of internal and display values.  Inheriting
+        classes can overwrite this method.
+        """
         if '__' in field_name:
             # follow that relation
             field = model.get_field(field_name)
@@ -40,13 +56,17 @@ class AutoChoiceMixin:
             qs = qs.values_list(field_name1, flat=True).distinct()
             choices = [(i, i) for i in qs]
 
-        cls._choices[(model, field_name)] = choices
+        return choices
 
     def ensure_extra(self):
+        """ Populate the extra attribute with things to be passed to the form
+        field """
         if 'choices' not in self.extra:
-            if (self.model, self.field_name) not in self._choices:
-                self.populate_choices(self.model, self.field_name)
-            self.extra['choices'] = self._choices[(self.model, self.field_name)]  # noqa:E501
+            self.extra['choices'] = \
+                self._get_choices(self.model, self.field_name, self)
+
+        if 'widget' not in self.extra and self.widget_class is not None:
+            self.extra['widget'] = self.widget_class()
 
     @property
     def field(self):
@@ -59,8 +79,7 @@ class WaterBodyFilter(AutoChoiceMixin, ChoiceFilter):
     conjoined = False
     required = True
 
-    @classmethod
-    def populate_choices(cls, model, field_name):
+    def get_choices(cls, model, field_name):
         values = set()
         qs = model.objects.values_list('water_bodies', flat=True)
         for i in qs.distinct():
@@ -69,23 +88,31 @@ class WaterBodyFilter(AutoChoiceMixin, ChoiceFilter):
                 if j:
                     values.add(j)
         values = values.difference(GREAT_LAKES)
-        choices = [(i, i.capitalize()) for i in values]
+        choices = [(i, i) for i in values]
         choices = sorted(choices, key=lambda x: x[1].casefold())
-        choices = [(i, i) for i in GREAT_LAKES] + choices
-        cls._choices[(model, field_name)] = choices
+        return [(i, i) for i in GREAT_LAKES] + choices
 
 
 class SampleTypeFilter(AutoChoiceMixin, MultipleChoiceFilter):
-    def ensure_extra(self):
-        super().ensure_extra()
-        self.extra['widget'] = CheckboxSelectMultiple()
+    widget_class = CheckboxSelectMultiple
+
+
+class YearChoiceFilter(AutoChoiceMixin, ChoiceFilter):
+    def get_choices(cls, model, field_name):
+        qs = (Sample.objects
+              .exclude(collection_timestamp=None)
+              .order_by('collection_timestamp__year')
+              .values_list('collection_timestamp__year', flat=True)
+              .distinct()
+              )
+        return [(i, i) for i in qs]
 
 
 class DatasetFilter(FilterSet):
     water_bodies = WaterBodyFilter()
     sample__sample_type = SampleTypeFilter(label='Sample type')
-    sample_year = CharFilter(
-        method='search_sample_date',
+    sample_year = YearChoiceFilter(
+        method='add_year',
         label='Sample year (YYYY)',
     )
     sample__collection_timestamp = DateFromToRangeFilter(
@@ -102,8 +129,6 @@ class DatasetFilter(FilterSet):
             'sample__collection_timestamp',
         ]
 
-    def search_sample_date(self, qs, name, value):
+    def add_year(self, qs, name, value):
         return qs.filter(sample__collection_timestamp__year=value)
 
-    def search_sample_locations(self, qs, name, value):
-        return qs.filter(sample__geo_loc_name__icontains=value)
