@@ -1422,8 +1422,8 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
 
         qs = qs.annotate(sample_count=Count('sample', distinct=True))
 
-        self.filter = self.filter_class(self.request.GET, queryset=qs)
-        self.filter.form.helper = self.formhelper_class()
+        self.filter = DatasetFilter(self.request.GET, queryset=qs)
+        self.filter.form.helper = DatasetFilterFormHelper()
 
         return self.filter.qs.order_by("-sample_count")
 

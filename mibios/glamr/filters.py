@@ -1,63 +1,102 @@
-import django_filters
+from django.forms.widgets import CheckboxSelectMultiple
+
+from django_filters import CharFilter, ChoiceFilter, DateFromToRangeFilter, \
+        FilterSet, MultipleChoiceFilter
+from django_filters.widgets import RangeWidget
 
 from mibios.glamr.models import Dataset
 
+from . import GREAT_LAKES
 
-class DatasetFilter(django_filters.FilterSet):
-    water_bodies = django_filters.CharFilter(
-        label="Water bodies",
-        lookup_expr='icontains',
-    )
-    scheme = django_filters.CharFilter(
-        label="Description",
-        lookup_expr='icontains',
-    )
-    material_type = django_filters.CharFilter(
-        label="Material type",
-        lookup_expr='icontains',
-    )
-    reference__authors = django_filters.CharFilter(
-        label="Reference authors",
-        lookup_expr='icontains',
-    )
-    reference__title = django_filters.CharFilter(
-        label="Reference title",
-        lookup_expr='icontains',
-    )
-    sample_location = django_filters.CharFilter(
-        method='search_sample_locations',
-        label='Sample location',
-        # change label field to reflect what the filter name should be
-    )
 
-    SAMPLE_TYPES = (
-        ('amplicon', 'Amplicon'),
-        ('metagenome', 'Metagenome'),
-        ('metatranscriptome', 'Metatranscriptome'),
-    )
-    sample__sample_type = django_filters.ChoiceFilter(
-        label='Sample type',
-        choices=SAMPLE_TYPES,
-    )
-    sample_year = django_filters.CharFilter(
+class AutoChoiceMixin:
+    """
+    Self-populating choices for filters
+
+    Choices get cached at first access and will not get updated as the
+    databases changes.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    _choices = {}
+
+    @classmethod
+    def populate_choices(cls, model, field_name):
+        if '__' in field_name:
+            # follow that relation
+            field = model.get_field(field_name)
+            model1 = field.model
+            field_name1 = field.name
+        else:
+            model1 = model
+            field_name1 = field_name
+
+        if choices := model1._meta.get_field(field_name1).choices:
+            # prefer using declared choices
+            pass
+        else:
+            qs = model1.objects.order_by(field_name1)
+            qs = qs.values_list(field_name1, flat=True).distinct()
+            choices = [(i, i) for i in qs]
+
+        cls._choices[(model, field_name)] = choices
+
+    def ensure_extra(self):
+        if 'choices' not in self.extra:
+            if (self.model, self.field_name) not in self._choices:
+                self.populate_choices(self.model, self.field_name)
+            self.extra['choices'] = self._choices[(self.model, self.field_name)]  # noqa:E501
+
+    @property
+    def field(self):
+        self.ensure_extra()
+        return super().field
+
+
+class WaterBodyFilter(AutoChoiceMixin, ChoiceFilter):
+    lookup_expr = 'icontains'
+    conjoined = False
+    required = True
+
+    @classmethod
+    def populate_choices(cls, model, field_name):
+        values = set()
+        qs = model.objects.values_list('water_bodies', flat=True)
+        for i in qs.distinct():
+            for j in i.split(','):
+                j = j.strip()
+                if j:
+                    values.add(j)
+        values = values.difference(GREAT_LAKES)
+        choices = [(i, i.capitalize()) for i in values]
+        choices = sorted(choices, key=lambda x: x[1].casefold())
+        choices = [(i, i) for i in GREAT_LAKES] + choices
+        cls._choices[(model, field_name)] = choices
+
+
+class SampleTypeFilter(AutoChoiceMixin, MultipleChoiceFilter):
+    def ensure_extra(self):
+        super().ensure_extra()
+        self.extra['widget'] = CheckboxSelectMultiple()
+
+
+class DatasetFilter(FilterSet):
+    water_bodies = WaterBodyFilter()
+    sample__sample_type = SampleTypeFilter(label='Sample type')
+    sample_year = CharFilter(
         method='search_sample_date',
         label='Sample year (YYYY)',
     )
-
-    sample__collection_timestamp = django_filters.DateFromToRangeFilter(
+    sample__collection_timestamp = DateFromToRangeFilter(
         label="Sample Collection Date Range",
-        widget=django_filters.widgets.RangeWidget(attrs={'type': 'date'}),
+        widget=RangeWidget(attrs={'type': 'date'}),
     )
 
     class Meta:
         model = Dataset
         fields = [
             'water_bodies',
-            'material_type',
-            'scheme',
-            'reference__title',
-            'reference__authors',
-            'sample_location',
             'sample__sample_type',
             'sample_year',
             'sample__collection_timestamp',
