@@ -11,25 +11,18 @@
 {% include "glamr/frontpage_summary.html"%}
 {% endif %}
 <hr/>
-<h4>Available Datasets ({{ filtered_dataset_totalcount }})</h4>
-
-<div class="m-1">
-	{% include "glamr/frontpage_filter.html"%}
-</div>
 
 
 {% if db_is_good %}
 {# Table template adapted from https://stackoverflow.com/questions/47871550/is-it-possible-to-custom-django-tables2-template-for-a-specific-page-in-this-cas#}
 <div class="flex-container">
-	<div class="m-2 frontpage-map flex-item">
-		{% include "glamr/map.html"%}
-	</div>
-	<div class="flex-item">
-		{% render_table table %}
-	</div>
+    <div class="m-2 frontpage-map flex-item">{% include "glamr/map.html"%}</div>
+    <h4>Datasets ({{ filtered_dataset_totalcount }})</h4>
+
+    <div class="m-1">{% include "glamr/frontpage_filter.html"%}</div>
+
+    <div class="flex-item">{% render_table table %}</div>
 </div>
-
-
 {% endif %}
 
 {% endblock %}
