@@ -1808,7 +1808,7 @@ class TaxonView(RecordView):
         return qs
 
 
-class SearchView(BaseMixin, TemplateView):
+class SearchView(BaseMixin, SearchFormMixin, TemplateView):
     """ offer a form for advanced search, offer model list """
     template_name = 'glamr/search_init.html'
 
