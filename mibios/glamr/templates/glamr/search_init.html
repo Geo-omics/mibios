@@ -1,20 +1,33 @@
 {% extends "glamr/base.html" %}
-{% load static %}
+{% load static crispy_forms_tags %}
 {% block content %}
 
 <h3>Advanced Search and Filtering</h3>
 
-<div class="dropdown show">
-    <button class="btn btn-primary dropdown-toggle" type="button" id="dropdownMenuButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-        Select a data category
-    </button>
-    <div class="dropdown-menu scrollable" aria-labelledby="dropdownMenuLink">
-        {% for name, verbose in adv_search_models %}
-            <a href="{% url 'search_model' model=name %}" class="dropdown-item">{{ verbose }}</a>
-        {% endfor %}
+<div class="accordion" id="adv-search-accordion">
+
+
+<div class="accordion-item">
+    <h2 class="accordion-header">
+        <button type="button" class="accordion-button" data-bs-toggle="collapse" data-bs-target="#adv-filter-forms" aria-expanded="false" aria-controls="adv-filter-forms">
+            + Advanced filters
+        </button>
+    </h2>
+
+    <div id="adv-filter-forms" class="accordion-collapse collapse">
+    <div class="dropdown">
+        <a class="btn btn-secondary dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            Select a data type
+        </a>
+        <ul class="dropdown-menu">
+            {% for name, verbose in adv_search_models %}
+            <li><a class="dropdown-item" href="{% url 'search_model' model=name %}">{{ verbose }}</a></li>
+            {% endfor %}
+        </ul>
     </div>
-    
+    </div>
 </div>
 
+</div>{# END ACCORDION #}
 {% endblock %}
 
