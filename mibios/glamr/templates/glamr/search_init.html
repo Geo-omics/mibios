@@ -18,6 +18,23 @@
 </div>
 
 
+<div class="accordion-item">
+    <h2 class="accordion-header">
+        <button type="button" class="accordion-button" data-bs-toggle="collapse" data-bs-target="#uniref-id-filter" aria-expanded="false" aria-controls="uniref-id-filter">
+            + Search UniRef IDs
+        </button>
+    </h2>
+    <div id="uniref-id-filter" class="accordion-collapse collapse">
+            <form action="{%url 'filter_result' model='uniref100'%}" method="get" class="accordion-body">
+            {{ur90form|crispy}}
+            <button type="submit" class="btn btn-primary">Search</button>
+            </form>
+            <form action="{%url 'filter_result' model='uniref100'%}" method="get" class="accordion-body">
+            {{ur100form|crispy}}
+            <button type="submit" class="btn btn-primary">Search</button>
+            </form>
+    </div>
+</div>
 
 <div class="accordion-item">
     <h2 class="accordion-header">

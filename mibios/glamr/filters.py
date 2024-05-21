@@ -1,17 +1,21 @@
+import inspect
+import sys
+
 from django.forms.widgets import CheckboxSelectMultiple
 
-from django_filters import ChoiceFilter, DateFromToRangeFilter, \
+from django_filters import CharFilter, ChoiceFilter, DateFromToRangeFilter, \
         FilterSet, MultipleChoiceFilter
 from django_filters.widgets import RangeWidget
 
 from mibios.glamr.models import Dataset, Sample
+from mibios.umrad.models import UniRef100
 
 from . import GREAT_LAKES
 
 
 class AutoChoiceMixin:
     """
-    Self-populating choices for filters
+    Self-populating choices for filter components
 
     Choices get cached at first access and will not get updated as the
     databases changes.
@@ -25,7 +29,7 @@ class AutoChoiceMixin:
         populate and retrieve choices from class-level cache
 
         Choices are kept per model/field pair so that a filter class can
-        support multiple filters.
+        be used in different filtersets.
         """
         if (model, field_name) not in cls._choices:
             cls._choices[(model, field_name)] = \
@@ -74,7 +78,7 @@ class AutoChoiceMixin:
         return super().field
 
 
-class WaterBodyFilter(AutoChoiceMixin, ChoiceFilter):
+class WaterBodyFiFi(AutoChoiceMixin, ChoiceFilter):
     lookup_expr = 'icontains'
     conjoined = False
     required = True
@@ -93,11 +97,11 @@ class WaterBodyFilter(AutoChoiceMixin, ChoiceFilter):
         return [(i, i) for i in GREAT_LAKES] + choices
 
 
-class SampleTypeFilter(AutoChoiceMixin, MultipleChoiceFilter):
+class SampleTypeFiFi(AutoChoiceMixin, MultipleChoiceFilter):
     widget_class = CheckboxSelectMultiple
 
 
-class YearChoiceFilter(AutoChoiceMixin, ChoiceFilter):
+class YearChoiceFiFi(AutoChoiceMixin, ChoiceFilter):
     def get_choices(cls, model, field_name):
         qs = (Sample.objects
               .exclude(collection_timestamp=None)
@@ -109,9 +113,9 @@ class YearChoiceFilter(AutoChoiceMixin, ChoiceFilter):
 
 
 class DatasetFilter(FilterSet):
-    water_bodies = WaterBodyFilter()
-    sample__sample_type = SampleTypeFilter(label='Sample type')
-    sample_year = YearChoiceFilter(
+    water_bodies = WaterBodyFiFi()
+    sample__sample_type = SampleTypeFiFi(label='Sample type')
+    sample_year = YearChoiceFiFi(
         method='add_year',
         label='Sample year (YYYY)',
     )
@@ -132,3 +136,42 @@ class DatasetFilter(FilterSet):
     def add_year(self, qs, name, value):
         return qs.filter(sample__collection_timestamp__year=value)
 
+
+class UniRef90Filter(FilterSet):
+    uniref90 = CharFilter(label='UniRef90 ID')
+
+    class Meta:
+        model = UniRef100
+        fields = ['uniref90']
+
+
+class UniRef100Filter(FilterSet):
+    accession = CharFilter(label='UniRef100 ID')
+
+    class Meta:
+        model = UniRef100
+        fields = ['accession']
+
+
+def _compile_filter_registry():
+    reg = {}
+    filters = inspect.getmembers(
+        sys.modules[__name__],
+        lambda x: inspect.isclass(x)
+        and x.__module__ == __name__
+        and issubclass(x, FilterSet),
+    )
+    for name, cls in filters:
+        print(f'BORK {name=} {cls=}')
+        key = tuple(sorted(cls.base_filters.keys()))
+        if key in reg:
+            raise RuntimeError(f'{cls} has same components as {reg[key]}')
+        reg[key] = cls
+    # dict ordered long keys first
+    return dict(sorted(reg.items(), key=lambda x: -len(x[0])))
+
+
+# this should go after all class declarations
+filter_registry = _compile_filter_registry()
+""" a map from sorted field names / accessors to filter set class for
+auto-picking the right class from a GET querystring """

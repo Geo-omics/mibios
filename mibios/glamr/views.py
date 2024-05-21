@@ -23,14 +23,17 @@ from django.views.generic.list import ListView
 
 from mibios import get_registry
 from mibios.data import DataConfig, TableConfig
-from mibios.glamr.filters import DatasetFilter
+from mibios.glamr.filters import (
+    DatasetFilter, UniRef90Filter, UniRef100Filter,
+    filter_registry,
+)
 from mibios.glamr.forms import DatasetFilterFormHelper
 from mibios.glamr.models import Sample, Dataset, pg_class, dbstat
 from mibios.models import Q
 from mibios.views import ExportBaseMixin, TextRendererZipped, VersionInfoMixin
 from mibios.omics import get_sample_model
 from mibios.omics.models import (
-    CompoundAbundance, FuncAbundance, ReadAbundance, TaxonAbundance
+    CompoundAbundance, FuncAbundance, ReadAbundance, TaxonAbundance,
 )
 from mibios.ncbi_taxonomy.models import TaxNode
 from mibios.umrad.models import FuncRefDBEntry, Model, UniRef100
@@ -1832,6 +1835,9 @@ class SearchView(BaseMixin, SearchFormMixin, TemplateView):
             items.append((m._meta.model_name, m._meta.verbose_name))
         ctx['adv_search_models'] = sorted(items, key=lambda x: x[1].lower())
 
+        ctx['ur90form'] = UniRef90Filter().form
+        ctx['ur100form'] = UniRef100Filter().form
+
         return ctx
 
 
@@ -2006,39 +2012,73 @@ class FilteredListView(SearchFormMixin, MapMixin, ModelTableMixin, BaseMixin,
     template_name = 'glamr/filter_list.html'
 
     def setup(self, request, *args, model=None, **kwargs):
+        if model:
+            try:
+                self.model = get_registry().models[model]
+            except KeyError as e:
+                raise Http404(f'no such model: {e}') from e
         super().setup(request, *args, **kwargs)
-        # support searchable models only for now
-        try:
-            self.model = self.model_class[model]
-        except KeyError as e:
-            raise Http404('model not supported in this view') from e
-        self.conf = TableConfig(self.model)
 
-    def set_filter(self):
-        """ set filter from GET querystring """
-        self.conf.clear_selection()
-        self.conf.set_from_query(self.request.GET)
+    def get(self, request, *args, **kwargs):
+        self.filter_class = self.get_filter_class()
+        if self.filter_class is None:
+            self.conf = self.get_config()
+        else:
+            self.conf = None
+        return super().get(request, *args, **kwargs)
+
+    def get_filter_class(self):
+        """
+        Try to get filter class that matches our request
+        """
+        requested_keys = set(self.request.GET.keys())
+        # assume registry is long key list first
+        for keys, cls in filter_registry.items():
+            for i in keys:
+                if i not in requested_keys:
+                    break
+            else:
+                # no inner break, all keys were requested
+                return cls
+        else:
+            # no match in registry
+            return None
+
+    def get_config(self):
+        """
+        Get table config from GET querystring
+
+        This only gets called if there is no corresponding filter.
+        """
+        conf = TableConfig(self.model)
+        conf.clear_selection()
+        conf.set_from_query(self.request.GET)
         try:
             # if this fails, assume it's something bad via URL
-            self.conf.get_queryset()
+            conf.get_queryset()
         except Exception as e:
             raise Http404(f'suspected bad URL query string: {e}') from e
-        return
+        return conf
 
     def get_queryset(self):
-        # By the usual calling order set_filter() is already run by
-        # get_context_data(), but just to cover the inordinary, call it here
-        # again:
-        self.set_filter()
-        return self.customize_queryset(self.conf.get_queryset())
+        if self.filter_class:
+            qs = super().get_queryset()
+            self.filter = self.filter_class(self.request.GET, queryset=qs)
+            qs = self.filter.qs
+        elif self.conf is not None:
+            qs = self.conf.get_queryset()
+        else:
+            raise RuntimeError('a bug')
+
+        return self.customize_queryset(qs)
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        self.set_filter()
-        ctx['filter_items'] = [
-            (k.replace('__', ' -> '), v)
-            for k, v in self.conf.filter.items()
-        ] + [('', i) for i in self.conf.q]
+        if self.conf:
+            ctx['filter_items'] = [
+                (k.replace('__', ' -> '), v)
+                for k, v in self.conf.filter.items()
+            ] + [('', i) for i in self.conf.q]
         return ctx
 
 
