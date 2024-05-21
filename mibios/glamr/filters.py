@@ -112,7 +112,11 @@ class YearChoiceFiFi(AutoChoiceMixin, ChoiceFilter):
         return [(i, i) for i in qs]
 
 
-class DatasetFilter(FilterSet):
+class StandardFilter(FilterSet):
+    code = None
+
+
+class DatasetFilter(StandardFilter):
     water_bodies = WaterBodyFiFi()
     sample__sample_type = SampleTypeFiFi(label='Sample type')
     sample_year = YearChoiceFiFi(
@@ -123,6 +127,8 @@ class DatasetFilter(FilterSet):
         label="Sample Collection Date Range",
         widget=RangeWidget(attrs={'type': 'date'}),
     )
+
+    code = 'da'
 
     class Meta:
         model = Dataset
@@ -137,8 +143,18 @@ class DatasetFilter(FilterSet):
         return qs.filter(sample__collection_timestamp__year=value)
 
 
+class SampleFilter(StandardFilter):
+    code = 'sa'
+
+    class Meta:
+        model = Sample
+        exclude = []
+
+
 class UniRef90Filter(FilterSet):
     uniref90 = CharFilter(label='UniRef90 ID')
+
+    code = 'u9'
 
     class Meta:
         model = UniRef100
@@ -147,6 +163,8 @@ class UniRef90Filter(FilterSet):
 
 class UniRef100Filter(FilterSet):
     accession = CharFilter(label='UniRef100 ID')
+
+    code = 'u1'
 
     class Meta:
         model = UniRef100
@@ -159,19 +177,24 @@ def _compile_filter_registry():
         sys.modules[__name__],
         lambda x: inspect.isclass(x)
         and x.__module__ == __name__
-        and issubclass(x, FilterSet),
+        and issubclass(x, FilterSet)
+        and hasattr(x, 'code')
     )
     for name, cls in filters:
-        print(f'BORK {name=} {cls=}')
-        key = tuple(sorted(cls.base_filters.keys()))
-        if key in reg:
-            raise RuntimeError(f'{cls} has same components as {reg[key]}')
-        reg[key] = cls
-    # dict ordered long keys first
-    return dict(sorted(reg.items(), key=lambda x: -len(x[0])))
+        if name == 'StandardFilter':
+            continue
+        if cls.code is None:
+            raise ValueError(f'filter registry code not set: {cls}')
+        if cls.code in reg:
+            raise ValueError(f'Class {cls} has duplicate code: {cls.code}')
+        reg[cls.code] = cls
+    return reg
 
 
 # this should go after all class declarations
 filter_registry = _compile_filter_registry()
 """ a map from sorted field names / accessors to filter set class for
 auto-picking the right class from a GET querystring """
+
+standard_filters = StandardFilter.__subclasses__()
+""" filters to be included on the adv search page """

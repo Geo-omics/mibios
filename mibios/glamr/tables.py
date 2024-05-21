@@ -520,7 +520,7 @@ class DatasetTable(Table):
         if record.sample_count <= 0:
             return mark_safe('<div class="btn btn-primary disabled mb-1">No samples</div>')  # noqa: E501
 
-        if hasattr(self.view, 'conf'):
+        if hasattr(self.view, 'conf') and self.view.conf is not None:
             conf = self.view.conf.shift('sample', reverse=True)
             conf.filter['dataset_id'] = record.pk
             url = reverse('filter_result', kwargs=dict(model='sample'))

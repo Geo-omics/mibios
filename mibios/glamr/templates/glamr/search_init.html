@@ -1,5 +1,5 @@
 {% extends "glamr/base.html" %}
-{% load static crispy_forms_tags %}
+{% load static crispy_forms_tags glamr_extras %}
 {% block content %}
 
 <h3>Advanced Search and Filtering</h3>
@@ -25,16 +25,46 @@
         </button>
     </h2>
     <div id="uniref-id-filter" class="accordion-collapse collapse">
-            <form action="{%url 'filter_result' model='uniref100'%}" method="get" class="accordion-body">
-            {{ur90form|crispy}}
+            <form action="{%url 'filter_result2' code=ur90filter.code model='uniref100'%}" method="get" class="accordion-body">
+            {{ur90filter.form|crispy}}
             <button type="submit" class="btn btn-primary">Search</button>
             </form>
-            <form action="{%url 'filter_result' model='uniref100'%}" method="get" class="accordion-body">
-            {{ur100form|crispy}}
+            <form action="{%url 'filter_result2' code=ur100filter.code model='uniref100'%}" method="get" class="accordion-body">
+            {{ur100filter.form|crispy}}
             <button type="submit" class="btn btn-primary">Search</button>
             </form>
     </div>
 </div>
+
+
+<div class="accordion-item">
+    <h2 class="accordion-header">
+        <button type="button" class="accordion-button" data-bs-toggle="collapse" data-bs-target="#filter-forms" aria-expanded="true" aria-controls="filter-forms">
+            + Filters
+        </button>
+    </h2>
+
+    <div id="filter-forms" class="accordion-collapse collapse show">
+    <ul class="nav nav-tabs" id="adv-search-tabs" role="tablist">
+        {% for name, verbose, filter in standard_filters %}
+        <li class="nav-item" role="presentation">
+            <button class="nav-link{%if forloop.first%} active{%endif%}" id="{{name}}-tab" data-bs-toggle="tab" data-bs-target="#{{name}}-tab-pane" type="button" role="tab" aria-controls="{{name}}-tab-pane" aria-selected="{%if forloop.first%}true{%else%}false{%endif%}">{{verbose|capfirstsmart}}</button>
+        </li>
+        {% endfor %}
+    </ul>
+    <div class="tab-content" id="adv-search-forms-div">
+        {% for name, verbose, filter in standard_filters %}
+        <div class="tab-pane{%if forloop.first%} show active{%endif%}" id="{{name}}-tab-pane" role="tabpanel" aria-labelled-by="{{name}}-tab" tabindex="0">
+            <form action="{%url 'filter_result2' code=filter.code model=name%}">
+            {{filter.form|crispy}}
+            <button type="submit" class="btn btn-primary">Search</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+    </div>
+</div>
+
 
 <div class="accordion-item">
     <h2 class="accordion-header">

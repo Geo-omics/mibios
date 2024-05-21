@@ -25,7 +25,7 @@ from mibios import get_registry
 from mibios.data import DataConfig, TableConfig
 from mibios.glamr.filters import (
     DatasetFilter, UniRef90Filter, UniRef100Filter,
-    filter_registry,
+    filter_registry, standard_filters
 )
 from mibios.glamr.forms import DatasetFilterFormHelper
 from mibios.glamr.models import Sample, Dataset, pg_class, dbstat
@@ -533,7 +533,7 @@ class MapMixin():
         if self.model is Sample:
             return self.get_queryset()
         elif self.model is Dataset:
-            if hasattr(self, 'conf'):
+            if hasattr(self, 'conf') and self.conf is not None:
                 return self.conf.shift('sample', reverse=True).get_queryset()
             else:
                 return Sample.objects.filter(dataset__in=self.get_queryset())
@@ -600,7 +600,7 @@ class MapMixin():
                 # Add a link to the other samples at these coordinates.  We try
                 # to keep existing filters in place but if that fails we link
                 # to all samples at this location.
-                if hasattr(self, 'conf'):
+                if hasattr(self, 'conf') and self.conf is not None:
                     if self.conf.model is Dataset:
                         cnf = self.conf.shift('sample', reverse=True)
                     elif self.conf.model is Sample:
@@ -1812,11 +1812,25 @@ class TaxonView(RecordView):
 
 
 class SearchView(BaseMixin, SearchFormMixin, TemplateView):
-    """ offer a form for advanced search, offer model list """
+    """ display the advanced search page """
     template_name = 'glamr/search_init.html'
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
+
+        # Support for uniref ID lookups
+        ctx['ur90filter'] = UniRef90Filter()
+        ctx['ur100filter'] = UniRef100Filter()
+
+        # support for regular per modelfilters
+        ctx['standard_filters'] = [
+            (cls._meta.model._meta.model_name,
+             cls._meta.model._meta.verbose_name,
+             cls())
+            for cls in standard_filters
+        ]
+
+        # Support for the Advanced Filter section
         ctx['advanced_search'] = False
         m_and_f = []
         for model, fields in search_fields.items():
@@ -1834,9 +1848,6 @@ class SearchView(BaseMixin, SearchFormMixin, TemplateView):
             m = models[i]
             items.append((m._meta.model_name, m._meta.verbose_name))
         ctx['adv_search_models'] = sorted(items, key=lambda x: x[1].lower())
-
-        ctx['ur90form'] = UniRef90Filter().form
-        ctx['ur100form'] = UniRef100Filter().form
 
         return ctx
 
@@ -2012,73 +2023,78 @@ class FilteredListView(SearchFormMixin, MapMixin, ModelTableMixin, BaseMixin,
     template_name = 'glamr/filter_list.html'
 
     def setup(self, request, *args, model=None, **kwargs):
+        super().setup(request, *args, **kwargs)
+        # support searchable models only for now
+        try:
+            self.model = self.model_class[model]
+        except KeyError as e:
+            raise Http404('model not supported in this view') from e
+        self.conf = TableConfig(self.model)
+
+    def set_filter(self):
+        """ set filter from GET querystring """
+        self.conf.clear_selection()
+        self.conf.set_from_query(self.request.GET)
+        try:
+            # if this fails, assume it's something bad via URL
+            self.conf.get_queryset()
+        except Exception as e:
+            raise Http404(f'suspected bad URL query string: {e}') from e
+        return
+
+    def get_queryset(self):
+        # By the usual calling order set_filter() is already run by
+        # get_context_data(), but just to cover the inordinary, call it here
+        # again:
+        self.set_filter()
+        return self.customize_queryset(self.conf.get_queryset())
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        self.set_filter()
+        ctx['filter_items'] = [
+            (k.replace('__', ' -> '), v)
+            for k, v in self.conf.filter.items()
+        ] + [('', i) for i in self.conf.q]
+        return ctx
+
+
+class DjangoFilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
+                             BaseMixin, SingleTableView):
+    """ Similar to FilteredListView but got via django-filter filters """
+    template_name = 'glamr/filter_list.html'
+
+    def setup(self, request, *args, model=None, **kwargs):
         if model:
             try:
                 self.model = get_registry().models[model]
             except KeyError as e:
                 raise Http404(f'no such model: {e}') from e
+
+        try:
+            self.filter_class = filter_registry[kwargs.pop('code')]
+        except KeyError as e:
+            raise Http404('invalid filter code') from e
+
+        if self.model is not self.filter_class._meta.model:
+            raise Http404('model is incompatible with filter code ')
+
         super().setup(request, *args, **kwargs)
 
-    def get(self, request, *args, **kwargs):
-        self.filter_class = self.get_filter_class()
-        if self.filter_class is None:
-            self.conf = self.get_config()
-        else:
-            self.conf = None
-        return super().get(request, *args, **kwargs)
-
-    def get_filter_class(self):
-        """
-        Try to get filter class that matches our request
-        """
-        requested_keys = set(self.request.GET.keys())
-        # assume registry is long key list first
-        for keys, cls in filter_registry.items():
-            for i in keys:
-                if i not in requested_keys:
-                    break
-            else:
-                # no inner break, all keys were requested
-                return cls
-        else:
-            # no match in registry
-            return None
-
-    def get_config(self):
-        """
-        Get table config from GET querystring
-
-        This only gets called if there is no corresponding filter.
-        """
-        conf = TableConfig(self.model)
-        conf.clear_selection()
-        conf.set_from_query(self.request.GET)
-        try:
-            # if this fails, assume it's something bad via URL
-            conf.get_queryset()
-        except Exception as e:
-            raise Http404(f'suspected bad URL query string: {e}') from e
-        return conf
-
     def get_queryset(self):
-        if self.filter_class:
-            qs = super().get_queryset()
-            self.filter = self.filter_class(self.request.GET, queryset=qs)
-            qs = self.filter.qs
-        elif self.conf is not None:
-            qs = self.conf.get_queryset()
-        else:
-            raise RuntimeError('a bug')
-
-        return self.customize_queryset(qs)
+        qs = super().get_queryset()
+        self.filter = self.filter_class(self.request.GET, queryset=qs)
+        return self.customize_queryset(self.filter.qs)
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        if self.conf:
-            ctx['filter_items'] = [
-                (k.replace('__', ' -> '), v)
-                for k, v in self.conf.filter.items()
-            ] + [('', i) for i in self.conf.q]
+        # TODO:
+        """
+        ctx['filter_items'] = [
+            (k.replace('__', ' -> '), v)
+            for k, v in self.conf.filter.items()
+        ] + [('', i) for i in self.conf.q]
+        """
         return ctx
 
 
