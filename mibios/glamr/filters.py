@@ -1,10 +1,10 @@
 import inspect
 import sys
 
-from django.forms.widgets import CheckboxSelectMultiple
+from django.forms.widgets import CheckboxInput, CheckboxSelectMultiple
 
-from django_filters import CharFilter, ChoiceFilter, DateFromToRangeFilter, \
-        FilterSet, MultipleChoiceFilter
+from django_filters import BooleanFilter, CharFilter, ChoiceFilter, \
+    DateFromToRangeFilter, FilterSet, MultipleChoiceFilter, RangeFilter
 from django_filters.widgets import RangeWidget
 
 from mibios.glamr.models import Dataset, Reference, Sample
@@ -146,6 +146,25 @@ class AutoChoiceMixin:
             return super().filter(qs, value)
 
 
+class OkOnlyFiFi(BooleanFilter):
+    """
+    The Ok-Only filter presents a checkbox.  If checked we return objects for
+    which the field is True.  If left unchecked, then no filter is applied.
+
+    Target use are the _ok fields of Sample.
+    """
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('widget', CheckboxInput())
+        super().__init__(*args, **kwargs)
+
+    def filter(self, qs, value):
+        if value is False:
+            # unchecked, no filtering
+            return qs
+        else:
+            return super().filter(qs, value)
+
+
 class ChoiceFiFi(AutoChoiceMixin, ChoiceFilter):
     pass
 
@@ -177,7 +196,7 @@ class DatasetFilter(StandardFilter):
     sample__sample_type = SampleTypeFiFi(label='Sample type')
     sample_year = YearChoiceFiFi(
         method='add_year',
-        label='Sample year (YYYY)',
+        label='Sample year',
     )
     sample__collection_timestamp = DateFromToRangeFilter(
         label="Sample Collection Date Range",
@@ -213,11 +232,47 @@ class ReferenceFilter(StandardFilter):
 
 
 class SampleFilter(StandardFilter):
+    geo_loc_name = ChoiceFiFi()
+    year = YearChoiceFiFi(
+        method='add_year',
+        label='Year',
+    )
+    collection_timestamp = DateFromToRangeFilter(
+        label="Sample Collection Date Range",
+        widget=RangeWidget(attrs={'type': 'date'}),
+    )
+
     code = 'sa'
 
     class Meta:
         model = Sample
-        exclude = []
+        fields = [
+            'geo_loc_name', 'tax_abund_ok', 'year', 'collection_timestamp',
+            'sample_type', 'amplicon_target', 'fwd_primer', 'rev_primer',
+            'microcystis_count',
+        ]
+
+    @classmethod
+    def filter_for_field(cls, field, field_name, lookup_expr=None):
+        if field_name.endswith('_ok'):
+            return OkOnlyFiFi(field_name=field_name, lookup_expr=lookup_expr)
+
+        itype = field.get_internal_type()
+        if 'Integer' in itype or 'Decimal' in itype:
+            return RangeFilter(
+                field_name=field_name,
+                lookup_expr=lookup_expr,
+            )
+
+        if itype in ['Textfield', 'CharField'] and lookup_expr is None:
+            lookup_expr = 'icontains'
+
+        # last resort
+        return super().filter_for_field(field, field_name,
+                                        lookup_expr=lookup_expr)
+
+    def add_year(self, qs, name, value):
+        return qs.filter(collection_timestamp__year=value)
 
 
 class UniRef90Filter(FilterSet):
