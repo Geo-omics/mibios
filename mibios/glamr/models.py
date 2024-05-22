@@ -9,6 +9,7 @@ from django.contrib.postgres.search import SearchVectorField
 from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.core.validators import URLValidator
 from django.db import models
+from django.db.models import Index
 from django.urls import reverse
 from django.utils.dateparse import parse_datetime, parse_date, parse_time
 from django.utils.functional import cached_property
@@ -703,7 +704,8 @@ class Searchable(models.Model):
                 # index with a different name, with changed hash part (it's a
                 # mystery)
                 name='glamr_searc_searchv_f71dcf_gin',
-            )
+            ),
+            Index(fields=['has_hit']),
         ]
 
     def __str__(self):
