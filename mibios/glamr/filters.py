@@ -7,10 +7,8 @@ from django_filters import CharFilter, ChoiceFilter, DateFromToRangeFilter, \
         FilterSet, MultipleChoiceFilter
 from django_filters.widgets import RangeWidget
 
-from mibios.glamr.models import Dataset, Sample
+from mibios.glamr.models import Dataset, Reference, Sample
 from mibios.umrad.models import UniRef100
-
-from . import GREAT_LAKES
 
 
 class AutoChoiceMixin:
@@ -19,9 +17,33 @@ class AutoChoiceMixin:
 
     Choices get cached at first access and will not get updated as the
     databases changes.
+
+    The constructor supports these additional keyword arguments:
+
+    sort_key:
+        A callable, will be passed to sorted() to override the normal ordering
+        of the field by the DB.
+    sep:
+        separator on which to split listing.  White-space trimming is also done
+        and the resulting items are ordered alphabetically case-insentitive by
+        default, but sort_key can override this.
+    blank_value:
+        How blank values are stored at the DB.  Defaults to the empty string.
     """
     _choices = {}
     widget_class = None
+    DEFAULT_BLANK_LABEL = '<blank>'
+    DEFAULT_BLANK_VALUE = ''
+
+    def __init__(self, *args, sort_key=None, sep=None, **kwargs):
+        if sep:
+            kwargs.setdefault('lookup_expr', 'icontains')
+        self.blank_value = kwargs.pop('blank_value', self.DEFAULT_BLANK_VALUE)
+        # don't pass null_label or django_filters will put blank choice on top
+        self.blank_label = kwargs.pop('null_label', self.DEFAULT_BLANK_LABEL)
+        super().__init__(*args, **kwargs)
+        self.sort_key = sort_key
+        self.sep = sep
 
     @classmethod
     def _get_choices(cls, model, field_name, instance):
@@ -56,9 +78,43 @@ class AutoChoiceMixin:
             # prefer using declared choices
             pass
         else:
+            # retrieve possible values from database
             qs = model1.objects.order_by(field_name1)
             qs = qs.values_list(field_name1, flat=True).distinct()
-            choices = [(i, i) for i in qs]
+
+            # sort out blanks (empty string)
+            # this is entriely separate from django_filters' handling of null
+            # choice values, which we don't touch
+            values = []
+            have_blank = False
+            for i in qs:
+                if i == self.blank_value:
+                    have_blank = True
+                else:
+                    values.append(i)
+
+            # process lists if needed
+            if self.sep:
+                values1 = set()
+                for txt in values:
+                    for item in txt.split(self.sep):
+                        item = item.strip()
+                        if item:
+                            values1.add(item)
+                if self.sort_key is None:
+                    values = sorted(values1, key=lambda x: x.casefold())
+                else:
+                    values = values1
+
+            # override order is needed
+            if self.sort_key is not None:
+                values = sorted(values, key=self.sort_key)
+
+            choices = [(i, i) for i in values]
+
+            # put any blank last
+            if have_blank:
+                choices.append((self.null_value, self.blank_label))
 
         return choices
 
@@ -77,24 +133,21 @@ class AutoChoiceMixin:
         self.ensure_extra()
         return super().field
 
+    def filter(self, qs, value):
+        # super()'s filter() does null value lookup only to None, not out more
+        # common empty string.  We also use the 'exact' lookup, unsure if any
+        # other lookup ever makes any sense
+        if value == self.null_value and self.blank_value is not None:
+            # '' needs exact lookup; super() can handle None
+            kw = {f'{self.field_name}__exact': self.blank_value}
+            qs = self.get_method(qs)(**kw)
+            return qs.distinct() if self.distinct else qs
+        else:
+            return super().filter(qs, value)
 
-class WaterBodyFiFi(AutoChoiceMixin, ChoiceFilter):
-    lookup_expr = 'icontains'
-    conjoined = False
-    required = True
 
-    def get_choices(cls, model, field_name):
-        values = set()
-        qs = model.objects.values_list('water_bodies', flat=True)
-        for i in qs.distinct():
-            for j in i.split(','):
-                j = j.strip()
-                if j:
-                    values.add(j)
-        values = values.difference(GREAT_LAKES)
-        choices = [(i, i) for i in values]
-        choices = sorted(choices, key=lambda x: x[1].casefold())
-        return [(i, i) for i in GREAT_LAKES] + choices
+class ChoiceFiFi(AutoChoiceMixin, ChoiceFilter):
+    pass
 
 
 class SampleTypeFiFi(AutoChoiceMixin, MultipleChoiceFilter):
@@ -113,11 +166,14 @@ class YearChoiceFiFi(AutoChoiceMixin, ChoiceFilter):
 
 
 class StandardFilter(FilterSet):
+    """ Abstract class for filters that appear in the 'standard' section of the
+    advanced search """
     code = None
+    """ The code: goes into URL so the view knows the filter to use """
 
 
 class DatasetFilter(StandardFilter):
-    water_bodies = WaterBodyFiFi()
+    water_bodies = ChoiceFiFi(sep=',')
     sample__sample_type = SampleTypeFiFi(label='Sample type')
     sample_year = YearChoiceFiFi(
         method='add_year',
@@ -141,6 +197,19 @@ class DatasetFilter(StandardFilter):
 
     def add_year(self, qs, name, value):
         return qs.filter(sample__collection_timestamp__year=value)
+
+
+class ReferenceFilter(StandardFilter):
+    last_author = ChoiceFiFi()
+    year = ChoiceFiFi(label='Year of publication')
+    key_words = ChoiceFiFi(sep=',', label='Keywords')
+    publication = ChoiceFiFi(label='Journal')
+
+    code = 'pub'
+
+    class Meta:
+        model = Reference
+        fields = ['last_author', 'year', 'key_words', 'publication']
 
 
 class SampleFilter(StandardFilter):
