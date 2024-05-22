@@ -68,7 +68,7 @@ class AbstractSample(Model):
     )
     dataset = models.ForeignKey(
         settings.OMICS_DATASET_MODEL,
-        **fk_opt,
+        **fk_req,
     )
     sample_type = models.CharField(
         max_length=32,
