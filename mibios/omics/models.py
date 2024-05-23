@@ -1,3 +1,4 @@
+from datetime import datetime
 from logging import getLogger
 from pathlib import Path
 import re
@@ -11,7 +12,7 @@ from django.db.transaction import atomic
 
 from mibios.data import TableConfig
 from mibios.ncbi_taxonomy.models import TaxNode
-from mibios.umrad.fields import AccessionField
+from mibios.umrad.fields import AccessionField, PathField
 from mibios.umrad.model_utils import (
     digits, opt, ch_opt, fk_req, fk_opt, uniq_opt, Model,
 )
@@ -216,16 +217,46 @@ class AbstractSample(Model):
     def get_metagenome_path(self):
         """
         Get path to data analysis / pipeline results
+
+        DEPRECATED - use get_omics_path()
         """
         path = settings.OMICS_DATA_ROOT / 'data' / 'omics' / 'metagenomes' \
             / self.sample_id
         now = time()
         for i in path.iterdir():
             if now - i.stat().st_mtime < 86400:
-                # interpret as "sample is still being processed by pipeline"
-                # FIXME TODO this is not a proper design
+                # interpret as "sample is still being processed by
+                # pipeline" FIXME TODO this is not a proper design
                 raise RuntimeError('too new')
         return path
+
+    OMICS_PATH_PART = {
+        TYPE_AMPLICON: 'amplicons',
+        TYPE_METAGENOME: 'metagenomes',
+        TYPE_METATRANS: 'metatranscriptomes',
+        TYPE_ISOLATE: 'genomes',
+    }
+
+    def get_omics_path(self, check_save=False):
+        """
+        Get path to data analysis / pipeline results
+        """
+        path = (settings.OMICS_DATA_ROOT / 'data' / 'omics'
+                / self.OMICS_PATH_PART[self.sample_type] / self.sample_id)
+        if check_save:
+            now = time()
+            for i in path.iterdir():
+                if now - i.stat().st_mtime < 86400:
+                    # interpret as "sample is still being processed by
+                    # pipeline" FIXME TODO this is not a proper design
+                    raise RuntimeError('too new')
+        return path
+
+    def get_file_path(self, filetype):
+        tail = File.PATH_TAILS[filetype]
+        if isinstance(tail, str):
+            tail = tail.format(sample=self)
+        return self.get_omics_path() / tail
 
     def get_fq_paths(self):
         base = settings.OMICS_DATA_ROOT / 'READS'
@@ -895,6 +926,234 @@ class CheckM(Model):
                 ret.append((bin_key, obj))
 
         return ret
+
+
+class File(Model):
+    """ An omics product file, analysis pipeline result """
+
+    class Type(models.IntegerChoices):
+        METAG_ASM = 1, 'metagenomic assembly, fasta format'
+        METAT_ASM = 2, 'metatranscriptome assembly, fasta format'
+        FUNC_ABUND = 3, 'functional abundance, csv format'
+        TAX_ABUND = 4, 'taxonomic abundance, csv format'
+
+    path = PathField(
+        path=settings.OMICS_DATA_ROOT / 'data' / 'omics',
+        max_length=200,
+        recursive=True,
+        unique=True,
+    )
+    public = PathField(
+        path=settings.PUBLIC_DATA_ROOT,
+        max_length=200,
+        recursive=True,
+        blank=True,
+        # null corresponds to file not published
+        null=True,
+    )
+    filetype = models.PositiveSmallIntegerField(
+        choices=Type.choices,
+        verbose_name='file type',
+    )
+    size = models.PositiveBigIntegerField()
+    md5sum = models.CharField(max_length=32, blank=True)
+    modtime = models.DateTimeField()
+    sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+
+    objects = managers.FileManager()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['sample', 'filetype'],
+                name='%(app_label)s_%(class)s_sample_ftype_unique',
+            ),
+            models.UniqueConstraint(
+                fields=['public'],
+                condition=~models.Q(public=None),  # blank is okay
+                name='%(app_label)s_%(class)s_public_path_unique',
+            ),
+        ]
+
+    PATH_TAILS = {
+        Type.METAG_ASM:
+            Path('assembly', 'megahit_noNORM', 'final.contigs.renamed.fa'),
+        Type.TAX_ABUND: '{sample.sample_id}_lca_abund_summarized.tsv',
+        Type.FUNC_ABUND: '{sample.sample_id}_tophit_report',
+    }
+    """ where, relative to a sample's data dir is the file """
+
+    def __str__(self):
+        return f'{self.path}'
+
+    def full_clean(self):
+        # the path field may not be clean at this point, so...
+        path = self.path
+        path_field = self._meta.get_field('path')
+        if not isinstance(path, Path):
+            # may raise ValidationError
+            path = path_field.to_python(path)
+
+        try:
+            stat = path.stat()
+        except OSError as e:
+            raise ValidationError({'path': f'stat call failed: {e}'}) from e
+
+        size = stat.st_size
+        modtime = datetime.fromtimestamp(stat.st_mtime).astimezone()
+        if self.pk is None:
+            self.size = size
+            self.modtime = modtime
+        else:
+            errs = {}
+            if self.size != size:
+                errs['size'] = ValidationError(
+                    f'size changed -- expected: {self.size}, actually: {size}'
+                )
+
+            if self.modtime != modtime:
+                errs['modtime'] = ValidationError(
+                    f'modtime changed -- expected: {self.modtime}, actually: '
+                    f'{modtime}'
+                )
+            if errs:
+                raise ValidationError(errs)
+        super().full_clean()
+
+    @property
+    def root(self):
+        return self._meta.get_field('path').path
+
+    @property
+    def public_root(self):
+        return self._meta.get_field('public').path
+
+    @property
+    def relpath(self):
+        """ The path relative to the common path prefix """
+        return self.path.relative_to(self._meta.get_field('path').path)
+
+    @property
+    def relpublic(self):
+        """
+        The public path relative to the common path prefix
+
+        Returns None if no public path is set.
+        """
+        if self.public is None:
+            return None
+        return self.public.relative_to(self._meta.get_field('public').path)
+
+    def get_public_path(self):
+        """
+        Return what the public path **should** be.
+
+        Would return None for files not to be published.
+
+        The hereby implemented POLICY is to publish all tracked files under
+        their original name and relative path.
+        """
+        # Uncomment this to unpublish all files
+        # return None
+        return self.public_root / self.relpath
+
+    def manage_public_path(self):
+        """
+        Manage the public path
+
+        This method will set the public field according to policy.  The policy
+        itself is not implemented in here but via get_public_path().  This
+        method will ensure the published file exist in the public space in the
+        filesystem.  It will set the public field, the file instance is not
+        saved however, the caller has to save it.
+
+        Returns a status tuple of booleans indicating any change of the public
+        field value: (old path unlinked, new path set).  A status of (True,
+        True) means an existing public path got changed.
+        """
+        old = self.public
+        self.public = self.get_public_path()
+        if self.public == old:
+            if self.public:
+                if self.public.is_file():
+                    # all good
+                    pass
+                else:
+                    # should be a rare case
+                    print(f'[WARNING] fix missing file: {self.public}', end='', flush=True)  # noqa:E501
+                    self._hardlink()
+                    print('[OK]')
+            else:
+                # file remains unpublished
+                pass
+            # no changes
+            return (False, False)
+        elif old is None:
+            self._hardlink()
+            # a new File
+            return (False, True)
+        else:
+            # e.g. policy change
+            if old.is_file():
+                self._unlink(old)
+            else:
+                print(f'[NOTICE] file already gone: {old}')
+            if self.public:
+                self._hardlink()
+                # change
+                return (True, True)
+            else:
+                # unpublished
+                return (True, False)
+
+    def _hardlink(self):
+        """ helper to hardlink public file against internal """
+        public = self.public
+        target = self.path
+        if 'public' not in public.parts:
+            # some safety guard
+            raise RuntimeError('unsave operation suspected')
+
+        if not public.is_relative_to(self.public_root):
+            # another safety guard
+            raise RuntimeError('unsave operation suspected')
+
+        public.parent.mkdir(parents=True, exist_ok=True)
+        public.hardlink_to(target)
+
+    def _unlink(self, oldpath):
+        """
+        Helper to remove a file from the public space
+
+        Cleans up any resulting empty directories.
+        """
+        # some rail guards:
+        if not oldpath.is_relative_to(self.public_root):
+            raise RuntimeError('unsave operation suspected')
+        if oldpath == self.public:
+            raise RuntimeError('unsave operation suspected')
+
+        oldpath.unlink()
+        parent = oldpath.parent
+        while parent.is_relative_to(self.public_root):
+            if parent == self.public_root:
+                # keep the root
+                break
+            try:
+                parent.rmdir()
+            except OSError:
+                # e.g. is not empty
+                break
+
+            parent = parent.parent
+
+    @property
+    def url(self):
+        ...
+
+    @property
+    def description(self):
+        return f'{self.get_filetype_display()} for {self.sample}'
 
 
 class TaxonAbundance(Model):

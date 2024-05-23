@@ -1136,3 +1136,82 @@ class TaxonAbundanceManager(Manager):
             else:
                 # copy2 returns outpath on success
                 return shutil.copy2(krona_out, outpath)
+
+
+class FileManager(Manager):
+    @atomic_dry
+    def full_update(self):
+        Sample = self.model._meta.get_field('sample').related_model
+
+        existing_objs = {
+            (i.sample.sample_id, i.filetype): i
+            for i in self.all().select_related('sample')
+        }
+
+        expected = []
+        print('Scanning samples...', end='', flush=True)
+        for i in Sample.objects.all():
+            if i.sample_type == Sample.TYPE_METAGENOME:
+                if i.contig_fasta_loaded:
+                    expected.append((i, self.model.Type.METAG_ASM))
+                if i.read_abundance_loaded:
+                    expected.append((i, self.model.Type.FUNC_ABUND))
+                if i.tax_abund_ok:
+                    expected.append((i, self.model.Type.TAX_ABUND))
+        print('[OK]')
+        print(f'Will be tracking {len(expected)} files...')
+
+        count_all = 0
+        count_new = 0
+        for sample, filetype in expected:
+            if obj := existing_objs.get((sample.sample_id, filetype), None):
+                obj.full_clean()
+            else:
+                obj = self.model(
+                    path=sample.get_file_path(filetype),
+                    public=None,
+                    filetype=filetype,
+                    sample=sample,
+                )
+                count_new += 1
+                obj.full_clean()
+                obj.save()
+            count_all += 1
+        print(f'...of those {count_new} are new')
+
+        print('Updating public filesystem paths...')
+        try:
+            rm, changed, new = self.update_public_paths()
+        except KeyboardInterrupt:
+            print('\n(aborted)')
+            return
+        print(f'      new: {new}')
+        print(f'  removed: {rm}')
+        print(f'  changed: {changed}')
+        print('[All done]')
+
+    @atomic_dry
+    def update_public_paths(self):
+        input(f'PLEASE CONFIRM you intend to make changes to '
+              f'{settings.PUBLIC_DATA_ROOT} !!! ')
+
+        removed_count = 0
+        changed_count = 0
+        set_new_count = 0
+        for obj in self.all():
+            removed_old, set_new = obj.manage_public_path()
+            need_save = True
+            if removed_old and set_new:
+                changed_count += 1
+            elif removed_old:
+                removed_count += 1
+            elif set_new:
+                set_new_count += 1
+            else:
+                # unchanged
+                need_save = False
+            obj.full_clean()
+            if need_save:
+                obj.save()
+
+        return removed_count, changed_count, set_new_count

@@ -53,3 +53,9 @@ INTERNAL_DEPLOYMENT = False
 
 OMICS_DATA_ROOT = Path()  # noqa:F405
 KRONA_CACHE_DIR = './krona-cache'
+GLOBUS_BASE_URL = None
+""" root url for public file downloads """
+'https://app.globus.org/file-manager?origin_id=ba5b0b33-fbb9-478d-a0ca-fa88cb4466ea&origin_path=%2F'  # noqa:E501
+
+PUBLIC_DATA_ROOT = None
+""" path to publicly accessible directory on staging server """

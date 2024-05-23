@@ -2236,7 +2236,7 @@ class Model(models.Model):
             errors = e.update_error_dict({
                 'model_name': self._meta.model_name,
             })
-            raise ValidationError(errors)
+            raise ValidationError(errors) from e
 
     @classmethod
     def get_serializer_class(self):

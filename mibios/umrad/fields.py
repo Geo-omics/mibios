@@ -1,12 +1,31 @@
 from pathlib import Path
 
 from django.core.exceptions import ValidationError
-from django.db.models import Field, CharField
+from django.db.models import Field, FilePathField, CharField
 
 
 def path_exists_validator(value):
     if not value.exists():
         raise ValidationError(f'path does not exist: {value}')
+
+
+class PathPrefixValidator:
+    def __init__(self, prefix):
+        self.parts = prefix.parts
+
+    def __call__(self, value):
+        val_parts = value.parts
+        for i, a in enumerate(self.parts):
+            try:
+                b = val_parts[i]
+            except IndexError:
+                raise ValidationError('prefix does not match: too short')
+
+            if a != b:
+                raise ValidationError(
+                    f'prefix does not match, part {i + 1} is "{b}", '
+                    f'expected "{a}"'
+                )
 
 
 class PrefixValidator:
@@ -72,7 +91,34 @@ class AccessionField(CharField):
         return value
 
 
-class PathField(Field):
+class PathField(FilePathField):
+    """ Like FilePathField but value is of type pathlib.Path if not None """
+    def __init__(self, path=Path('/'), validators=(), **kwargs):
+        validators = list(validators)
+        validators.append(PathPrefixValidator(path))
+        super().__init__(path=Path(path), validators=validators, **kwargs)
+
+    def to_python(self, value):
+        if value is None:
+            return value
+        elif isinstance(value, Path):
+            return value
+        else:
+            try:
+                # NOTE: empty str become CWD here
+                return Path(value)
+            except Exception as e:
+                # e.g. TypeError, expecting str, bytes or PathLike
+                raise ValidationError(str(e)) from e
+
+    def from_db_value(self, value, expression, connection):
+        if value is None:
+            return None
+        else:
+            return Path(value)
+
+
+class OldPathField(Field):
     description = 'a file-system-path-like field'
     default_base = './'  # str
 
