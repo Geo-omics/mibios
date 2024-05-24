@@ -22,4 +22,5 @@
     {% endif %}
 ]
 {% endif %}
+[{%if sample_has_files%}<a href="{% url 'relations' model='sample' pk=object.pk field='file' %}">file downloads</a>{%else%}file downloads{%endif%}]
 {% endblock %}

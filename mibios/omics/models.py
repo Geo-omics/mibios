@@ -956,8 +956,11 @@ class File(Model):
         verbose_name='file type',
     )
     size = models.PositiveBigIntegerField()
-    md5sum = models.CharField(max_length=32, blank=True)
-    modtime = models.DateTimeField()
+    md5sum = models.CharField(
+        max_length=32, blank=True,
+        verbose_name='MD5 sum',
+    )
+    modtime = models.DateTimeField(verbose_name='modification time')
     sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
 
     objects = managers.FileManager()
@@ -1148,8 +1151,8 @@ class File(Model):
             parent = parent.parent
 
     @property
-    def url(self):
-        ...
+    def download_url(self):
+        return f'{settings.GLOBUS_FILE_URL_BASE}{self.relpublic}?download'
 
     @property
     def description(self):

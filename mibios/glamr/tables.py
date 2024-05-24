@@ -176,6 +176,21 @@ class DBInfoTable(Table):
         return (qs.order_by(flag), True)
 
 
+class FileTable(Table):
+    download_url = Column(
+        verbose_name='File',
+        empty_values=(),  # triggers render_FOO()
+    )
+
+    class Meta:
+        model = omics_models.File
+        fields = ['download_url', 'filetype', 'size', 'modtime']
+
+    def render_download_url(self, value, record):
+        value = f'<a href="{value}">{record.public.name}</a>'
+        return mark_safe(value)
+
+
 class FunctionAbundanceTable(Table):
     related_genes = Column(
         linkify=lambda record:

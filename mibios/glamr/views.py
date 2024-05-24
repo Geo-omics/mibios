@@ -38,7 +38,7 @@ from mibios.omics.models import (
 from mibios.ncbi_taxonomy.models import TaxNode
 from mibios.umrad.models import FuncRefDBEntry, Model, UniRef100
 from mibios.umrad.utils import DefaultDict
-from mibios.omics.models import Gene
+from mibios.omics.models import File, Gene
 from mibios.omics.views import RequiredSettingsMixin
 from . import models, tables, GREAT_LAKES
 from .forms import QBuilderForm, QLeafEditForm, SearchForm
@@ -440,6 +440,7 @@ class ModelTableMixin(ExportMixin):
         TaxonAbundance: tables.TaxonAbundanceTable,
         ReadAbundance: tables.ReadAbundanceTable,
         TaxNode: tables.TaxNodeTable,
+        File: tables.FileTable,
     }
 
     EXTRA_EXPORT_OPTIONS = {
@@ -1797,6 +1798,11 @@ class SampleView(RecordView):
         name, info, _, _ = item
         value = self.object.format_collection_timestamp()
         return (name, info, [(value, None)], None)
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['sample_has_files'] = self.object.file_set.exists()
+        return ctx
 
 
 class TaxonView(RecordView):
