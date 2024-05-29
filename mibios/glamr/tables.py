@@ -179,6 +179,7 @@ class DBInfoTable(Table):
 class FileTable(Table):
     download_url = Column(
         verbose_name='File',
+        order_by='public',
         empty_values=(),  # triggers render_FOO()
     )
 
@@ -187,8 +188,10 @@ class FileTable(Table):
         fields = ['download_url', 'filetype', 'size', 'modtime']
 
     def render_download_url(self, value, record):
-        value = f'<a href="{value}">{record.public.name}</a>'
-        return mark_safe(value)
+        if value:
+            return mark_safe(f'<a href="{value}">{record.public.name}</a>')
+        else:
+            return f'(unavailable) {record.public.name}'
 
 
 class FunctionAbundanceTable(Table):

@@ -10,10 +10,20 @@ def path_exists_validator(value):
 
 
 class PathPrefixValidator:
+    """ prefix validator for the PathField """
     def __init__(self, prefix):
-        self.parts = prefix.parts
+        if prefix is None:
+            self.parts = None
+        else:
+            # assume pathlib.Path
+            self.parts = prefix.parts
 
     def __call__(self, value):
+        if self.parts is None:
+            raise ValidationError(
+                'The path value can not be validated, it looks like the '
+                'PathField.path attribute was never set'
+            )
         val_parts = value.parts
         for i, a in enumerate(self.parts):
             try:
@@ -92,11 +102,19 @@ class AccessionField(CharField):
 
 
 class PathField(FilePathField):
-    """ Like FilePathField but value is of type pathlib.Path if not None """
-    def __init__(self, path=Path('/'), validators=(), **kwargs):
+    """
+    Like FilePathField but value is of type pathlib.Path if not None
+
+    The common prefix path may be None.  In this case the field may not be
+    saved or otherwise validated, i.e. clean_fields() will fail but read-only
+    access should work fine.
+    """
+    def __init__(self, path=None, validators=(), **kwargs):
+        if isinstance(path, str):
+            path = Path(path)
         validators = list(validators)
         validators.append(PathPrefixValidator(path))
-        super().__init__(path=Path(path), validators=validators, **kwargs)
+        super().__init__(path=path, validators=validators, **kwargs)
 
     def to_python(self, value):
         if value is None:

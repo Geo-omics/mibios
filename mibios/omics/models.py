@@ -1041,13 +1041,17 @@ class File(Model):
         """
         The public path relative to the common path prefix
 
-        Returns None if no public path is set.
-        """
-        if self.public is None:
-            return None
-        return self.public.relative_to(self._meta.get_field('public').path)
+        This property may be exposed on a public page.
 
-    def get_public_path(self):
+        Returns None if no public path is set or if the common prefix is not
+        configured.
+        """
+        root = self._meta.get_field('public').path
+        if root is None or self.public is None:
+            return None
+        return self.public.relative_to(root)
+
+    def compute_public_path(self):
         """
         Return what the public path **should** be.
 
@@ -1065,7 +1069,7 @@ class File(Model):
         Manage the public path
 
         This method will set the public field according to policy.  The policy
-        itself is not implemented in here but via get_public_path().  This
+        itself is not implemented in here but via compute_public_path().  This
         method will ensure the published file exist in the public space in the
         filesystem.  It will set the public field, the file instance is not
         saved however, the caller has to save it.
@@ -1075,7 +1079,7 @@ class File(Model):
         True) means an existing public path got changed.
         """
         old = self.public
-        self.public = self.get_public_path()
+        self.public = self.compute_public_path()
         if self.public == old:
             if self.public:
                 if self.public.is_file():
@@ -1152,7 +1156,13 @@ class File(Model):
 
     @property
     def download_url(self):
-        return f'{settings.GLOBUS_FILE_URL_BASE}{self.relpublic}?download'
+        """ direct download URLs """
+        if settings.GLOBUS_DIRECT_URL_BASE and self.relpublic:
+            # cf. https://docs.globus.org/globus-connect-server/v5.4/https-access-collections/  # noqa:E501
+            base = settings.GLOBUS_DIRECT_URL_BASE.rstrip('/')
+            return f'{base}/{self.relpublic}?download'
+        else:
+            return None
 
     @property
     def description(self):
