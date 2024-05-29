@@ -7,6 +7,7 @@
 Related {{ verbose_name_plural }} of {{ object_model_name_verbose }}
 <a href="{% record_url object %}">{{ object }}</a>
 </h3>
+{% include "glamr/extra_navigation.html" %}
 {% include "glamr/download_links.html" %}
 {% render_table table 'glamr/related_records_table.html'%}
 {% endblock %}

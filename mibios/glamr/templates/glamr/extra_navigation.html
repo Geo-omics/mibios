@@ -1,0 +1,15 @@
+{# Fragment to display table-specific extra navigation links #}
+{# This supports views.ModelTableMixin together with tables.Table.get_extra_navigation() #}
+
+{% if extra_navigation is None %}
+    {# skip this section #}
+{% else %}
+
+<div class="m-2">
+{% for item in extra_navigation %}
+[<a href="{{item.url}}">{{item.label}}</a>]
+{% endfor %}
+</div>
+
+{% endif %}
+

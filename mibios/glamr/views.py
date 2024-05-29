@@ -520,6 +520,7 @@ class ModelTableMixin(ExportMixin):
         for i in self.EXTRA_EXPORT_OPTIONS.get(self.model, []):
             self.add_export_option(i)
         ctx = super().get_context_data(**ctx)
+        ctx['extra_navigation'] = self.get_table().get_extra_navigation()
         return ctx
 
 

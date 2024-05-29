@@ -1,3 +1,7 @@
+from pathlib import Path
+from urllib.parse import quote_plus
+
+from django.conf import settings
 from django.urls import reverse
 from django.utils.html import escape, format_html, mark_safe
 
@@ -70,6 +74,12 @@ class Table(Table0):
 
     def get_extra_excludes(self):
         """ override this to exclude more fields """
+        return []
+
+    def get_extra_navigation(self):
+        """
+        Extra navigation links to display when used from ModelTableView
+        """
         return []
 
 
@@ -192,6 +202,32 @@ class FileTable(Table):
             return mark_safe(f'<a href="{value}">{record.public.name}</a>')
         else:
             return f'(unavailable) {record.public.name}'
+
+    def get_extra_navigation(self):
+        globus_base = settings.GLOBUS_FILE_APP_URL_BASE
+        if globus_base:
+            # the files' directories, split into parts:
+            # FIXME: this does an additional DB query, unecessary but no idea
+            # how to avoid
+            paths = [i.relpublic.parts[:-1] for i in self.data if i]
+            if paths:
+                common_parts = []
+                for parts in zip(*paths):
+                    if len(set(parts)) == 1 and len(parts) == len(paths):
+                        # part is present in all paths
+                        common_parts.append(parts[0])
+                    else:
+                        break
+
+                common_path = Path(*common_parts)
+
+                globus_url = globus_base + quote_plus(str(common_path))
+                item = {
+                    'label': 'Globus File Manager',
+                    'url': globus_url,
+                }
+                return [item]
+        return []
 
 
 class FunctionAbundanceTable(Table):
