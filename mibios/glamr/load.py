@@ -1,11 +1,13 @@
 from datetime import datetime
 from itertools import chain
+from logging import getLogger
 import re
 
 from django.apps import apps
 from django.conf import settings
+from django.contrib.postgres.search import SearchQuery
 from django.core.exceptions import FieldDoesNotExist
-from django.db import connections, transaction
+from django.db import connections, transaction, NotSupportedError
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 from django.utils.html import escape as escape_html
@@ -20,6 +22,9 @@ from mibios.umrad.model_utils import delete_all_objects_quickly
 from mibios.umrad.utils import CSV_Spec, atomic_dry, SpecError
 
 from .search_fields import search_fields
+
+
+log = getLogger(__name__)
 
 
 class BoolColMixin:
@@ -494,6 +499,94 @@ class SearchableManager(Loader):
             ))
 
         self.bulk_create(it)
+
+    def tsquery_from_str(self, query, search_type='websearch'):
+        """ Get the postgresql tsquery from the given user input """
+        if connections[self.db].vendor != 'postgresql':
+            raise NotSupportedError('this method requires PostgreSQL')
+
+        try:
+            func = SearchQuery.SEARCH_TYPES[search_type]
+        except KeyError:
+            raise ValueError('invalid search_type')
+
+        sql = f"SELECT {func}('english', %s)"
+        with connections[self.db].cursor() as cur:
+            cur.execute(sql, [query])
+            res = cur.fetchall()
+
+        # result is list of tuples, expect single item inside
+        if len(res) == 1:
+            res = res[0]
+            if len(res) == 1:
+                return res[0]
+
+        raise RuntimeError(f'don\'t know how to handle query reply: {res}')
+
+    @staticmethod
+    def parse_tsquery(tsquery):
+        """
+        limited-depth parser for postgresql tsquery strings
+
+        In tsquery syntax | binds most loosely and & second-most loosely.  So
+        we can think of a tsquery as a disjunction of conjunctions.  Though the
+        postgresql documentation on this is a bit sparse, when considering only
+        the connectives | and &, it looks like the plain, phrase, and websearch
+        search types do not involve queries that are further nested than this.
+        Its in disjunctive normal form!
+
+        We do not further analyse the tokens that make up the inner
+        conjunctions.
+        """
+        dnf = []
+        for disjunct in tsquery.split(' | '):
+            clause = []
+            for token in disjunct.split(' & '):
+                if token:
+                    clause.append(token)
+                else:
+                    raise ValueError(f'empty token?: {token}')
+            if clause:
+                dnf.append(clause)
+            else:
+                raise ValueError(f'empty clause?: {clause}')
+        if dnf:
+            return dnf
+        else:
+            raise ValueError('tsquery is empty')
+
+    @classmethod
+    def get_fallback_tsquery(cls, tsquery_str):
+        """
+        loosen up search criteria
+
+        Takes a tsquery string and transforms it into one where multiple
+        positive &-connected tokens become |-connected instead.  If they were
+        also &-connected to any negative tokens, then those negative token are
+        distributed to each positive token.
+
+        This widens a search while reducing precision.
+        """
+        tsquery_dnf = cls.parse_tsquery(tsquery_str)
+
+        new_dnf = []
+        for clause in tsquery_dnf:
+            neg = []
+            pos = []
+            for token in clause:
+                if token.startswith('!'):
+                    neg.append(token)
+                else:
+                    pos.append(token)
+            if len(pos) >= 2:
+                # split clause
+                for pos_token in pos:
+                    new_dnf.append(list(neg) + [pos_token])
+            else:
+                # do nothing
+                new_dnf.append(clause)
+
+        return ' | '.join([' & '.join(i) for i in new_dnf])
 
 
 class UniqueWordManager(Loader):

@@ -45,7 +45,7 @@ from .forms import QBuilderForm, QLeafEditForm, SearchForm
 from .search_fields import ADVANCED_SEARCH_MODELS, search_fields
 from .search_utils import get_suggestions
 from .url_utils import fast_reverse
-from .utils import get_record_url, verbose_field_name, split_query
+from .utils import get_record_url, verbose_field_name
 
 
 log = getLogger(__name__)
@@ -713,7 +713,7 @@ class SearchMixin(SearchFormMixin):
         self.check_abundance = False
         self.search_result = {}
         self.suggestions = []
-        self.last_resort = False
+        self.did_fallback_search = False
 
     def process_search_form(self):
         """
@@ -744,31 +744,28 @@ class SearchMixin(SearchFormMixin):
         if not self.query:
             return {}
 
-        # first search
-        search_result = models.Searchable.objects.search(
-            query=self.query,
-            models=[self.model._meta.model_name] if self.model else [],
-            abundance=self.check_abundance,
-            limit_per_model=20,
-        )
+        search_kwargs = {
+            'query': self.query,
+            'models': [self.model._meta.model_name] if self.model else [],
+            'abundance': self.check_abundance,
+            'limit_per_model': 20000,
+        }
 
-        if search_result:
-            real_query = {i: True for i in self.query.split()}
-        else:
+        # first search
+        search_result = models.Searchable.objects.search(**search_kwargs)
+
+        if not search_result:
             # get and process spelling suggestions
             suggs = get_suggestions(self.query)
             orig_phrase = suggs.keys()
             suggestions = {}  # these are to be displayed
-            real_query = {}
             urlpath = reverse('search_result', kwargs=self.kwargs)
             for idx, (word, match_list) in enumerate(suggs.items()):
                 if match_list is None:
                     # word is good
-                    real_query[word] = True
                     continue
                 else:
                     # word is misspelled
-                    real_query[word] = False
                     suggestions[word] = []
                     for i in match_list:
                         alt_query = list(orig_phrase)
@@ -779,45 +776,9 @@ class SearchMixin(SearchFormMixin):
 
             self.suggestions = suggestions
 
-            if any(real_query.values()):
-                # re-do search with correctly spelled portion of query
-                new_query = [i for i, good in real_query.items() if good]
-                # but only if there are non-negated words left
-                if any((i for i in new_query if not i.startswith('-'))):
-                    search_result = models.Searchable.objects.search(
-                        query=' '.join(new_query),
-                        models=[self.model._meta.model_name] if self.model else [],  # noqa:E501
-                        abundance=self.check_abundance,
-                        limit_per_model=20,
-                    )
-
-        if not search_result:
-            # check if there is an explicit AND in the query
-            splitq = split_query(self.query, keep_quotes=True)
-            query = []
-            for n, word in enumerate(splitq):
-                if 0 < n < len(splitq) - 1 and word.casefold() == 'and':
-                    # AND occurs in middle of phrase
-                    logical = True
-                    break
-                if word.startswith('-'):
-                    logical = True
-                    break
-                query.append(word)
-            else:
-                logical = False
-
-            if len(query) > 1 and not logical:
-                # Go for last resort!
-                real_query = {i: True for i in query}
-                query = ' OR '.join(query)
-                search_result = models.Searchable.objects.search(
-                    query=query,
-                    models=[self.model._meta.model_name] if self.model else [],
-                    abundance=self.check_abundance,
-                    limit_per_model=20,
-                )
-                self.last_resort = True
+            # fallback search
+            search_result = models.Searchable.objects.fallback_search(**search_kwargs)  # noqa:E501
+            self.did_fallback_search = True
 
         if not search_result and not self.suggestions:
             messages.add_message(
@@ -825,15 +786,13 @@ class SearchMixin(SearchFormMixin):
                 'search: did not find anything'
             )
 
-        self.real_query = real_query
         return search_result
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         # add context to display search results:
         ctx['query'] = self.query
-        ctx['real_query'] = self.real_query
-        ctx['last_resort'] = self.last_resort
+        ctx['did_fallback_search'] = self.did_fallback_search
         if self.search_result and self.model is None:
             # issue results statistics unless a single model was searched
             ctx['result_stats'] = [

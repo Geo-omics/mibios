@@ -12,22 +12,25 @@
 {% include "glamr/search_form_simple.html" %}
 <br/>
 
+{% if object_list and did_fallback_search %}
+<p>No results when requiring all search terms to appear in records.  Re-doing search looking for individual terms...</p>
+{% endif %}
+
 {% if suggestions %}
-    <p>One or more search terms did not yield anything:
+<p>Maybe {% if object_list and did_fallback_search %}also {%endif%}check spelling:
     <ul class="list-unstyled">
     {% for bad, alternatives in suggestions.items %}
         <li><del>{{bad}}</del>
             {%if alternatives%}Did you mean:
                 {% for good, alturl in alternatives %}<a href="{{alturl}}">{{good}}</a> {%endfor%}?
             {%else%}
-                (We have no suggestion)
+                (But we have no suggestion)
             {%endif%}
         </li>
     {% endfor %}
     </ul></p>
 {% endif %}{# suggestions #}
 
-{% if object_list and last_resort %}Nothing for "<b>{{ query }}</b>"{%endif%}
 <h3 class="fw-light">
     {% if object_list %}
         {% if search_model %}
@@ -35,20 +38,10 @@
         {% else %}
         Global search
         {% endif %}
-        for <small class="fw-bolder">
-        {% for word, good in real_query.items %}
-            {%if last_resort %}
-                {{word}}{%if not forloop.last%} OR {%endif%}
-            {%else%}
-                {%if not good%}<del>{%endif%}
-                {{ word }}
-                {%if not good%}</del>{%endif%}
-            {%endif%}
-        {%endfor%}
-        </small> returned {{ object_list | length }} records:
+        for <small class="fw-bolder">{{query}}</small> returned {{ object_list | length }} records:
 
     {% else %}
-        No results for <small class="fw-bolder">"{{ real_query.keys|join:" " }}"</small>
+        No results for <small class="fw-bolder">"{{query}}"</small>
         {% if search_model %}among {{search_model|meta:"verbose_name_plural"}}.{% endif %}
     {% endif %}
 </h3>

@@ -1,7 +1,9 @@
 from collections import Counter
 from itertools import groupby
+from logging import getLogger
 from operator import attrgetter
 
+from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.search import SearchQuery, TrigramDistance
 from django.db import connections
@@ -15,6 +17,9 @@ from mibios.omics.queryset import SampleQuerySet as OmicsSampleQuerySet
 from mibios.umrad.manager import QuerySet
 from . import GREAT_LAKES, HORIZONTAL_ELLIPSIS
 from .utils import split_query
+
+
+log = getLogger(__name__)
 
 
 class DatasetQuerySet(QuerySet):
@@ -314,6 +319,52 @@ class SearchableQuerySet(QuerySet):
                     result[model][object_id].append((i.field, snippet))
 
         return result
+
+    def fallback_search(self, query, force=False, search_type='websearch',
+                        **kwargs):
+        """
+        Run a less restrictive search
+
+        Assume you ran search() but got no results.  This method with the same
+        signature as search() plus the force kwarg will try to run a less
+        restrictive search by converting all &s to |s in the tsquery (all
+        conjunctions to disjunctions).  For some simple queries, e.g. a single
+        word this won't make any difference and an empty result is returned
+        without querying the database.  For the phrase search type the database
+        is never queried because its tsquery string has never any &s.  This
+        shortcutting behavior can be overridden by force=True which always
+        triggers a database query.  The raw search type is not supported as its
+        tsquery can have arbitrary complex structure and the conversion can not
+        be done with a simple str.replace().
+
+        Also this will only work in postgresql.
+        """
+        try:
+            tsquery = self.model.objects.tsquery_from_str(query, search_type)
+        except Exception as e:
+            if settings.DEBUG:
+                raise
+            else:
+                log.error(f'error getting tsquery for fallback search: '
+                          f'{e.__class__.__name__}: {e}')
+                return {}
+
+        try:
+            new_tsquery = self.model.objects.get_fallback_tsquery(tsquery)
+        except Exception as e:
+            if settings.DEBUG:
+                raise
+            else:
+                log.error(f'error transforming to fallback tsquery'
+                          f'{e.__class__.__name__}: {e}')
+                return {}
+
+        log.debug(f'FALLBACK SEARCH {query=} {tsquery=} {new_tsquery=}')
+        if new_tsquery == tsquery and not force:
+            # shortcut, assumes original query failed, return empty result
+            return {}
+        else:
+            return self.search(new_tsquery, search_type='raw', **kwargs)
 
 
 class UniqueWordQuerySet(QuerySet):
