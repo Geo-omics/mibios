@@ -36,7 +36,7 @@ from mibios.omics.models import (
     CompoundAbundance, FuncAbundance, ReadAbundance, TaxonAbundance,
 )
 from mibios.ncbi_taxonomy.models import TaxNode
-from mibios.umrad.models import FuncRefDBEntry, Model, UniRef100
+from mibios.umrad.models import FuncRefDBEntry, UniRef100
 from mibios.umrad.utils import DefaultDict
 from mibios.omics.models import File, Gene
 from mibios.omics.views import RequiredSettingsMixin
@@ -45,7 +45,7 @@ from .forms import QBuilderForm, QLeafEditForm, SearchForm
 from .search_fields import ADVANCED_SEARCH_MODELS, search_fields
 from .search_utils import get_suggestions
 from .url_utils import fast_reverse
-from .utils import get_record_url, verbose_field_name
+from .utils import get_record_url
 
 
 log = getLogger(__name__)
@@ -748,7 +748,7 @@ class SearchMixin(SearchFormMixin):
             'query': self.query,
             'models': [self.model._meta.model_name] if self.model else [],
             'abundance': self.check_abundance,
-            'limit_per_model': 20000,
+            'limit_per_model': 1000,
         }
 
         # first search
@@ -795,10 +795,7 @@ class SearchMixin(SearchFormMixin):
         ctx['did_fallback_search'] = self.did_fallback_search
         if self.search_result and self.model is None:
             # issue results statistics unless a single model was searched
-            ctx['result_stats'] = [
-                (model, sum((len(items) for items in model_results.values())))
-                for model, model_results in self.search_result.items()
-            ]
+            ctx['result_stats'] = self.search_result.get_stats()
         else:
             ctx['result_stats'] = None
         return ctx
@@ -1894,75 +1891,12 @@ class SearchResultMixin(MapMixin):
         ctx['suggestions'] = self.suggestions
         return ctx
 
-    def mangle_to_list(self, model, model_hits):
-        """
-        Helper to turn SearchMixin.search_result into something suitable for
-        ListView.object_list.
-        """
-        res = []
-        model_name = model._meta.model_name
-
-        qs = model.objects.all()
-        if model is TaxNode:
-            # do not incur extra query to display each node's name
-            # (per TaxNode.__str__)
-            # TODO: other models with potentially 1000s of search hits may need
-            # something like this too?
-            qs = qs.prefetch_related('taxname_set')
-        elif model is Dataset:
-            qs = qs.select_related('primary_ref')
-        elif model is Sample:
-            qs = qs.select_related('dataset__primary_ref')
-        objs = qs.in_bulk(model_hits.keys())
-
-        DETAIL_FIELDS = {
-            Dataset: ('primary_ref', 'scheme', 'water_bodies',
-                      'material_type',),
-            Sample: ('dataset', 'geo_loc_name', 'sample_type',
-                     'collection_timestamp', 'project_id'),
-        }
-        if self.search_model is self.ANY_MODEL:
-            detail_fields = {}
-        else:
-            detail_fields = DETAIL_FIELDS.get(model, {})
-
-        is_first = True  # True for the first item of each model
-        for pk, snippets in model_hits.items():
-            if pk not in objs:
-                # search index out-of-sync
-                continue
-
-            # Get field values, with URLs for FKs, skip blanks,
-            # then overwrite with snippets:
-            details = {
-                i:
-                (get_record_url(v), v) if isinstance(v, Model) else (None, v)
-                for i in detail_fields
-                if (v := getattr(objs[pk], i))
-            }
-            for field, text in snippets:
-                details[field] = (None, text)
-
-            details = [
-                (verbose_field_name(model_name, k), url, val)
-                for k, (url, val) in details.items()
-            ]
-
-            res.append((is_first, model_name, objs[pk], details))
-            is_first = False
-
-        return res
-
     def get_queryset(self):
         """ returns list of 5-tuples """
         self.search_result = self.search()
         if not self.search_result:
             return []
-
-        res = []
-        for model, hits in self.search_result.items():
-            res += self.mangle_to_list(model, hits)
-        return res
+        return self.search_result.get_object_list(self)
 
     def get_sample_queryset(self):
         if self.search_model == self.ANY_MODEL:
@@ -1970,8 +1904,8 @@ class SearchResultMixin(MapMixin):
             # when after get_map_points() calls this
             return Sample.objects.none()
 
-        sample_pks = set(self.search_result.get(Sample, {}).keys())
-        dataset_pks = self.search_result.get(Dataset, {}).keys()
+        sample_pks = set(self.search_result.get_pks(Sample))
+        dataset_pks = self.search_result.get_pks(Dataset)
         sample_pks.update(
             Sample.objects.filter(dataset__pk__in=dataset_pks)
             .values_list('pk', flat=True)

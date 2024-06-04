@@ -1,15 +1,16 @@
 {% load glamr_extras %}
 <ul class="list-group list-group-flush">
-{% for is_first, model_name, obj, snippets in object_list %}
-    <li class="list-group-item" {% if is_first %}id="{{model_name}}_first_item"{% endif %}>
-        <small class="text-muted">{{obj|meta:"verbose_name"|capfirstsmart}}</small><br>
-        {% record_url obj as hiturl %}
-        <a href="{{ hiturl }}" class="h5">{{obj}}</a><br>
+{% for hit in object_list %}
+    <li class="list-group-item" {% if hit.is_first %}id="{{hit.model|meta:"model_name"}}_first_item"{% endif %}>
+        <small class="text-muted">{{hit.obj|meta:"verbose_name"|capfirstsmart}}</small><br>
+        {% record_url hit.obj as hiturl %}
+        <a href="{{ hiturl }}" class="h5">{{hit.obj}}</a><br>
         <small class="text-muted"><a href="{{ hiturl }}" class="link-secondary">{{ hiturl|url2text }}</a></small><br>
-        {% for field, _, text in snippets %}
-            <small class="text-muted">{{field|capfirstsmart}}:</small> {{text}}
+        {% for i in hit.subhits %}
+            <small class="text-muted">{{i.field|capfirstsmart}}:</small> {{i.snippet}}
             {% if not forloop.last %}<br>{% endif %}
         {% endfor %}
+        {%if hit.rank is not None%}<br><small class="text-muted">rank: {{hit.rank}}</small>{%endif%}
     </li>
 {% endfor %}
 </ul>

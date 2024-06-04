@@ -1,17 +1,17 @@
 {% load glamr_extras %}
 <ul class="list-unstyled">
-{% for _, model_name, obj, details in object_list %}
+{% for hit in object_list %}
     <div class="card">
         <div class="card-header">
-            {% record_url obj as hiturl %}
-            {{model_name|capfirstsmart}}: <a href="{{hiturl}}">{{obj}}</a><br>
+            {% record_url hit.obj as hiturl %}
+            {{hit.model|meta:"model_name"|capfirstsmart}}: <a href="{{hiturl}}">{{hit.obj}}</a><br>
             <small class="text-muted"><a href="{{hiturl}}" class="link-secondary">{{hiturl|url2text}}</a></small>
         </div>
         <div class="card-body container">
-        {% for key, url, value in details %}
+        {% for i in hit.subhits %}
             <div class="row">
-                <div class="col-sm-3">{{key|capfirstsmart}}:</div>
-                <div class="col-sm-9">{%if url%}<a href="{{url}}">{%endif%}{{value}}{%if url%}</a>{%endif%}</div>
+                <div class="col-sm-3">{{i.field|capfirstsmart}}:</div>
+                <div class="col-sm-9">{%if i.url%}<a href="{{i.url}}">{%endif%}{{i.snippet}}{%if i.url%}</a>{%endif%}</div>
             </div>
         {% endfor %}
         </div>

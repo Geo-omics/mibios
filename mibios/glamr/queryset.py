@@ -1,21 +1,20 @@
 from collections import Counter
-from itertools import groupby
 from logging import getLogger
-from operator import attrgetter
 
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
-from django.contrib.postgres.search import SearchQuery, TrigramDistance
+from django.contrib.postgres.search import \
+    SearchQuery, SearchRank, TrigramDistance
 from django.db import connections
 from django.db.models import Count, F, Func, TextField, Value, Window
 from django.db.models.functions import FirstValue, Length, RowNumber
-from django.utils.safestring import mark_safe
 
 import pandas
 
 from mibios.omics.queryset import SampleQuerySet as OmicsSampleQuerySet
 from mibios.umrad.manager import QuerySet
-from . import GREAT_LAKES, HORIZONTAL_ELLIPSIS
+from . import GREAT_LAKES
+from .search_utils import SearchResult
 from .utils import split_query
 
 
@@ -247,7 +246,7 @@ class SearchableQuerySet(QuerySet):
                 lookup = 'icontains'
             f[f'text__{lookup}'] = query
 
-        qs = self.filter(**f).order_by('content_type_id')
+        qs = self.filter(**f)
 
         if pg_textsearch and highlight:
             qs = qs.annotate(snippet=ts_headline(
@@ -255,15 +254,58 @@ class SearchableQuerySet(QuerySet):
                 tsquery,
                 Value('StartSel=<mark>, StopSel=</mark>'),
             ))
+
+        qs = qs.order_by('content_type_id')
         return qs
 
+    def rank(self):
+        """
+        rank the full-text search results
+
+        Call this only for querysets that filter by some SearchQuery.  For
+        postgresql only.
+
+        Results get ordered (secondarily) by rank s.t. existing order is
+        preserved.
+        """
+        # Extract the SearchQuery from the search_qs() call or equivalent
+        # filter().
+        tsqueries = [
+            i.rhs for i in self.query.where.children
+            if isinstance(getattr(i, 'rhs', None), SearchQuery)
+        ]
+        if len(tsqueries) == 1:
+            tsquery = tsqueries[0]
+        else:
+            raise RuntimeError(
+                'rank() must be called after filtering on exactly one '
+                'SearchQuery'
+            )
+
+        rank = SearchRank(F('searchvector'), tsquery)
+        qs = self.annotate(rank=rank)
+        return qs.order_by(*qs.query.order_by, '-rank')
+
     def limit(self, limit=None):
-        """ Limit result set per model """
+        """
+        Limit result set per model
+
+        This will impose and depend on an order by content_type.
+
+        Return type is a RawQuerySet so calling other queryset methods on this
+        may be tricky.
+        """
         if limit is None:
             return self
 
         if not isinstance(limit, int):
-            raise ValueError('If not Nont, then limit must be an integer')
+            raise ValueError('If not None, then limit must be an integer')
+
+        if self.query.order_by and self.query.order_by[0] == 'content_type_id':
+            pass
+        else:
+            raise RuntimeError('do not call limit() unless you called '
+                               'order_by("content_type_id", ...) beforehand')
 
         # For Django <= 4.2? (where they added filtering on window function
         # annotations), we do this subquery/raw dance.  No idea how to do this
@@ -290,35 +332,10 @@ class SearchableQuerySet(QuerySet):
         Snippets are lists of (field, text) tuples.
         """
         qs = self.search_qs(query, highlight=highlight, **kwargs)
+        qs = qs.rank()
         qs = qs.limit(limit=limit_per_model)
 
-        result = {}
-        for ctpk, model_hits in groupby(qs, key=attrgetter('content_type_id')):
-            model = self.get_model_cache()[ctpk]
-            result[model] = {}
-            key = attrgetter('object_id')
-            for object_id, obj_hits in groupby(model_hits, key=key):
-                result[model][object_id] = []
-                for i in sorted(obj_hits, key=attrgetter('field')):
-                    if snippet := getattr(i, 'snippet', None):
-                        # ts_highlight() individually marks consequtive words
-                        # of a matching phrase, let's highlight the whole
-                        # phrase
-                        snippet = snippet.replace('</mark> <mark>', ' ')
-                        # add ... if snippet is inside the text
-                        plain = snippet.replace('<mark>', '').replace('</mark>', '')  # noqa:E501
-                        if not i.text.startswith(plain):
-                            snippet = f'{HORIZONTAL_ELLIPSIS} {snippet}'
-                        if not i.text.endswith(plain):
-                            snippet = f'{snippet} {HORIZONTAL_ELLIPSIS}'
-                    else:
-                        # highlighting is OFF
-                        snippet = i.text
-
-                    snippet = mark_safe(snippet)
-                    result[model][object_id].append((i.field, snippet))
-
-        return result
+        return SearchResult.from_searchables(qs, self.get_model_cache())
 
     def fallback_search(self, query, force=False, search_type='websearch',
                         **kwargs):
