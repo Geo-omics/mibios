@@ -14,6 +14,7 @@ from django.db import connections, router
 from django.db.backends.signals import connection_created
 from django.db.utils import OperationalError
 from django.dispatch import receiver
+from django.http.request import QueryDict
 from django.utils.safestring import mark_safe
 
 from mibios.umrad.models import Model
@@ -152,18 +153,20 @@ class SearchHitObj:
     """
     Full-text search hit for a single object
 
-    Helper class for full-text search results.
+    Helper class for viewing full-text search results.
     """
     Subhit = namedtuple('Subhit', ['field', 'snippet', 'url'], defaults=[None])
 
     def __init__(self, pk, content_type_id, model):
-        self.is_first = False  # is 1st item for its content type/model
+        self.num = None  # discrete rank in model's listing, starting at 1
         self.model = model  # the model class
+        self.model_name = model._meta.model_name  # for use in template
         self.pk = pk  # the object's PK
         self.obj = None
         self.subhits = []  # a list of field, snippet pairs
         self.rank = -1  # the maximum rank of any of the field/snippet pairs
         self.content_type_id = content_type_id  # pk in contenttype table
+        self.last_show_more_qstr = None  # querystr to get more results
 
     def add(self, hit):
         """
@@ -210,37 +213,71 @@ class SearchResult(dict):
     """
     Result of a full-text search
 
-    Helper class for full-text search results.
+    Helper class for viewing full-text search results.
     """
+    def __init__(self, data, total_counts, hard_limit, soft_limit,
+                 at_hard_limit):
+        super().__init__(data)
+        self.total_counts = total_counts
+        self.soft_limit = soft_limit
+        self.hard_limit = hard_limit
+        self.at_hard_limit = at_hard_limit
+
     @classmethod
-    def from_searchables(cls, qs, model_cache):
+    def from_searchables(cls, qs, model_cache, soft_limit=None,
+                         hard_limit=None):
         """
         Return a new instance build from a SearchableQueryset
 
-        qs - assumed to be a RawQueryset ordered by content_type_id
+        qs: assumed to be a RawQueryset ordered by content_type_id, made with
+            Searchables.objects queryset methods.
+        soft_limit: number of hits (objects) to return (per model)
+        hard_limit: limit used in SQL query, used for accounting
         """
         data = {}
+        totals = {}
+        at_hard_limit = {}
 
         top_rank = {}  # remembers max rank for model
         for ctype_id, grp in groupby(qs, key=attrgetter('content_type_id')):
             model = model_cache[ctype_id]
-            data[model] = {}
             top_rank[model] = -1
-            for i in grp:
-                if i.object_id not in data[model]:
-                    data[model][i.object_id] = \
-                            SearchHitObj(i.object_id, i.content_type_id, model)
-                data[model][i.object_id].add(i)
-                top_rank[model] = \
-                    max(top_rank[model], data[model][i.object_id].rank)
+            hits = {}
+            overflow = set()  # to count object hits above soft limit
+            for num, i in enumerate(grp, start=1):
+                if len(hits) >= soft_limit:
+                    overflow.add(i.object_id)
+                    continue
 
-        # forget pk keys and order mode-wise by top rank
+                if i.object_id not in hits:
+                    hits[i.object_id] = \
+                            SearchHitObj(i.object_id, i.content_type_id, model)
+                hits[i.object_id].add(i)
+                top_rank[model] = \
+                    max(top_rank[model], hits[i.object_id].rank)
+
+            data[model] = hits
+            totals[model] = len(hits) + len(overflow)
+            at_hard_limit[model] = (num >= hard_limit)
+
+        # forget pk keys and order model-wise by top rank
         _data = (
             (model, list(data[model].values()))
             for model, _
             in sorted(top_rank.items(), key=lambda x: -x[1])
         )
-        return cls(_data)
+        return cls(
+            _data,
+            total_counts=totals,
+            soft_limit=soft_limit,
+            hard_limit=hard_limit,
+            at_hard_limit=at_hard_limit,
+        )
+
+    @classmethod
+    def empty(cls):
+        """ An empty-handed search """
+        return cls({}, {}, -1, -1, {})
 
     def get_pks(self, model):
         """
@@ -254,12 +291,20 @@ class SearchResult(dict):
         """
         Return object_list suitable for a SearchResultMixin(ListView)
 
-        view: instance of SearchResultMixin, may be None for testing.
+        view: instance of SearchResultMixin and SearchMixin, may be None for
+              testing.
         """
         self.view = view
         ret = []
-        for model, hits in self.items():
-            ret += list(self.object_list_items(model))
+        for model in self:
+            hits = list(self.object_list_items(model))
+            if view and self.total_counts[model] > self.soft_limit:
+                qdict = QueryDict(mutable=True)
+                qdict.update(view.request.GET)
+                qdict['limit'] = self.soft_limit + view.SHOW_MORE_INCREMENT
+                qdict['model'] = model._meta.model_name
+                hits[-1].last_show_more_qstr = qdict.urlencode()
+            ret += hits
         return ret
 
     DETAIL_FIELDS = {
@@ -295,9 +340,6 @@ class SearchResult(dict):
 
     def object_list_items(self, model):
         """
-        Turn SearchMixin.search_result into something suitable for
-        ListView.object_list.
-
         Helper to get_objects_list() returning the items for a single model.
 
         This may query the DB to match hit with corresponding objects.
@@ -310,17 +352,15 @@ class SearchResult(dict):
         else:
             detail_fields = self.DETAIL_FIELDS.get(model._meta.model_name, {})
 
-        is_first = True  # True for the first item of each model
-        for obj_hit in self[model]:
+        for num, obj_hit in enumerate(self[model], start=1):
             obj_hit = obj_hit.copy()
 
             if obj_hit.pk not in objs:
                 # search index out-of-sync, just ignore (what else?)
                 continue
 
-            obj_hit.is_first = is_first
+            obj_hit.num = num
             obj_hit.obj = objs[obj_hit.pk]
-            is_first = False
 
             # For certain models add more details to the subhit list.
             # First get field values, with URLs for FKs, skip blanks,
@@ -359,4 +399,35 @@ class SearchResult(dict):
             yield obj_hit
 
     def get_stats(self):
-        return [(model, len(hits)) for model, hits in self.items()]
+        """
+        Get the search result statistics
+
+        This may be displayed above the result listing.  For each model this
+        gives the number of total hits and a flag telling if the hard limit was
+        reached as follows:
+
+          * the number of object hits if it is less or equal the soft limit
+          * otherwise the number of subhits up to the hard limit
+        """
+        ret = []
+        # order by self
+        for model in self:
+            if self.at_hard_limit[model]:
+                # the hard limit should be a nice round number and it is large
+                # enough that we don't care if it's not exact
+                count = self.hard_limit
+            else:
+                count = self.total_counts[model]
+            ret.append((model, count, self.at_hard_limit[model]))
+        return ret
+
+    def get_total_hit_count(self):
+        """ get total (beyond soft limit) number of hit objects """
+        return sum(self.total_counts.values())
+
+    def reached_hard_limit(self, model=None):
+        """ tell if search reached the hard limit """
+        if model:
+            return self.at_hard_limit[model]
+        else:
+            return self.get_total_hit_count() >= self.hard_limit

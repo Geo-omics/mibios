@@ -692,6 +692,9 @@ class SearchMixin(SearchFormMixin):
 
     Implementing classes need to call the search() method.
     """
+    SHOW_MORE_INCREMENT = 25
+    DEFAULT_LIMIT = 25
+
     def setup(self, request, *args, **kwargs):
         super().setup(request, *args, **kwargs)
         try:
@@ -709,6 +712,7 @@ class SearchMixin(SearchFormMixin):
                 raise Http404('bad model name / is not searchable') from e
 
         self.query = None
+        self.soft_limit = self.DEFAULT_LIMIT
         self.real_query = None
         self.check_abundance = False
         self.search_result = {}
@@ -725,6 +729,7 @@ class SearchMixin(SearchFormMixin):
         form = self.form_class(data=self.request.GET)
         if form.is_valid():
             self.query = form.cleaned_data['query']
+            self.soft_limit = form.cleaned_data['limit'] or self.DEFAULT_LIMIT
             self.check_abundance = form.cleaned_data.get('field_data_only', False)  # noqa: E501
         else:
             # invalid form, pretend empty search result
@@ -748,7 +753,7 @@ class SearchMixin(SearchFormMixin):
             'query': self.query,
             'models': [self.model._meta.model_name] if self.model else [],
             'abundance': self.check_abundance,
-            'limit_per_model': 1000,
+            'soft_limit': max(self.soft_limit, self.DEFAULT_LIMIT),
         }
 
         # first search
@@ -793,6 +798,8 @@ class SearchMixin(SearchFormMixin):
         # add context to display search results:
         ctx['query'] = self.query
         ctx['did_fallback_search'] = self.did_fallback_search
+        ctx['total_count'] = self.search_result.get_total_hit_count()
+        ctx['total_count_at_limit'] = self.search_result.reached_hard_limit()
         if self.search_result and self.model is None:
             # issue results statistics unless a single model was searched
             ctx['result_stats'] = self.search_result.get_stats()

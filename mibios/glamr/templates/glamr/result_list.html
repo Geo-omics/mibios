@@ -38,7 +38,7 @@
         {% else %}
         Global search
         {% endif %}
-        for <small class="fw-bolder">{{query}}</small> returned {{ object_list | length }} records:
+        for <small class="fw-bolder">{{query}}</small> returned {{total_count}}{%if total_count_at_limit%}+{%endif%} records:
 
     {% else %}
         No results for <small class="fw-bolder">"{{query}}"</small>
@@ -49,10 +49,10 @@
 {% if result_stats %}
 <div class="m-2">
     <ul class="list-unstyled">
-        {% for model, count in result_stats %}
-        <li><a href="#{{model|meta:"model_name"}}_first_item">{{model|meta:"verbose_name_plural"}}  <span class="badge bg-primary">{{count}}</span></a></li>
+        {% for model, count, at_limit in result_stats %}
+        <li><a href="#hit-section-{{model|meta:"model_name"}}">{{model|meta:"verbose_name_plural"}}  <span class="badge bg-primary">{{count}}{%if at_limit%}+{%endif%}</span></a></li>
         {% endfor %}
-    </ul
+    </ul>
 </div>
 {% endif %}{# result_stats #}
 

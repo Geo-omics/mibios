@@ -164,6 +164,7 @@ class ts_headline(Func):
 class SearchableQuerySet(QuerySet):
 
     _model_cache = None
+    DEFAULT_HARD_LIMIT = 1000
 
     @classmethod
     def get_model_cache(cls):
@@ -286,16 +287,19 @@ class SearchableQuerySet(QuerySet):
         qs = self.annotate(rank=rank)
         return qs.order_by(*qs.query.order_by, '-rank')
 
-    def limit(self, limit=None):
+    def limit(self, start=1, limit=None):
         """
         Limit result set per model
 
-        This will impose and depend on an order by content_type.
+        start: The first row to return, counting from 1.
+        limit: how many rows to return, if None then return all rows.
+
+        This depends on an order by content_type.
 
         Return type is a RawQuerySet so calling other queryset methods on this
         may be tricky.
         """
-        if limit is None:
+        if start <= 1 and limit is None:
             return self
 
         if not isinstance(limit, int):
@@ -314,10 +318,22 @@ class SearchableQuerySet(QuerySet):
             rownum=Window(RowNumber(), partition_by=F('content_type_id'))
         )
         sub_sql, params = qs.query.sql_with_params()
-        sql = f'SELECT * FROM ({sub_sql}) as foo where rownum <= %s'
-        return self.model.objects.raw(sql, params + (limit,))
+        if 1 < start and limit is None:
+            cond = '%s <= rownum'
+            params += (start,)
+        elif 1 < start:
+            cond = '%s <= rownum and rownum < %s'
+            params += (start, start + limit)
+        else:
+            # start == 1 with limit
+            cond = 'rownum <= %s'
+            params += (limit,)
+        sql = f'SELECT * FROM ({sub_sql}) as foo where {cond}'
+        return self.model.objects.raw(sql, params)
 
-    def search(self, query, highlight=None, limit_per_model=None, **kwargs):
+    def search(self, query, highlight=None, soft_limit=None,
+               hard_limit=DEFAULT_HARD_LIMIT,
+               **kwargs):
         """
         Full-text search
 
@@ -326,16 +342,26 @@ class SearchableQuerySet(QuerySet):
             Set to True to HTML-highlight the query term in hits.  If this is
             None / not set, then this defaults to whether highlighting is
             implemented, currently only with postgresql full text search.
+        :param int soft_limit: how many hits (per model) to return (to user)
+        :param int hard_limit:
+            the (per-model) limit of rows to ask the DB for, we use this to
+            gauge the total number of hits.
         :param dict kwargs: Parameters passed on to search_qs().
 
         Returns a dict mapping models to dict mapping PKs to "snippets."
         Snippets are lists of (field, text) tuples.
         """
+
         qs = self.search_qs(query, highlight=highlight, **kwargs)
         qs = qs.rank()
-        qs = qs.limit(limit=limit_per_model)
+        qs = qs.limit(limit=hard_limit)
 
-        return SearchResult.from_searchables(qs, self.get_model_cache())
+        return SearchResult.from_searchables(
+            qs,
+            self.get_model_cache(),
+            soft_limit=soft_limit,
+            hard_limit=hard_limit,
+        )
 
     def fallback_search(self, query, force=False, search_type='websearch',
                         **kwargs):
@@ -364,7 +390,7 @@ class SearchableQuerySet(QuerySet):
             else:
                 log.error(f'error getting tsquery for fallback search: '
                           f'{e.__class__.__name__}: {e}')
-                return {}
+                return SearchResult.empty()
 
         try:
             new_tsquery = self.model.objects.get_fallback_tsquery(tsquery)
@@ -374,12 +400,12 @@ class SearchableQuerySet(QuerySet):
             else:
                 log.error(f'error transforming to fallback tsquery'
                           f'{e.__class__.__name__}: {e}')
-                return {}
+                return SearchResult.empty()
 
         log.debug(f'FALLBACK SEARCH {query=} {tsquery=} {new_tsquery=}')
         if new_tsquery == tsquery and not force:
             # shortcut, assumes original query failed, return empty result
-            return {}
+            return SearchResult.empty()
         else:
             return self.search(new_tsquery, search_type='raw', **kwargs)
 

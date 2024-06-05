@@ -1,6 +1,6 @@
 from django import forms
 from django.core.exceptions import ValidationError
-from django.forms.widgets import Select, TextInput
+from django.forms.widgets import HiddenInput, Select, TextInput
 # from django.utils.safestring import mark_safe
 
 from crispy_forms.helper import FormHelper
@@ -43,6 +43,10 @@ class SearchForm(forms.Form):
         label='',
         # help_text='help text',
         initial='keyword search',
+    )
+    limit = forms.IntegerField(
+        required=False,
+        widget=HiddenInput,
     )
 
 

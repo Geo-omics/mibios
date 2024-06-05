@@ -1,8 +1,14 @@
 {% load glamr_extras %}
-<ul class="list-group list-group-flush">
 {% for hit in object_list %}
-    <li class="list-group-item" {% if hit.is_first %}id="{{hit.model|meta:"model_name"}}_first_item"{% endif %}>
-        <small class="text-muted">{{hit.obj|meta:"verbose_name"|capfirstsmart}}</small><br>
+{%if hit.num == 1 %}
+    {%if not forloop.first%}</ul>{%endif%}
+    <h4 class="fw-light" id="hit-section-{{hit.model_name}}">{{hit.model|meta:"verbose_name_plural"}}</h4>
+    <ul class="list-group list-group-flush">
+{%endif%}
+    <li class="list-group-item" id="hit-{{hit.model_name}}-{{hit.num}}">
+        <small class="text-muted">{{hit.obj|meta:"verbose_name"|capfirstsmart}}
+        {%if hit.rank is not None%}// {{hit.num}}. rank: {{hit.rank}}{%endif%}
+        </small><br>
         {% record_url hit.obj as hiturl %}
         <a href="{{ hiturl }}" class="h5">{{hit.obj}}</a><br>
         <small class="text-muted"><a href="{{ hiturl }}" class="link-secondary">{{ hiturl|url2text }}</a></small><br>
@@ -10,7 +16,10 @@
             <small class="text-muted">{{i.field|capfirstsmart}}:</small> {{i.snippet}}
             {% if not forloop.last %}<br>{% endif %}
         {% endfor %}
-        {%if hit.rank is not None%}<br><small class="text-muted">rank: {{hit.rank}}</small>{%endif%}
+        {% if hit.last_show_more_qstr %}
+            <br><a href="{% url 'search_result' model=hit.model_name %}?{{hit.last_show_more_qstr}}" class="btn btn-primary m-5" role="button">
+                Get more {{hit.model|meta:"verbose_name_plural"}}</a>
+        {%endif%}
     </li>
 {% endfor %}
 </ul>

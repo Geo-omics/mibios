@@ -1,11 +1,11 @@
 {% load glamr_extras %}
 <ul class="list-unstyled">
 {% for hit in object_list %}
-    <div class="card">
+    <div class="card" id="hit-{{hit.model_name}}-{{hit.num}}">
         <div class="card-header">
             {% record_url hit.obj as hiturl %}
             {{hit.model|meta:"model_name"|capfirstsmart}}: <a href="{{hiturl}}">{{hit.obj}}</a><br>
-            <small class="text-muted"><a href="{{hiturl}}" class="link-secondary">{{hiturl|url2text}}</a></small>
+            <small class="text-muted"><a href="{{hiturl}}" class="link-secondary">{{hiturl|url2text}}</a>{%if hit.rank is not None%} // {{hit.num}}. rank: {{hit.rank}}{%endif%}</small>
         </div>
         <div class="card-body container">
         {% for i in hit.subhits %}
@@ -16,5 +16,9 @@
         {% endfor %}
         </div>
         </div>
+        {% if hit.last_show_more_qstr %}
+            <br><a href="{% url 'search_result' model=hit.model_name %}?{{hit.last_show_more_qstr}}#hit-{{hit.model_name}}-{{hit.num}}" class="btn btn-primary m-5" role="button">
+                Show more {{hit.model|meta:"verbose_name_plural"}}</a>
+        {%endif%}
 {% endfor %}
 </ul>
