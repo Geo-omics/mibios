@@ -422,12 +422,30 @@ class SearchResult(dict):
         return ret
 
     def get_total_hit_count(self):
-        """ get total (beyond soft limit) number of hit objects """
-        return sum(self.total_counts.values())
+        """
+        Get total (beyond soft limit) number of hit objects
+
+        This is to populate the template.  No numbers higher than the hard
+        limit will be returned.
+        """
+        if any(self.at_hard_limit.values()):
+            return self.hard_limit
+        else:
+            return sum(self.total_counts.values())
 
     def reached_hard_limit(self, model=None):
-        """ tell if search reached the hard limit """
+        """
+        Tell if search reached the hard limit
+
+        If no model is provided, then this will return True if the hard limit
+        was reached for any model.  For populating the template.
+        """
         if model:
             return self.at_hard_limit[model]
         else:
-            return self.get_total_hit_count() >= self.hard_limit
+            # global search: either total sum or individual
+            return (
+                any(self.at_hard_limit.values())
+                or
+                self.get_total_hit_count() >= self.hard_limit
+            )
