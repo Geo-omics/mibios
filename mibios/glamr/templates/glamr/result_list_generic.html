@@ -17,8 +17,8 @@
             {% if not forloop.last %}<br>{% endif %}
         {% endfor %}
         {% if hit.last_show_more_qstr %}
-            <br><a href="{% url 'search_result' model=hit.model_name %}?{{hit.last_show_more_qstr}}" class="btn btn-primary m-5" role="button">
-                Get more {{hit.model|meta:"verbose_name_plural"}}</a>
+            <br><a href="{% url 'search_result' model=hit.model_name %}?{{hit.last_show_more_qstr}}#hit-{{hit.model_name}}-{{hit.num}}" class="btn btn-primary m-5" role="button">
+                Show more {{hit.model|meta:"verbose_name_plural"}}</a>
         {%endif%}
     </li>
 {% endfor %}
