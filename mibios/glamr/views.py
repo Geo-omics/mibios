@@ -1995,13 +1995,7 @@ class DjangoFilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        # TODO:
-        """
-        ctx['filter_items'] = [
-            (k.replace('__', ' -> '), v)
-            for k, v in self.conf.filter.items()
-        ] + [('', i) for i in self.conf.q]
-        """
+        ctx['filter_items'] = self.filter.for_display()
         return ctx
 
 

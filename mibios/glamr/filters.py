@@ -1,6 +1,8 @@
 import inspect
 import sys
 
+from django.db.models import QuerySet
+
 from django.forms.widgets import CheckboxInput, CheckboxSelectMultiple
 
 from django_filters import BooleanFilter, CharFilter, ChoiceFilter, \
@@ -189,6 +191,57 @@ class StandardFilter(FilterSet):
     advanced search """
     code = None
     """ The code: goes into URL so the view knows the filter to use """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.applied_filters = []
+
+    def for_display(self):
+        """
+        Get display items for a bound+cleaned filter / form / set
+        """
+        ret = []
+        for name in self.applied_filters:
+            label = self.filters[name]._label
+            value = self.form.cleaned_data[name]
+            if isinstance(value, slice):
+                # date range or similar
+                value = f'{value.start} to {value.stop}'
+            elif isinstance(value, list):
+                # multi-valued choices or so
+                value = ', '.join((str(i) for i in value))
+            else:
+                # assume str() will work just fine
+                pass
+
+            ret.append((label, value))
+        return ret
+
+    def filter_queryset(self, queryset):
+        """
+        Filter the queryset based on the form's cleaned_data
+
+        This replaces super()'s method to also keep track of which filters
+        actually got applied.
+        """
+        for name, value in self.form.cleaned_data.items():
+            old_queryset = queryset
+            queryset = self.filters[name].filter(queryset, value)
+            if not isinstance(queryset, QuerySet):
+                raise TypeError(
+                    f'Expected {type(self).__name__}{name} to return a '
+                    f'QuerySet, but got a {type(queryset).__name__} instead.'
+                )
+            if queryset is not old_queryset:
+                # filter applied non-trivially
+                self.applied_filters.append(name)
+        return queryset
+
+    @classmethod
+    def filter_for_field(cls, field, field_name, lookup_expr=None):
+        ret = super().filter_for_field(field, field_name,
+                                       lookup_expr=lookup_expr)
+        return ret
 
 
 class DatasetFilter(StandardFilter):
