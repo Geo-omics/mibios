@@ -202,7 +202,8 @@ class StandardFilter(FilterSet):
         """
         ret = []
         for name in self.applied_filters:
-            label = self.filters[name]._label
+            fi = self.filters[name]
+            label = fi._label
             value = self.form.cleaned_data[name]
             if isinstance(value, slice):
                 # date range or similar
@@ -210,6 +211,9 @@ class StandardFilter(FilterSet):
             elif isinstance(value, list):
                 # multi-valued choices or so
                 value = ', '.join((str(i) for i in value))
+            elif hasattr(fi, 'null_value') and value == fi.null_value:
+                # probably "null", try getting blank label from AutoChoiceMixin
+                value = getattr(self.filters[name], 'blank_label', value)
             else:
                 # assume str() will work just fine
                 pass

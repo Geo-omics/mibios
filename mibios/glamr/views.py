@@ -1995,7 +1995,9 @@ class DjangoFilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
+        ctx['filter'] = self.filter
         ctx['filter_items'] = self.filter.for_display()
+        ctx['model_name'] = self.model._meta.model_name
         return ctx
 
 

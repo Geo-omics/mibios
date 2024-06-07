@@ -1,7 +1,6 @@
 {% extends "glamr/base.html" %}
 {% load django_tables2 %}
-{% load static %}
-{% load glamr_extras %}
+{% load static crispy_forms_tags glamr_extras %}
 {% block content %}
 <nav aria-label="breadcrumb">
   <ol class="breadcrumb">
@@ -16,19 +15,41 @@
 <div class="m-2">
     {% include "glamr/map.html"%}
 </div>
+{% endif %}
 
+{% if object_list %}
 <h3>Showing {{object_list|length}} {%if object_list|length == 1%}{{view.model|meta:"verbose_name"}}{%else%}{{view.model|meta:"verbose_name_plural"}}{%endif%} with:</h3>
+{%else%}
+<h3>No results</h3>
+{% endif %}{# object_list #}
+
 <ul>
 {% for k, v in filter_items %}
 <li>{{k}}: {{v}}</li>
+{% empty %}
+<li>no filter applied</li>
 {% endfor %}
 </ul>
 
+<div class="accordion" id="filter-accordion">
+<div class="accordion-item">
+    <h2 class="accordion-header">
+        <button type="button" class="accordion-button" data-bs-toggle="collapse" data-bs-target="#full-text-search" aria-expanded="true" aria-controls="full-text-search">
+            + Change filter
+        </button>
+    </h2>
+    <div id="full-text-search" class="accordion-collapse collapse">
+            <form action="{%url 'filter_result2' code=filter.code model=model_name%}">
+            {{filter.form|crispy}}
+            <button type="submit" class="btn btn-primary">Search</button>
+            </form>
+    </div>
+</div>
+</div>
+
+{% if object_list %}
 {% include "glamr/download_links.html" %}
 {% render_table table %}
-
-{% else %}{# object_list #}
-<h3>No results</h3>
 {% endif %}{# object_list #}
 
 {% endblock %}{# content #}
