@@ -95,7 +95,8 @@ class AbstractSample(Model):
     )
     contig_fasta_loaded = models.BooleanField(
         default=False,
-        help_text='contig fasta data loaded',
+        verbose_name='assembly available',
+        help_text='fasta-formatted assembly is available',
     )
     contig_abundance_loaded = models.BooleanField(
         default=False,
@@ -111,7 +112,9 @@ class AbstractSample(Model):
     )
     read_abundance_loaded = models.BooleanField(
         default=False,
-        help_text='read-based abundance data from tophit_report loaded',
+        verbose_name='functional abundance available',
+        help_text='read-mapping-based (tophit_report) abundance against '
+                  'UniRef100',
     )
     gene_abundance_loaded = models.BooleanField(
         default=False,
@@ -135,7 +138,8 @@ class AbstractSample(Model):
     )
     tax_abund_ok = models.BooleanField(
         default=False,
-        help_text='Taxon abundance data loaded',
+        verbose_name='taxonomic abundance available',
+        help_text='abundance against taxonomy',
     )
     func_abund_ok = models.BooleanField(
         default=False,
