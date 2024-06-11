@@ -524,6 +524,9 @@ class DatasetTable(Table):
             "class": "table table-hover",
         }
 
+    def customize_queryset(self, qs):
+        return qs.select_related('primary_ref').prefetch_related('sample_set')
+
     def get_extra_excludes(self):
         excludes = list(glamr_models.Dataset.get_internal_fields())
         if self.is_for_export():
@@ -622,6 +625,9 @@ class SampleTable(Table):
         attrs = {
             "class": "table table-hover",
         }
+
+    def customize_queryset(self, qs):
+        return qs.select_related('dataset', 'dataset__primary_ref')
 
     def get_extra_excludes(self):
         return list(glamr_models.Sample.get_internal_fields())
