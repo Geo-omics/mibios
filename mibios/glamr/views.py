@@ -25,7 +25,7 @@ from mibios import get_registry
 from mibios.data import DataConfig, TableConfig
 from mibios.glamr.filters import (
     DatasetFilter, UniRef90Filter, UniRef100Filter,
-    filter_registry, standard_filters
+    filter_registry
 )
 from mibios.glamr.forms import DatasetFilterFormHelper
 from mibios.glamr.models import Sample, Dataset, pg_class, dbstat
@@ -416,6 +416,47 @@ class EditFilterMixin(BaseFilterMixin):
             return self.q.replace_node((lhs, rhs), path)
 
 
+class FilterMixin:
+    """
+    Mixin for django-filter
+    """
+    def get(self, request, *args, **kwargs):
+        try:
+            fclass = filter_registry.from_get(request.GET)
+        except LookupError:
+            # GET qstr does not match filter signature
+            try:
+                fclass = filter_registry.primary[self.model]
+            except KeyError:
+                fclass = None
+        else:
+            if self.model is not fclass._meta.model:
+                raise Http404('model is incompatible with filter code ')
+
+        self.filter_class = fclass
+        return super().get(request, *args, **kwargs)
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if self.filter_class:
+            self.filter = self.filter_class(self.request.GET, qs)
+            qs = self.filter.qs
+        else:
+            self.filter = None
+        return qs
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['filter'] = self.filter
+        if self.filter:
+            ctx['filter_items'] = self.filter.for_display()
+        else:
+            ctx['filter_items'] = []
+        if 'version_info' in ctx:
+            ctx['version_info']['filter'] = self.filter.__class__.__name__
+        return ctx
+
+
 class ModelTableMixin(ExportMixin):
     """
     Mixin for SingleTableView
@@ -447,6 +488,19 @@ class ModelTableMixin(ExportMixin):
         Sample: ['taxonabundance', 'functional_abundance'],
     }
 
+    def setup(self, request, *args, model=None, **kwargs):
+        """
+        setup: Sets model from url kwarg, if possible.  If this default
+        behaviour is not correct for an inheriting view, then override this, so
+        call super().setup() and then set self.model as desired.
+        """
+        super().setup(request, *args, **kwargs)
+        if model:
+            try:
+                self.model = get_registry().models[model]
+            except KeyError as e:
+                raise Http404(f'no such model: {e}') from e
+
     def get_table_kwargs(self):
         kw = super().get_table_kwargs()
         kw['exclude'] = list(self.exclude)
@@ -466,14 +520,15 @@ class ModelTableMixin(ExportMixin):
             table_factory(self.model, tables.Table),
         )
 
-    def customize_queryset(self, qs):
+    def get_queryset(self):
         """
-        Run model-specific methods on the queryset
+        Also run model-specific methods on the queryset
 
         Anything non-generic that a custom table needs should go in here.
         Otherwise model-agnostic views, that implement this mixin, should call
         this method in get_queryset().
         """
+        qs = super().get_queryset()
         if self.model is Dataset:
             qs = qs.annotate(sample_count=Count('sample', distinct=True))
         return qs
@@ -521,6 +576,7 @@ class ModelTableMixin(ExportMixin):
             self.add_export_option(i)
         ctx = super().get_context_data(**ctx)
         ctx['extra_navigation'] = self.get_table().get_extra_navigation()
+        ctx['model_name'] = self.model._meta.model_name
         return ctx
 
 
@@ -632,7 +688,7 @@ class SearchFormMixin:
     """
     Mixin sufficient to display the simple search form
 
-    Use via including search_form_simple.html in your template.
+    Use via including full_text_search_form.html in your template.
     """
 
     search_model = None
@@ -1794,10 +1850,10 @@ class SearchView(BaseMixin, SearchFormMixin, TemplateView):
 
         # support for regular per modelfilters
         ctx['standard_filters'] = [
-            (cls._meta.model._meta.model_name,
-             cls._meta.model._meta.verbose_name,
-             cls())
-            for cls in standard_filters
+            (model._meta.model_name,
+             model._meta.verbose_name,
+             filt_cls())
+            for model, filt_cls in filter_registry.primary.items()
         ]
 
         # Support for the Advanced Filter section
@@ -1832,17 +1888,9 @@ class SearchModelView(EditFilterMixin, BaseMixin, TemplateView):
         return ctx
 
 
-class TableView(BaseFilterMixin, ModelTableMixin, BaseMixin, SingleTableView):
-    template_name = 'glamr/table.html'
-
-    def get_queryset(self):
-        self.conf.q = [self.q]
-        qs = self.conf.get_queryset()
-        return self.customize_queryset(qs)
-
-    def setup(self, request, *args, **kwargs):
-        super().setup(request, *args, **kwargs)
-        self.conf = TableConfig(self.model)
+class TableView(FilterMixin, MapMixin, ModelTableMixin, BaseMixin,
+                SingleTableView):
+    template_name = 'glamr/filter_list.html'
 
 
 class ToManyListView(ModelTableMixin, BaseMixin, SingleTableView):
@@ -1925,8 +1973,13 @@ class SearchResultListView(SearchResultMixin, SearchMixin, BaseMixin,
     template_name = 'glamr/result_list.html'
 
 
-class FilteredListView(SearchFormMixin, MapMixin, ModelTableMixin, BaseMixin,
-                       SingleTableView):
+class AdvFilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
+                          BaseMixin, SingleTableView):
+    """
+    View for the advanced filtering option
+
+    Of uncertain fate, may become deprecated.
+    """
     template_name = 'glamr/filter_list.html'
 
     def setup(self, request, *args, model=None, **kwargs):
@@ -1954,7 +2007,7 @@ class FilteredListView(SearchFormMixin, MapMixin, ModelTableMixin, BaseMixin,
         # get_context_data(), but just to cover the inordinary, call it here
         # again:
         self.set_filter()
-        return self.customize_queryset(self.conf.get_queryset())
+        return self.conf.get_queryset()
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
@@ -1966,39 +2019,10 @@ class FilteredListView(SearchFormMixin, MapMixin, ModelTableMixin, BaseMixin,
         return ctx
 
 
-class DjangoFilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
-                             BaseMixin, SingleTableView):
+class FilteredListView(SearchFormMixin, FilterMixin, MapMixin, ModelTableMixin,
+                       BaseMixin, SingleTableView):
     """ Similar to FilteredListView but got via django-filter filters """
     template_name = 'glamr/filter_list.html'
-
-    def setup(self, request, *args, model=None, **kwargs):
-        if model:
-            try:
-                self.model = get_registry().models[model]
-            except KeyError as e:
-                raise Http404(f'no such model: {e}') from e
-
-        try:
-            self.filter_class = filter_registry[kwargs.pop('code')]
-        except KeyError as e:
-            raise Http404('invalid filter code') from e
-
-        if self.model is not self.filter_class._meta.model:
-            raise Http404('model is incompatible with filter code ')
-
-        super().setup(request, *args, **kwargs)
-
-    def get_queryset(self):
-        qs = super().get_queryset()
-        self.filter = self.filter_class(self.request.GET, queryset=qs)
-        return self.customize_queryset(self.filter.qs)
-
-    def get_context_data(self, **ctx):
-        ctx = super().get_context_data(**ctx)
-        ctx['filter'] = self.filter
-        ctx['filter_items'] = self.filter.for_display()
-        ctx['model_name'] = self.model._meta.model_name
-        return ctx
 
 
 class UniRef100View(RecordView):

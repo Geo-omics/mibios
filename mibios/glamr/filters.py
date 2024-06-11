@@ -1,15 +1,17 @@
 import inspect
 import sys
 
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from django.forms.widgets import CheckboxInput, CheckboxSelectMultiple
 
 from django_filters import BooleanFilter, CharFilter, ChoiceFilter, \
-    DateFromToRangeFilter, FilterSet, MultipleChoiceFilter, RangeFilter
+    DateFromToRangeFilter, FilterSet as OrigFilterSet, MultipleChoiceFilter, \
+    RangeFilter
 from django_filters.widgets import RangeWidget
 
 from mibios.glamr.models import Dataset, Reference, Sample
+from mibios.omics.models import ReadAbundance
 from mibios.umrad.models import UniRef100
 
 
@@ -186,11 +188,10 @@ class YearChoiceFiFi(AutoChoiceMixin, ChoiceFilter):
         return [(i, i) for i in qs]
 
 
-class StandardFilter(FilterSet):
-    """ Abstract class for filters that appear in the 'standard' section of the
-    advanced search """
-    code = None
-    """ The code: goes into URL so the view knows the filter to use """
+class FilterSet(OrigFilterSet):
+    is_primary = False
+    """ primary filters go into the primary filter section on the advanced
+    search page """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -225,7 +226,7 @@ class StandardFilter(FilterSet):
         """
         Filter the queryset based on the form's cleaned_data
 
-        This replaces super()'s method to also keep track of which filters
+        This replaces super()'s method to also keep track of which conditions
         actually got applied.
         """
         for name, value in self.form.cleaned_data.items():
@@ -248,7 +249,7 @@ class StandardFilter(FilterSet):
         return ret
 
 
-class DatasetFilter(StandardFilter):
+class DatasetFilter(FilterSet):
     water_bodies = ChoiceFiFi(sep=',')
     sample__sample_type = SampleTypeFiFi(label='Sample type')
     sample_year = YearChoiceFiFi(
@@ -260,7 +261,7 @@ class DatasetFilter(StandardFilter):
         widget=RangeWidget(attrs={'type': 'date'}),
     )
 
-    code = 'da'
+    is_primary = True
 
     class Meta:
         model = Dataset
@@ -275,20 +276,39 @@ class DatasetFilter(StandardFilter):
         return qs.filter(sample__collection_timestamp__year=value)
 
 
-class ReferenceFilter(StandardFilter):
+class ReadAbundanceFilter(FilterSet):
+    ref = CharFilter(
+        label='Function name / UniRef ID',
+        method='filter_by_ref',
+    )
+
+    class Meta:
+        model = ReadAbundance
+        fields = ['ref']
+
+    def filter_by_ref(self, qs, name, value):
+        """
+        Do FTS and filter by UniRef100
+        """
+        # Searchable.objects.search_qs(query=value)
+        qs1 = qs.filter(Q(ref__accession=value) | Q(ref__uniref90=value))
+        return qs1
+
+
+class ReferenceFilter(FilterSet):
     last_author = ChoiceFiFi()
     year = ChoiceFiFi(label='Year of publication')
     key_words = ChoiceFiFi(sep=',', label='Keywords')
     publication = ChoiceFiFi(label='Journal')
 
-    code = 'pub'
+    is_primary = True
 
     class Meta:
         model = Reference
         fields = ['last_author', 'year', 'key_words', 'publication']
 
 
-class SampleFilter(StandardFilter):
+class SampleFilter(FilterSet):
     geo_loc_name = ChoiceFiFi()
     year = YearChoiceFiFi(
         method='add_year',
@@ -299,7 +319,7 @@ class SampleFilter(StandardFilter):
         widget=RangeWidget(attrs={'type': 'date'}),
     )
 
-    code = 'sa'
+    is_primary = True
 
     class Meta:
         model = Sample
@@ -335,8 +355,6 @@ class SampleFilter(StandardFilter):
 class UniRef90Filter(FilterSet):
     uniref90 = CharFilter(label='UniRef90 ID')
 
-    code = 'u9'
-
     class Meta:
         model = UniRef100
         fields = ['uniref90']
@@ -345,37 +363,60 @@ class UniRef90Filter(FilterSet):
 class UniRef100Filter(FilterSet):
     accession = CharFilter(label='UniRef100 ID')
 
-    code = 'u1'
-
     class Meta:
         model = UniRef100
         fields = ['accession']
 
 
-def _compile_filter_registry():
-    reg = {}
-    filters = inspect.getmembers(
-        sys.modules[__name__],
-        lambda x: inspect.isclass(x)
-        and x.__module__ == __name__
-        and issubclass(x, FilterSet)
-        and hasattr(x, 'code')
-    )
-    for name, cls in filters:
-        if name == 'StandardFilter':
-            continue
-        if cls.code is None:
-            raise ValueError(f'filter registry code not set: {cls}')
-        if cls.code in reg:
-            raise ValueError(f'Class {cls} has duplicate code: {cls.code}')
-        reg[cls.code] = cls
-    return reg
+class FilterRegistry:
+    """
+    Register filters
+
+    Each filter must have a unique set of fields/components.  One filter per
+    model can be the primary.
+    """
+    def __init__(self):
+        filters = inspect.getmembers(
+            sys.modules[__name__],
+            lambda x: inspect.isclass(x)
+            and x.__module__ == __name__
+            and issubclass(x, FilterSet)
+        )
+        data = {}
+        self.primary = {}
+        by_keys = {}
+        for name, cls in filters:
+            if name == 'FilterSet':
+                continue
+            model = cls._meta.model
+            if model not in data:
+                data[model] = {}
+
+            if cls.is_primary:
+                if model in self.primary:
+                    raise RuntimeError(
+                        f'{cls}: multiple primary filters for {model}'
+                    )
+                self.primary[model] = cls
+
+            keys = tuple(sorted(cls.base_filters.keys()))
+            if keys in by_keys:
+                raise RuntimeError(f'{cls}: duplicate keys/field filters')
+            by_keys[keys] = cls
+
+        # order by longest key first
+        self.by_keys = dict(sorted(by_keys.items(), key=lambda x: -len(x[0])))
+
+    def from_get(self, request_querydict):
+        """ return filter class matching a request.GET query string """
+        requested = set(request_querydict.keys())
+        for keys, cls in self.by_keys.items():
+            if requested.issuperset(keys):
+                return cls
+        raise LookupError('registry has no filter with matching signature')
 
 
 # this should go after all class declarations
-filter_registry = _compile_filter_registry()
+filter_registry = FilterRegistry()
 """ a map from sorted field names / accessors to filter set class for
 auto-picking the right class from a GET querystring """
-
-standard_filters = StandardFilter.__subclasses__()
-""" filters to be included on the adv search page """

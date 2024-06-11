@@ -13,7 +13,7 @@
         </button>
     </h2>
     <div id="full-text-search" class="accordion-collapse collapse show">
-    {% include "glamr/search_form_simple.html" %}
+    {% include "glamr/full_text_search_form.html" %}
     </div>
 </div>
 
@@ -25,11 +25,11 @@
         </button>
     </h2>
     <div id="uniref-id-filter" class="accordion-collapse collapse">
-            <form action="{%url 'filter_result2' code=ur90filter.code model='uniref100'%}" method="get" class="accordion-body">
+            <form action="{%url 'filter_result2' model='uniref100'%}" method="get" class="accordion-body">
             {{ur90filter.form|crispy}}
             <button type="submit" class="btn btn-primary">Search</button>
             </form>
-            <form action="{%url 'filter_result2' code=ur100filter.code model='uniref100'%}" method="get" class="accordion-body">
+            <form action="{%url 'filter_result2' model='uniref100'%}" method="get" class="accordion-body">
             {{ur100filter.form|crispy}}
             <button type="submit" class="btn btn-primary">Search</button>
             </form>
@@ -55,7 +55,7 @@
     <div class="tab-content" id="adv-search-forms-div">
         {% for name, verbose, filter in standard_filters %}
         <div class="tab-pane{%if forloop.first%} show active{%endif%}" id="{{name}}-tab-pane" role="tabpanel" aria-labelled-by="{{name}}-tab" tabindex="0">
-            <form action="{%url 'filter_result2' code=filter.code model=name%}">
+            <form action="{%url 'filter_result2' model=name%}">
             {{filter.form|crispy}}
             <button type="submit" class="btn btn-primary">Search</button>
             </form>

@@ -8,7 +8,7 @@
     <li class="breadcrumb-item active" aria-current="page">{{ view.model|meta:"verbose_name_plural"|capfirst }} (filtered)</li>
   </ol>
 </nav>
-{% include "glamr/search_form_simple.html" %}
+{% include "glamr/full_text_search_form.html" %}
 <br/>
 
 {% if object_list %}
@@ -31,6 +31,7 @@
 {% endfor %}
 </ul>
 
+{% if filter %}  {# set by FilterMixin, don't show filter if None #}
 <div class="accordion" id="filter-accordion">
 <div class="accordion-item">
     <h2 class="accordion-header">
@@ -39,13 +40,14 @@
         </button>
     </h2>
     <div id="full-text-search" class="accordion-collapse collapse">
-            <form action="{%url 'filter_result2' code=filter.code model=model_name%}">
+            <form action="{%url 'filter_result2' model=model_name%}">
             {{filter.form|crispy}}
             <button type="submit" class="btn btn-primary">Search</button>
             </form>
     </div>
 </div>
 </div>
+{%endif%}
 
 {% if object_list %}
 {% include "glamr/download_links.html" %}

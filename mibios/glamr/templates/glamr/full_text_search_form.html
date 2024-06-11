@@ -1,4 +1,5 @@
 {% load glamr_extras %}
+{% if search_model_name %} {# search_model_name is set by SearchFormMixin #}
 <script type="text/javascript">
     function changeSelection(){
         switch (document.getElementById('search_dropdown').value) {
@@ -49,3 +50,4 @@
         More complex searches can be performed by clicking on the "Advanced Search" link at the top of the page.
     </blockquote>
 </div>
+{%endif%}
