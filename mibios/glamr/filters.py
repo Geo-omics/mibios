@@ -14,6 +14,8 @@ from mibios.glamr.models import Dataset, Reference, Sample
 from mibios.omics.models import ReadAbundance
 from mibios.umrad.models import UniRef100
 
+from django.contrib.postgres.search import SearchQuery
+
 
 class AutoChoiceMixin:
     """
@@ -292,11 +294,20 @@ class ReadAbundanceFilter(FilterSet):
 
     def filter_by_ref(self, qs, name, value):
         """
-        Do FTS and filter by UniRef100
+        Filter by accession and if that fails by function name full-text search
         """
-        # Searchable.objects.search_qs(query=value)
-        qs1 = qs.filter(Q(ref__accession=value) | Q(ref__uniref90=value))
-        return qs1
+        urqs = UniRef100.objects.filter(Q(accession=value) | Q(uniref90=value))
+        if urqs.exists():
+            # This exist() is much faster than testing via filter on join;
+            # Further, doing the accession filter together with the full-text
+            # search below is much slower for some reason.
+            return qs.filter(Q(ref__accession=value) | Q(ref__uniref90=value))
+        else:
+            tsquery = SearchQuery(value, search_type='websearch')
+            qs = qs.filter(
+                ref__function_names__fts_index__searchvector=tsquery,
+            )
+            return qs.distinct()
 
 
 class ReferenceFilter(FilterSet):

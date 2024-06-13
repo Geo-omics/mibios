@@ -1,5 +1,6 @@
 from logging import getLogger
 
+from django.contrib.contenttypes.fields import GenericRelation
 from django.db import models
 
 from mibios import get_registry
@@ -79,7 +80,9 @@ class CompoundName(VocabularyModel):
 
 
 class FunctionName(VocabularyModel):
+    fts_index = GenericRelation('glamr.Searchable')
     abundance_accessor = 'funcrefdbentry__abundance'
+    default_internal_fields = ['fts_index']
 
 
 class Location(VocabularyModel):

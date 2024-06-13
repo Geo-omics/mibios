@@ -1260,6 +1260,8 @@ class RecordView(BaseMixin, DetailView):
 
         data = []
         for i in fields:
+            if i.related_model is models.Searchable:
+                continue
             model_name = i.related_model._meta.model_name
             name = getattr(i, 'verbose_name_plural', i.name)
             try:
