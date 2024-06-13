@@ -1895,7 +1895,7 @@ class TableView(FilterMixin, MapMixin, ModelTableMixin, BaseMixin,
     template_name = 'glamr/filter_list.html'
 
 
-class ToManyListView(ModelTableMixin, BaseMixin, SingleTableView):
+class ToManyListView(FilterMixin, ModelTableMixin, BaseMixin, SingleTableView):
     """ List records related to other record """
     template_name = 'glamr/relations_list.html'
 
@@ -1934,7 +1934,9 @@ class ToManyListView(ModelTableMixin, BaseMixin, SingleTableView):
         super().setup(request, *args, **kwargs)
 
     def get_queryset(self):
-        return getattr(self.object, self.accessor_name).all()
+        qs = super().get_queryset()
+        qs = qs.filter(**{self.field.remote_field.name: self.object})
+        return qs
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)

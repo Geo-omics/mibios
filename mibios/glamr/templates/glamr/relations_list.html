@@ -1,12 +1,28 @@
 {% extends "glamr/base.html" %}
-{% load glamr_extras %}
-{% load static %}
+{% load static crispy_forms_tags glamr_extras %}
 {% load render_table from django_tables2 %}
 {% block content %}
 <h3>
 Related {{ verbose_name_plural }} of {{ object_model_name_verbose }}
 <a href="{% record_url object %}">{{ object }}</a>
 </h3>
+{% if filter %}  {# set by FilterMixin, don't show filter if None #}
+<div class="accordion" id="filter-accordion">
+<div class="accordion-item">
+    <h2 class="accordion-header">
+        <button type="button" class="accordion-button" data-bs-toggle="collapse" data-bs-target="#full-text-search" aria-expanded="true" aria-controls="full-text-search">
+            + Change filter
+        </button>
+    </h2>
+    <div id="full-text-search" class="accordion-collapse collapse">
+            <form action="">
+            {{filter.form|crispy}}
+            <button type="submit" class="btn btn-primary">Search</button>
+            </form>
+    </div>
+</div>
+</div>
+{%endif%}
 {% include "glamr/extra_navigation.html" %}
 {% include "glamr/download_links.html" %}
 {% render_table table 'glamr/related_records_table.html'%}
