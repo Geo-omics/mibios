@@ -1,5 +1,7 @@
 import os
+from pathlib import Path
 import traceback
+from urllib.parse import quote_plus
 
 from django.conf import settings
 from django.db.transaction import atomic
@@ -8,6 +10,42 @@ from mibios import __version__ as version
 from mibios.umrad.manager import QuerySet
 from .managers import fkmap_cache_reset
 from .utils import gentle_int, Timestamper
+
+
+class FileQuerySet(QuerySet):
+    def extra_context(self):
+        """
+        Get additional view/template context
+
+        Call in View.get_context_data() as e.g.
+        if hasattr(self.object_list, 'extra_context'):
+            ctx.update(self.object_list.extra_context())
+        """
+        ctx = {}
+        globus_base = settings.GLOBUS_FILE_APP_URL_BASE
+        if globus_base:
+            # the files' directories, split into parts:
+            # FIXME: this does an additional DB query, unecessary but no idea
+            # how to avoid (still an issue?)
+            paths = [i.relpublic.parts[:-1] for i in self if i]
+            if paths:
+                common_parts = []
+                for parts in zip(*paths):
+                    if len(set(parts)) == 1 and len(parts) == len(paths):
+                        # part is present in all paths
+                        common_parts.append(parts[0])
+                    else:
+                        break
+
+                common_path = Path(*common_parts)
+
+                globus_url = globus_base + quote_plus(str(common_path))
+                item = {
+                    'label': 'Globus File Manager',
+                    'url': globus_url,
+                }
+                ctx['extra_navigation'] = [item]
+        return ctx
 
 
 class SampleQuerySet(QuerySet):

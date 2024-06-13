@@ -574,8 +574,9 @@ class ModelTableMixin(ExportMixin):
         # add export opts before ExportMixin makes context data:
         for i in self.EXTRA_EXPORT_OPTIONS.get(self.model, []):
             self.add_export_option(i)
+        if hasattr(self.object_list, 'extra_context'):
+            ctx.update(self.object_list.extra_context())
         ctx = super().get_context_data(**ctx)
-        ctx['extra_navigation'] = self.get_table().get_extra_navigation()
         ctx['model_name'] = self.model._meta.model_name
         return ctx
 

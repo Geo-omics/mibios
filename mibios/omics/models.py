@@ -23,7 +23,7 @@ from mibios.umrad.utils import ProgressPrinter
 from . import managers, get_sample_model, sra
 from .amplicon import get_target_genes, quick_analysis, quick_annotation
 from .fields import DataPathField
-from .queryset import SampleQuerySet
+from .queryset import FileQuerySet, SampleQuerySet
 from .utils import get_fasta_sequence
 
 
@@ -965,7 +965,7 @@ class File(Model):
     modtime = models.DateTimeField(verbose_name='modification time')
     sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
 
-    objects = managers.FileManager()
+    objects = managers.FileManager.from_queryset(FileQuerySet)()
 
     class Meta:
         constraints = [
