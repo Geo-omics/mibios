@@ -1234,6 +1234,8 @@ class RecordView(BaseMixin, DetailView):
                     continue
                 if i.name == 'id' or i.name in self.exclude:
                     continue
+                if i.name in self.model.get_internal_fields():
+                    continue
                 others.append(i)
             fields = fields[:others_pos] + others + fields[others_pos + 1:]
         return fields

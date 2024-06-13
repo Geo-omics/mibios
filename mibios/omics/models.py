@@ -177,16 +177,20 @@ class AbstractSample(Model):
     def __str__(self):
         return self.sample_id
 
+    default_internal_fields = ['id', 'analysis_dir', 'sample_id',
+                               'metag_pipeline_reg']
+    """ see also the overriding get_internal_fields() """
+
     @classmethod
     def get_internal_fields(cls):
         """
         Return list of fields with non-public usage
         """
-        fields = ['id', 'analysis_dir', 'sample_id', 'metag_pipeline_reg']
-        for i in cls._meta.get_fields():
-            if i.name.endswith(('_ok', '_loaded')):
-                fields.append(i.name)
-        return fields
+        return cls.default_internal_fields + [
+            i.name
+            for i in cls._meta.get_fields()
+            if i.name.endswith(('_ok', '_loaded'))
+        ]
 
     def get_samp_no(self):
         """ Get sample_id number: "samp_NNN" -> NNN """
@@ -435,13 +439,7 @@ class AbstractDataset(Model):
 
     _orphan_group_obj = None
     orphan_group_description = 'ungrouped samples'
-
-    @classmethod
-    def get_internal_fields(cls):
-        """
-        Return list of fields with non-public usage
-        """
-        return ['id', 'dataset_id', 'short_name']
+    default_internal_fields = ['id', 'dataset_id', 'short_name']
 
     def get_set_no(self):
         """ Get dataset number from dataset_id """

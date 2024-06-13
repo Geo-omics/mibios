@@ -306,6 +306,13 @@ class Model(MibiosModel):
     automatic detection in get_accession_fields() fails for whatever reason.
     """
 
+    default_internal_fields = []
+    """
+    Names of fields that are of technical or internal nature and should not be
+    visible on a webpage.  This is similar but distinct from the hidden
+    attribute of fields.
+    """
+
     URL_TEMPLATES = {}
     """
     Map of field name to URL template to support get_attr_urls()
@@ -536,6 +543,16 @@ class Model(MibiosModel):
             return list(zip(vals, urls))
         else:
             return [(value, None)]
+
+    @classmethod
+    def get_internal_fields(cls):
+        """
+        Return names of fields that are not for public display
+
+        Normally it is sufficient to set the default_internal_fields attribute.
+        For special needs override this method.
+        """
+        return cls.default_internal_fields
 
 
 class VocabularyModel(Model):
