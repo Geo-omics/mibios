@@ -426,7 +426,7 @@ class FilterMixin:
         except LookupError:
             # GET qstr does not match filter signature
             try:
-                fclass = filter_registry.primary[self.model]
+                fclass = filter_registry.by_model[self.model]
             except KeyError:
                 fclass = None
         else:

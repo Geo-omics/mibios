@@ -193,6 +193,10 @@ class FilterSet(OrigFilterSet):
     """ primary filters go into the primary filter section on the advanced
     search page """
 
+    is_default = False
+    """ if there are multiple filters for a model, then set this to True for
+    the default go-to filter for this model """
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.applied_filters = []
@@ -382,15 +386,18 @@ class FilterRegistry:
             and x.__module__ == __name__
             and issubclass(x, FilterSet)
         )
-        data = {}
         self.primary = {}
         by_keys = {}
+        by_model = {}
         for name, cls in filters:
             if name == 'FilterSet':
                 continue
             model = cls._meta.model
-            if model not in data:
-                data[model] = {}
+            if model in by_model and by_model[model].is_default:
+                # if no model is default, then the last one wins
+                pass
+            else:
+                by_model[model] = cls
 
             if cls.is_primary:
                 if model in self.primary:
@@ -404,6 +411,7 @@ class FilterRegistry:
                 raise RuntimeError(f'{cls}: duplicate keys/field filters')
             by_keys[keys] = cls
 
+        self.by_model = by_model
         # order by longest key first
         self.by_keys = dict(sorted(by_keys.items(), key=lambda x: -len(x[0])))
 
