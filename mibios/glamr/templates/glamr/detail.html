@@ -47,7 +47,7 @@
                     {% empty %}
                             -
                 {% endfor %}
-                {% if qs|length == view.max_to_many %}[...]<br><a href="{% url 'relations' model=object_model_name pk=object.pk field=field.name %}">[view all]</a>{% endif %}
+                {% if qs|length == view.max_to_many %}[...]<br><a href="{% url 'relations' obj_model=object_model_name pk=object.pk field=field.name %}">[view all]</a>{% endif %}
             </div>
         </div>
 </div>

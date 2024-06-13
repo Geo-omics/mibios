@@ -1307,7 +1307,7 @@ class RecordView(BaseMixin, DetailView):
                 items = [(value, tables.get_record_url(value))]
             elif f.one_to_many or f.many_to_many:
                 url_kw = {
-                    'model': self.object._meta.model_name,
+                    'obj_model': self.object._meta.model_name,
                     'pk': self.object.pk,
                     'field': f.name,
                 }
@@ -1900,9 +1900,9 @@ class ToManyListView(ModelTableMixin, BaseMixin, SingleTableView):
     template_name = 'glamr/relations_list.html'
 
     def setup(self, request, *args, **kwargs):
-        super().setup(request, *args, **kwargs)
+        obj_model = kwargs['obj_model']
         try:
-            self.obj_model = get_registry().models[kwargs['model']]
+            self.obj_model = get_registry().models[obj_model]
         except KeyError as e:
             raise Http404(f'no such model: {e}') from e
 
@@ -1928,6 +1928,10 @@ class ToManyListView(ModelTableMixin, BaseMixin, SingleTableView):
             self.accessor_name = field.get_accessor_name()
         except AttributeError:
             self.accessor_name = field.name
+
+        # add model for ModelTableMixin.setup()
+        kwargs['model'] = self.model._meta.model_name
+        super().setup(request, *args, **kwargs)
 
     def get_queryset(self):
         return getattr(self.object, self.accessor_name).all()
@@ -1984,13 +1988,11 @@ class AdvFilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
     """
     template_name = 'glamr/filter_list.html'
 
-    def setup(self, request, *args, model=None, **kwargs):
+    def setup(self, request, *args, **kwargs):
         super().setup(request, *args, **kwargs)
         # support searchable models only for now
-        try:
-            self.model = self.model_class[model]
-        except KeyError as e:
-            raise Http404('model not supported in this view') from e
+        if self.model._meta.model_name not in self.model_class:
+            raise Http404('model not supported in this view')
         self.conf = TableConfig(self.model)
 
     def set_filter(self):
