@@ -1,7 +1,10 @@
 from functools import cache
 import re
 
+from django.apps import apps
+from django.db import connection
 from django.urls import reverse
+
 from mibios import get_registry
 
 
@@ -81,3 +84,18 @@ def verbose_field_name(model, accessor):
     if isinstance(model, str):
         model = get_registry()[model]
     return model.get_field(accessor).verbose_name
+
+
+def estimate_row_totals(model):
+    """
+    get an estimate of the total number of rows in a table
+    """
+    if connection.vendor == 'postgresql':
+        stat_model_name = 'pg_class'
+    elif connection.vendor == 'sqlite':
+        stat_model_name = 'dbstat'
+    else:
+        raise RuntimeError('db vendor not supported')
+
+    stat_model = apps.get_model('glamr', stat_model_name)
+    return int(stat_model.objects.get(name=model._meta.db_table).num_rows)

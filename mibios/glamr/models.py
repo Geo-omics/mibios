@@ -763,6 +763,7 @@ class pg_class(models.Model):
     kind = models.CharField(db_column='relkind', max_length=1,
                             choices=PG_CLASS_RELKINDS)
     num_pages = models.IntegerField(db_column='relpages')
+    # TODO: num_rows is type real in pg
     num_rows = models.IntegerField(db_column='reltuples')
     # there are more columns but we won't need them
 

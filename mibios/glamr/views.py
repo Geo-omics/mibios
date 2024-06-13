@@ -4,7 +4,7 @@ import pprint
 import re
 
 from django_tables2 import (
-    Column, SingleTableView, TemplateColumn, table_factory,
+    Column, LazyPaginator, SingleTableView, TemplateColumn, table_factory,
 )
 
 from django.conf import settings
@@ -45,7 +45,7 @@ from .forms import QBuilderForm, QLeafEditForm, SearchForm
 from .search_fields import ADVANCED_SEARCH_MODELS, search_fields
 from .search_utils import get_suggestions
 from .url_utils import fast_reverse
-from .utils import get_record_url
+from .utils import estimate_row_totals, get_record_url
 
 
 log = getLogger(__name__)
@@ -457,6 +457,15 @@ class FilterMixin:
         return ctx
 
 
+_estimated_row_totals_cache = {}
+
+
+def get_row_totals_estimate(model):
+    if model not in _estimated_row_totals_cache:
+        _estimated_row_totals_cache[model] = estimate_row_totals(model)
+    return _estimated_row_totals_cache[model]
+
+
 class ModelTableMixin(ExportMixin):
     """
     Mixin for SingleTableView
@@ -474,6 +483,8 @@ class ModelTableMixin(ExportMixin):
     None, then the class will be picked from the TABLE_CLASSES dictionary or as
     a last resort the factory will create a class based on the model.
     """
+
+    LAZY_PAGINATION_THRESHOLD = 10000
 
     TABLE_CLASSES = {
         Dataset: tables.DatasetTable,
@@ -500,6 +511,16 @@ class ModelTableMixin(ExportMixin):
                 self.model = get_registry().models[model]
             except KeyError as e:
                 raise Http404(f'no such model: {e}') from e
+
+        try:
+            est = get_row_totals_estimate(self.model)
+        except Exception as e:
+            log.error(f'estimating row totals failed: {e}')
+            self.paginator_class = LazyPaginator
+            raise
+        else:
+            if est > self.LAZY_PAGINATION_THRESHOLD:
+                self.paginator_class = LazyPaginator
 
     def get_table_kwargs(self):
         kw = super().get_table_kwargs()
