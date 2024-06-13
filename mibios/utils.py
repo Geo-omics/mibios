@@ -47,7 +47,17 @@ class QueryLogFilter(logging.Filter):
     The filter should be added to the django.db.backends logger during the app
     initilization in DEBUG mode.
     """
+    # declare which modules are interesting call sites and what to skip
+    GOOD_MODULE_PREFIXES = ['mibios', 'django_tables2']
+    SKIP_THESE = {
+        ('mibios.models', 'count'): 1,
+        # ('django_tables2.data', '__len__'): 2,
+        # ('django_tables2.rows', '__len__'): 2,
+    }
+
     def filter(self, record):
+        call_site_msg = ''
+        skipped = ''
         fr = inspect.currentframe()
         while True:
             # iterate up the call chain, ends when f_back is None
@@ -62,18 +72,31 @@ class QueryLogFilter(logging.Filter):
 
             mname = mod.__name__
 
-            if not mname.startswith('mibios'):
+            for i in self.GOOD_MODULE_PREFIXES:
+                if mname.startswith(i):
+                    break
+            else:
+                # e.g. we're deep in the django framework
                 continue
 
             info = inspect.getframeinfo(fr)
+
+            if skip_id := self.SKIP_THESE.get((mname, info.function), None):
+                skipped += f'+{skip_id}'
+                continue
 
             if mname in ['mibios.ops.utils', 'mibios.utils']:
                 if info.function == '__call__':
                     # skip middleware frames
                     continue
 
-            record.msg += f' via: {mname} ln:{info.lineno} fn:{info.function}'
+            call_site_msg = f' via: {mname}:{info.lineno} {info.function}()'
             break
+
+        if skipped:
+            call_site_msg += ' ' + skipped
+
+        record.msg += call_site_msg
         return True
 
 
