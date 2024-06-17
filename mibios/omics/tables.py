@@ -1,59 +1,41 @@
-from django.utils.functional import cached_property
 from django.utils.html import format_html
 
-from django_tables2 import Table
+from django_tables2 import Column, Table
 
-from . import get_dataset_model, get_sample_model
+from mibios.glamr.utils import get_record_url
+
+from . import get_sample_model
+from .models import SampleTracking
 
 
-class SampleStatusTable(Table):
+class SampleTrackingTable(Table):
+    sample__sample_id = Column(
+        verbose_name='Sample',
+        order_by='sample_id_num',
+    )
 
     class Meta:
         model = get_sample_model()
         fields = [
-            'sample_id',
-            'meta_data_loaded',
-            'metag_pipeline_reg',
-            'contig_fasta_loaded',
-            'contig_abundance_loaded',
-            'contig_lca_loaded',
-            'gene_alignments_loaded',
-            'read_abundance_loaded',
-            'tax_abund_ok',
-            # 'func_abund_ok',
-            # 'comp_abund_ok',
-            # 'binning_ok',
-            # 'checkm_ok',
-            # 'genes_ok',
-            # 'proteins_ok',
-            'analysis_dir',
-            'read_count',
-            'reads_mapped_contigs',
-            'reads_mapped_genes',
+            'sample__sample_id',
+            # 'sample_id_num',
+        ] + [txt for _, txt in SampleTracking.Flag.choices] + [
+            'sample__analysis_dir',
+            'sample__read_count',
+            'sample__reads_mapped_contigs',
+            'sample__reads_mapped_genes',
         ]
-        order_by = 'sample_id'
 
-    def order_sample_id(self, qs, is_descending):
-        if is_descending:
-            sign = '-'
-        else:
-            sign = ''
-        qs = qs.order_by(f'{sign}pk')
-        return (qs, True)
-
-    @cached_property
-    def dataset_is_private(self):
-        return dict(get_dataset_model().loader.values_list('pk', 'private'))
-
-    def render_sample_id(self, record):
-        if self.dataset_is_private[record.dataset_id]:
+    def render_sample__sample_id(self, record):
+        sample = record['sample']
+        if record['private']:
             return format_html(
                 '<span title="dataset private">{}</span>',
-                record.sample_id,
+                sample.sample_id,
             )
         else:
             return format_html(
                 '<a href="{url}">{sample_id}</a>',
-                url=record.get_record_url(record),
-                sample_id=record.sample_id,
+                url=get_record_url(sample),
+                sample_id=sample.sample_id,
             )

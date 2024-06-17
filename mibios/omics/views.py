@@ -1,11 +1,14 @@
+from collections import defaultdict
+from itertools import groupby
+
 from django.conf import settings
 from django.http import Http404, HttpResponse
 
 from django_tables2 import SingleTableView
 
-from . import get_sample_model
-from .models import TaxonAbundance
-from .tables import SampleStatusTable
+from . import get_dataset_model, get_sample_model
+from .models import SampleTracking, TaxonAbundance
+from .tables import SampleTrackingTable
 
 
 class RequiredSettingsMixin:
@@ -56,33 +59,49 @@ def krona(request, samp_no):
     return HttpResponse(html)
 
 
-class SampleStatusView(RequiredSettingsMixin, SingleTableView):
+class SampleTrackingView(RequiredSettingsMixin, SingleTableView):
     required_settings = 'INTERNAL_DEPLOYMENT'
-    template_name = 'omics/sample_status.html'
-    table_class = SampleStatusTable
-    model = get_sample_model()
+    template_name = 'omics/sample_tracking.html'
+    table_class = SampleTrackingTable
     table_pagination = False
 
     def get_queryset(self):
-        return self.model.loader.all()
+        """
+        returns a list of dict
+        """
+        Samples = get_sample_model()
+        Dataset = get_dataset_model()
+        samples = Samples._meta.base_manager.all().in_bulk()
+        self.total_sample_count = len(samples)
+        private = dict(
+            Dataset._meta.base_manager.all().values_list('pk', 'private')
+        )
+        tracks = SampleTracking.objects.order_by('sample__pk')
+        for i in tracks:
+            i.sample = samples[i.sample_id]
+        data = []
+        for sample, grp in groupby(tracks, lambda x: x.sample):
+            row = defaultdict(None)
+            row['sample'] = sample
+            row['sample_id_num'] = int(sample.sample_id.removeprefix('samp_'))
+            row['private'] = private[sample.dataset_id]
+            for i in grp:
+                row[i.get_flag_display()] = True
+            data.append(row)
+        return data
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['total_count'], ctx['summary_data'] = self.get_summary()
+        ctx['total_count'] = self.total_sample_count
+        ctx['summary_data'] = self.get_summary()
         return ctx
 
     def get_summary(self):
-        data = dict()
-        for i in SampleStatusTable._meta.fields:
-            field = self.model._meta.get_field(i)
-            if field.get_internal_type() == 'BooleanField':
-                data[i] = 0
-
-        total = 0
-        for obj in self.get_queryset().only(*data.keys()):
-            total += 1
-            for flag in data.keys():
-                if getattr(obj, flag):
-                    data[flag] += 1
-
-        return total, data
+        data = {
+            human_val: 0
+            for _, human_val in SampleTracking.Flag.choices
+        }
+        for row in self.object_list:
+            for key in data:
+                data[key] += row.get(key, 0)
+        return data

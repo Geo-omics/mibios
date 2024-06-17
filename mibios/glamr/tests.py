@@ -93,7 +93,7 @@ class EmptyDBViewTests(TestCase):
         self.assertEqual(resp.status_code, 404)
 
     def test_internal_pages(self):
-        for view_name in ['dbinfo', 'sample_status']:
+        for view_name in ['dbinfo', 'sample_tracking']:
             with self.settings(INTERNAL_DEPLOYMENT=True):
                 with self.subTest(view_name=view_name, view_enabled=True):
                     resp = self.client.get(reverse(view_name))
