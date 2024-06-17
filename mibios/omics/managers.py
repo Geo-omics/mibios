@@ -1,7 +1,6 @@
 """
 Module for data load managers
 """
-
 from collections import defaultdict
 from datetime import date
 from functools import partial
@@ -16,6 +15,7 @@ import tempfile
 
 from django.conf import settings
 from django.db.transaction import atomic
+from django.utils.functional import cached_property
 from django.utils.module_loading import import_string
 
 from mibios.models import QuerySet
@@ -1215,3 +1215,26 @@ class FileManager(Manager):
                 obj.save()
 
         return removed_count, changed_count, set_new_count
+
+
+class SampleTrackingManager(Manager):
+    @cached_property
+    def step_classes(self):
+        """
+        Make step classes available via flag
+
+        This is a cached property to avoid circular import
+        """
+        steps = import_string('mibios.omics.tracking.registry')
+        classes = {}
+        for name, cls in steps.items():
+            classes[cls.flag] = cls
+        return classes
+
+    def ready_for_sample(self, sample):
+        ready = []
+        for obj in self.all().filter(sample=sample):
+            for i in obj.step.before:
+                if i.is_ready() and i not in ready:
+                    ready.append(i)
+        return ready

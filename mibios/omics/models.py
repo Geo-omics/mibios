@@ -1595,6 +1595,45 @@ class RNACentralRep(Model):
     history = None
 
 
+class SampleTracking(Model):
+    """
+    Track progress loading omics data for a sample
+    """
+    class Flag(models.TextChoices):
+        METADATA = 'MD', 'meta data loaded'  # meta_data_loaded
+        PIPELINE = 'PL', 'omics pipeline registered'  # metag_pipeline_reg
+        ASSEMBLY = 'ASM', 'assembly loaded'  # contig_fasta_loaded
+        UR1ABUND = 'UAB', 'reads/UR100 abundance loaded'  # read_abundance_load
+        TAXABUND = 'TAB', 'taxa abundance loaded'  # was tax_abund_ok
+
+    flag = models.CharField(max_length=3, choices=Flag.choices)
+    sample = models.ForeignKey(
+        settings.OMICS_SAMPLE_MODEL,
+        on_delete=models.CASCADE,
+        related_name='tracking',
+    )
+    timestamp = models.DateTimeField(auto_now=True)
+
+    objects = managers.SampleTrackingManager()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['flag', 'sample'],
+                name='uniq_samptrack_flag',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.sample.sample_id}/{self.flag}'
+
+    # @cached_property
+    @property
+    def step(self):
+        man = type(self).objects
+        return man.step_classes[self.flag].for_sample(self.sample)
+
+
 class Sample(AbstractSample):
     """
     Placeholder model for samples
