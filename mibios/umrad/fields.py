@@ -37,6 +37,20 @@ class PathPrefixValidator:
                     f'expected "{a}"'
                 )
 
+    def deconstruct(self):
+        """
+        Deconstructor to support serialization for migrations
+        """
+        if self.parts is None:
+            prefix = None
+        else:
+            prefix = Path().joinpath(*self.parts)
+        return ('mibios.umrad.fields.PathPrefixValidator', (prefix,), {})
+
+    def __eq__(self, other):
+        # __eq__ is here to support serialization for migrations
+        return self.parts == other.parts
+
 
 class PrefixValidator:
     prefix = ''
