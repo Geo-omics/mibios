@@ -40,3 +40,7 @@ class AppConfig(_AppConfig):
             i for i in Searchable._meta.concrete_fields
             if i.name != 'searchvector'
         ))
+
+        # register sample tracking steps her to avoid cyclic import issues
+        step_registry = import_string('mibios.omics.tracking.registry')
+        step_registry.register_from_module('mibios.glamr.steps')

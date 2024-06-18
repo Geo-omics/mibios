@@ -1,10 +1,10 @@
 from enum import Enum
+from importlib import import_module
 import inspect
 import sys
 
 from django.utils.functional import cached_property
 
-from . import get_sample_model
 from .models import File, SampleTracking
 
 
@@ -103,49 +103,42 @@ class Step:
         return Status.DONE in self.status
 
 
-class LoadMetaData(Step):
-    flag = SampleTracking.Flag.METADATA
-
-
-class RegisteredWithPipeline(Step):
-    flag = SampleTracking.Flag.PIPELINE
-    after = [LoadMetaData]
-
-
-class LoadMetaGAssembly(Step):
-    flag = SampleTracking.Flag.ASSEMBLY
-    after = ['RegisteredWithPipeline']
-    sample_types = [get_sample_model().TYPE_METAGENOME]
-    requires_files = [File.Type.METAG_ASM]
-
-
-class LoadUR1Abund(Step):
-    flag = SampleTracking.Flag.UR1ABUND
-    after = ['RegisteredWithPipeline']
-    sample_types = [get_sample_model().TYPE_METAGENOME]
-    requires_files = [File.Type.FUNC_ABUND]
-
-
-class LoadTaxAbund(Step):
-    flag = SampleTracking.Flag.TAXABUND
-    after = ['RegisteredWithPipeline']
-    sample_types = [get_sample_model().TYPE_METAGENOME]
-    requires_files = [File.Type.TAX_ABUND]
-
-
 class Registry:
     def __init__(self):
-        steps = dict(inspect.getmembers(
-            sys.modules[__name__],
+        self.steps = {}
+
+    def register_from_module(self, module):
+        if isinstance(module, str):
+            # fully dotted module name
+            if module not in sys.modules:
+                # not yet imported
+                import_module(module)
+            module_name = module
+        else:
+            # module imported already
+            module_name = module.__name__
+
+        new_steps = dict(inspect.getmembers(
+            sys.modules[module],
             lambda x: inspect.isclass(x)
-            and x.__module__ == __name__
+            and x.__module__ == module_name
             and issubclass(x, Step)
             and x is not Step
         ))
 
+        steps = self.steps
+        for name in new_steps:
+            if name in steps:
+                raise RuntimeError(
+                    f'{module_name}: step {name} already exists'
+                )
+        steps.update(new_steps)
+
         # replace names with classed
         for name, cls in steps.items():
-            cls._steps = {}
+            if cls._steps is None:
+                cls._steps = {}  # separate dict per class
+
             for list_attr in ['after', 'before']:
                 lst = getattr(cls, list_attr)
                 if lst is None:
@@ -174,4 +167,4 @@ class Registry:
         self.steps = steps
 
 
-registry = Registry().steps
+registry = Registry()

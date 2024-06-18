@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib.postgres.search import SearchQuery
 from django.core.exceptions import FieldDoesNotExist
 from django.db import connections, transaction, NotSupportedError
+from django.db.models.signals import post_save
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 from django.utils.html import escape as escape_html
@@ -20,6 +21,7 @@ from mibios.umrad.manager import (
 )
 from mibios.umrad.model_utils import delete_all_objects_quickly
 from mibios.umrad.utils import CSV_Spec, atomic_dry, SpecError
+from mibios.omics.models import SampleTracking
 
 from .search_fields import search_fields
 
@@ -411,7 +413,22 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
     @atomic_dry
     def load_meta(self, **kwargs):
         """ samples meta data """
-        return self.load(**kwargs)
+        self._saved_samples = []
+        post_save.connect(self.on_save, sender=self.model)
+        self.load(**kwargs)
+        flag = SampleTracking.Flag.METADATA
+        for i in self._saved_samples:
+            tr, new = SampleTracking.objects.get_or_create(sample=i, flag=flag)
+            if not new:
+                tr.save()  # update timestamp
+
+    def on_save(self, instance=None, **kwargs):
+        """
+        callback for sample post_save
+
+        Remember samples for tracking
+        """
+        self._saved_samples.append(instance)
 
 
 class SearchableManager(Loader):

@@ -1225,9 +1225,9 @@ class SampleTrackingManager(Manager):
 
         This is a cached property to avoid circular import
         """
-        steps = import_string('mibios.omics.tracking.registry')
+        registry = import_string('mibios.omics.tracking.registry')
         classes = {}
-        for name, cls in steps.items():
+        for name, cls in registry.steps.items():
             classes[cls.flag] = cls
         return classes
 
