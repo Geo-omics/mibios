@@ -123,13 +123,6 @@ class PathField(FilePathField):
     saved or otherwise validated, i.e. clean_fields() will fail but read-only
     access should work fine.
     """
-    def __init__(self, path=None, validators=(), **kwargs):
-        if isinstance(path, str):
-            path = Path(path)
-        validators = list(validators)
-        validators.append(PathPrefixValidator(path))
-        super().__init__(path=path, validators=validators, **kwargs)
-
     def to_python(self, value):
         if value is None:
             return value

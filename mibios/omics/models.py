@@ -12,7 +12,7 @@ from django.db.transaction import atomic
 
 from mibios.data import TableConfig
 from mibios.ncbi_taxonomy.models import TaxNode
-from mibios.umrad.fields import AccessionField, PathField
+from mibios.umrad.fields import AccessionField, PathField, PathPrefixValidator
 from mibios.umrad.model_utils import (
     digits, opt, ch_opt, fk_req, fk_opt, uniq_opt, Model,
 )
@@ -933,6 +933,12 @@ class CheckM(Model):
 class File(Model):
     """ An omics product file, analysis pipeline result """
 
+    def get_path_prefix():
+        return settings.OMICS_DATA_ROOT / 'data' / 'omics'
+
+    def get_public_prefix():
+        return settings.PUBLIC_DATA_ROOT
+
     class Type(models.IntegerChoices):
         METAG_ASM = 1, 'metagenomic assembly, fasta format'
         METAT_ASM = 2, 'metatranscriptome assembly, fasta format'
@@ -940,13 +946,13 @@ class File(Model):
         TAX_ABUND = 4, 'taxonomic abundance, csv format'
 
     path = PathField(
-        path=settings.OMICS_DATA_ROOT / 'data' / 'omics',
+        path=get_path_prefix,
         max_length=200,
         recursive=True,
         unique=True,
     )
     public = PathField(
-        path=settings.PUBLIC_DATA_ROOT,
+        path=get_public_prefix,
         max_length=200,
         recursive=True,
         blank=True,
@@ -991,39 +997,72 @@ class File(Model):
     def __str__(self):
         return f'{self.path}'
 
+    path_validator = PathPrefixValidator(settings.OMICS_DATA_ROOT / 'data' / 'omics')  # noqa:E501
+    public_validator = PathPrefixValidator(settings.OMICS_DATA_ROOT / 'data' / 'omics')  # noqa:E501
+
     def full_clean(self):
-        # the path field may not be clean at this point, so...
-        path = self.path
-        path_field = self._meta.get_field('path')
-        if not isinstance(path, Path):
-            # may raise ValidationError
-            path = path_field.to_python(path)
+        # Auto set size, modtime.  This needs to happen before running
+        # full_clean() and needs a valid path, so that's validated first (and
+        # then later in super().full_clean() again).  Also prefix-validate
+        # path, public at instance level with validators outside of the field
+        # to avoid leaking settings into migrations.
+        errors = {}
+
+        try:
+            path = self._meta.get_field('path').clean(self.path, self)
+        except ValidationError as e:
+            errors = e.update_error_dict(errors)
+
+        try:
+            self.path_validator(path)
+        except ValidationError as e:
+            errors = e.update_error_dict(errors)
 
         try:
             stat = path.stat()
         except OSError as e:
-            raise ValidationError({'path': f'stat call failed: {e}'}) from e
-
-        size = stat.st_size
-        modtime = datetime.fromtimestamp(stat.st_mtime).astimezone()
-        if self.pk is None:
-            self.size = size
-            self.modtime = modtime
+            ve = ValidationError({'path': f'stat call failed: {e}'})
+            errors = ve.update_error_dict(errors)
         else:
-            errs = {}
-            if self.size != size:
-                errs['size'] = ValidationError(
-                    f'size changed -- expected: {self.size}, actually: {size}'
-                )
+            size = stat.st_size
+            modtime = datetime.fromtimestamp(stat.st_mtime).astimezone()
+            if self.pk is None:
+                self.size = size
+                self.modtime = modtime
+            else:
+                errs = {}
+                if self.size != size:
+                    errs['size'] = (
+                        f'size changed -- expected: {self.size}, actually: '
+                        f'{size}'
+                    )
 
-            if self.modtime != modtime:
-                errs['modtime'] = ValidationError(
-                    f'modtime changed -- expected: {self.modtime}, actually: '
-                    f'{modtime}'
-                )
-            if errs:
-                raise ValidationError(errs)
-        super().full_clean()
+                if self.modtime != modtime:
+                    errs['modtime'] = (
+                        f'modtime changed -- expected: {self.modtime}, '
+                        f'actually: {modtime}'
+                    )
+                if errs:
+                    errors = ValidationError(errs).update_error_dict(errors)
+
+        try:
+            public = self._meta.get_field('public').clean(self.public, self)
+        except ValidationError as e:
+            errors = e.update_error_dict(errors)
+        else:
+            if public:
+                try:
+                    self.public_validator(public)
+                except ValidationError as e:
+                    errors = e.update_error_dict(errors)
+
+        try:
+            super().full_clean()
+        except ValidationError as e:
+            errors = e.update_error_dict(errors)
+
+        if errors:
+            raise ValidationError(errors)
 
     @property
     def root(self):
