@@ -1612,7 +1612,9 @@ class SampleTracking(Model):
         on_delete=models.CASCADE,
         related_name='tracking',
     )
-    timestamp = models.DateTimeField(auto_now=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    info = models.JSONField(blank=True, default=dict)
 
     objects = managers.SampleTrackingManager()
 
