@@ -259,7 +259,7 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
             Reference.loader.load()
             Dataset.loader.load()
             self.load_meta()
-            self.update_analysis_status(quiet=True, skip_on_error=True)
+            self.update_from_pipeline_registry(quiet=True, skip_on_error=True)
             if dry_run:
                 transaction.set_rollback(True)
 

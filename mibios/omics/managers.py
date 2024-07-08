@@ -658,11 +658,14 @@ class SampleLoader(MetaDataLoader):
             return most_recent_file
 
     @atomic_dry
-    def update_analysis_status(self, source_file=None, skip_on_error=False,
-                               quiet=False):
+    def update_from_pipeline_registry(
+        self, source_file=None, skip_on_error=False, quiet=False
+    ):
         """
-        Update sample table with analysis status
+        Update sample table with pipeline import status
         """
+        SampleTracking = import_string('mibios.omics.models.SampleTracking')
+
         # Input file columns of interest:
         SAMPLE_ID = 0
         STUDY_ID = 1
@@ -796,6 +799,13 @@ class SampleLoader(MetaDataLoader):
                     changed += 1
 
                 good_seen.append(obj.pk)
+
+                tr, new = SampleTracking.objects.get_or_create(
+                    sample=obj,
+                    flag=SampleTracking.Flag.PIPELINE,
+                )
+                if not new:
+                    tr.save()  # update timestamp
 
         log('Summary:')
         log(f'  records read from file: {lineno}')
