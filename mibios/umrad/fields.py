@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from django.core.exceptions import ValidationError
-from django.db.models import Field, FilePathField, CharField
+from django.db.models import Field, CharField
 
 
 def path_exists_validator(value):
@@ -115,32 +115,78 @@ class AccessionField(CharField):
         return value
 
 
-class PathField(FilePathField):
+class PathField(Field):
     """
     Like FilePathField but value is of type pathlib.Path if not None
 
-    The common prefix path may be None.  In this case the field may not be
-    saved or otherwise validated, i.e. clean_fields() will fail but read-only
-    access should work fine.
+    This field stores path values relative to a common root.  The root may be
+    None to support certain scenarios where such root is not configured.  Only
+    the relative path below the common root is stored on the database and the
+    values reconstituted when passed back to the django app.
     """
-    def to_python(self, value):
-        if value is None:
-            return value
-        elif isinstance(value, Path):
-            return value
+    def __init__(self, root=None, **kwargs):
+        self._root_kwarg = root
+        if root is None:
+            self.root = None
+        elif callable(root):
+            self.root = root()
         else:
-            try:
-                # NOTE: empty str become CWD here
-                return Path(value)
-            except Exception as e:
-                # e.g. TypeError, expecting str, bytes or PathLike
-                raise ValidationError(str(e)) from e
+            self.root = Path(root)
+        kwargs.setdefault('max_length', 200)
+        super().__init__(**kwargs)
+
+    def deconstruct(self):
+        name, path, args, kwargs = super().deconstruct()
+        if isinstance(self._root_kwarg, Path):
+            # TODO: or can this be left as Path?
+            kwargs['root'] = str(self.root)
+        else:
+            kwargs['root'] = self.root
+        return name, path, args, kwargs
+
+    def get_internal_type(self):
+        return 'FilePathField'
+
+    def _put_under_root(self, value):
+        try:
+            # empty str becomes ./ here
+            value = Path(value)
+        except Exception as e:
+            raise ValidationError(str(e)) from e
+
+        if self.root is None:
+            return value
+
+        if value.is_relative_to(self.root):
+            return value
+
+        if value.is_absolute():
+            raise ValidationError('absolute path must be relative to root')
+
+        return self.root / value
 
     def from_db_value(self, value, expression, connection):
         if value is None:
             return None
         else:
-            return Path(value)
+            return self._put_under_root(value)
+
+    def to_python(self, value):
+        if value is None:
+            return None
+        else:
+            return self._put_under_root(value)
+
+    def get_prep_value(self, value):
+        if value is None:
+            return value
+        elif self.root is None:
+            return str(value)
+        else:
+            return str(value.relative_to(self.root))
+
+    def value_to_string(self, obj):
+        return self.get_prep_value(self.value_from_object(obj))
 
 
 class OldPathField(Field):

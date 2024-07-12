@@ -5,6 +5,7 @@ from urllib.parse import quote_plus
 
 from django.conf import settings
 from django.db.transaction import atomic
+from django.utils.module_loading import import_string
 
 from mibios import __version__ as version
 from mibios.umrad.manager import QuerySet
@@ -209,10 +210,11 @@ class SampleQuerySet(QuerySet):
         if not outname:
             outname = 'ur100.accessions.txt'
 
-        FILE_PATS = [
-            # filename pattern, 1-based ur100 column number
-            ('{sample_id}_tophit_report', 1),
-            ('{sample_id}_contig_tophit_report', 1),
+        File = import_string('mibios.omics.models.File')
+        FILETYPES = [
+            # filetype, 1-based ur100 column number
+            (File.Type.FUNC_ABUND, 1),
+            # ('{sample_id}_contig_tophit_report', 1),
         ]
 
         PREFIXES = ['UNIREF100_', 'UniRef100_']
@@ -221,16 +223,19 @@ class SampleQuerySet(QuerySet):
         old_total = 0
         file_count = 0
         for sample in self:
-            base = sample.get_metagenome_path()
             found_a_file = False
-            for pat, col in FILE_PATS:
-                path = base / pat.format(sample_id=sample.sample_id)
-                if not path.exists():
+            for ftype, col in FILETYPES:
+                try:
+                    file = sample.get_omics_file(ftype)
+                except Exception:
+                    # e.g. sample w/o analysis_dir
+                    continue
+                if not file.path.exists():
                     continue
 
                 file_count += 1
                 found_a_file = True
-                with open(path) as ifile:
+                with open(file) as ifile:
                     os.posix_fadvise(
                         ifile.fileno(), 0, 0, os.POSIX_FADV_SEQUENTIAL
                     )
@@ -249,7 +254,7 @@ class SampleQuerySet(QuerySet):
                     cur_total = len(accns)
                     print(
                         f'{cur_total:>10} {sample.sample_id:>9}:'
-                        f'{path.name:<33}\t'
+                        f'{file.path.name:<33}\t'
                         f'{linenum:>7} new:{cur_total - old_total:>8}'
                     )
                     old_total = cur_total

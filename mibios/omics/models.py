@@ -238,33 +238,13 @@ class AbstractSample(Model):
                 raise RuntimeError('too new')
         return path
 
-    OMICS_PATH_PART = {
-        TYPE_AMPLICON: 'amplicons',
-        TYPE_METAGENOME: 'metagenomes',
-        TYPE_METATRANS: 'metatranscriptomes',
-        TYPE_ISOLATE: 'genomes',
-    }
-
-    def get_omics_path(self, check_save=False):
+    def get_omics_file(self, filetype):
         """
-        Get path to data analysis / pipeline results
-        """
-        path = (settings.OMICS_DATA_ROOT / 'data' / 'omics'
-                / self.OMICS_PATH_PART[self.sample_type] / self.sample_id)
-        if check_save:
-            now = time()
-            for i in path.iterdir():
-                if now - i.stat().st_mtime < 86400:
-                    # interpret as "sample is still being processed by
-                    # pipeline" FIXME TODO this is not a proper design
-                    raise RuntimeError('too new')
-        return path
+        Convenience method to get an omics file instance
 
-    def get_file_path(self, filetype):
-        tail = File.PATH_TAILS[filetype]
-        if isinstance(tail, str):
-            tail = tail.format(sample=self)
-        return self.get_omics_path() / tail
+        filetype: File.Type enum object or its name
+        """
+        return File.objects.get_instance(self, filetype)
 
     def get_fq_paths(self):
         base = settings.OMICS_DATA_ROOT / 'READS'
@@ -941,20 +921,19 @@ class File(Model):
 
     class Type(models.IntegerChoices):
         METAG_ASM = 1, 'metagenomic assembly, fasta format'
+        """ e.g. samp_14/assembly/megahit_noNORM/final.contigs.renamed.fa """
         METAT_ASM = 2, 'metatranscriptome assembly, fasta format'
+        """ TODO """
         FUNC_ABUND = 3, 'functional abundance, csv format'
+        """ e.g. samp_14/samp_14_tophit_report """
         TAX_ABUND = 4, 'taxonomic abundance, csv format'
 
     path = PathField(
-        path=get_path_prefix,
-        max_length=200,
-        recursive=True,
+        root=get_path_prefix,
         unique=True,
     )
     public = PathField(
-        path=get_public_prefix,
-        max_length=200,
-        recursive=True,
+        root=get_public_prefix,
         blank=True,
         # null corresponds to file not published
         null=True,
@@ -992,13 +971,28 @@ class File(Model):
         Type.TAX_ABUND: '{sample.sample_id}_lca_abund_summarized.tsv',
         Type.FUNC_ABUND: '{sample.sample_id}_tophit_report',
     }
-    """ where, relative to a sample's data dir is the file """
+    """ file location, relative to a sample's data dir """
 
     def __str__(self):
         return f'{self.path}'
 
+    def __fspath__(self):
+        """ implement os.PathLike """
+        return str(self.path)
+
+    _stat = None
+    """ attribute holding cached stat_result, cf. File.stat() """
+
+    def stat(self, from_cache=True):
+        """
+        Get stat for file under path and cache the result
+        """
+        if not from_cache or self._stat is None:
+            self._stat = self.path.stat()
+        return self._stat
+
     path_validator = PathPrefixValidator(settings.OMICS_DATA_ROOT / 'data' / 'omics')  # noqa:E501
-    public_validator = PathPrefixValidator(settings.OMICS_DATA_ROOT / 'data' / 'omics')  # noqa:E501
+    public_validator = PathPrefixValidator(settings.PUBLIC_DATA_ROOT)  # noqa:E501
 
     def full_clean(self):
         # Auto set size, modtime.  This needs to happen before running
@@ -1012,38 +1006,44 @@ class File(Model):
             path = self._meta.get_field('path').clean(self.path, self)
         except ValidationError as e:
             errors = e.update_error_dict(errors)
-
-        try:
-            self.path_validator(path)
-        except ValidationError as e:
-            errors = e.update_error_dict(errors)
-
-        try:
-            stat = path.stat()
-        except OSError as e:
-            ve = ValidationError({'path': f'stat call failed: {e}'})
-            errors = ve.update_error_dict(errors)
         else:
-            size = stat.st_size
-            modtime = datetime.fromtimestamp(stat.st_mtime).astimezone()
-            if self.pk is None:
-                self.size = size
-                self.modtime = modtime
-            else:
-                errs = {}
-                if self.size != size:
-                    errs['size'] = (
-                        f'size changed -- expected: {self.size}, actually: '
-                        f'{size}'
-                    )
+            # tests that only make sense if path is valid:
+            try:
+                self.path_validator(path)
+            except ValidationError as e:
+                errors = e.update_error_dict(errors)
 
-                if self.modtime != modtime:
-                    errs['modtime'] = (
-                        f'modtime changed -- expected: {self.modtime}, '
-                        f'actually: {modtime}'
-                    )
-                if errs:
-                    errors = ValidationError(errs).update_error_dict(errors)
+            # Usually self._stat is not populated yet, or we want to re-check a
+            # file pulled from the DB, so run stat() here on the cleaned path
+            # (as self.path may be relative, etc.)
+            try:
+                self._stat = path.stat()
+            except OSError as e:
+                ve = ValidationError({'path': f'stat call failed: {e}'})
+                errors = ve.update_error_dict(errors)
+            else:
+                size = self.stat().st_size
+                modtime = datetime.fromtimestamp(self.stat().st_mtime) \
+                                  .astimezone()
+                if self.pk is None:
+                    self.size = size
+                    self.modtime = modtime
+                else:
+                    errs = {}
+                    if self.size != size:
+                        errs['size'] = (
+                            f'size changed -- expected: {self.size}, actually:'
+                            f' {size}'
+                        )
+
+                    if self.modtime != modtime:
+                        errs['modtime'] = (
+                            f'modtime changed -- expected: {self.modtime}, '
+                            f'actually: {modtime}'
+                        )
+                    if errs:
+                        ve = ValidationError(errs)
+                        errors = ve.update_error_dict(errors)
 
         try:
             public = self._meta.get_field('public').clean(self.public, self)
@@ -1066,16 +1066,16 @@ class File(Model):
 
     @property
     def root(self):
-        return self._meta.get_field('path').path
+        return self._meta.get_field('path').root
 
     @property
     def public_root(self):
-        return self._meta.get_field('public').path
+        return self._meta.get_field('public').root
 
     @property
     def relpath(self):
         """ The path relative to the common path prefix """
-        return self.path.relative_to(self._meta.get_field('path').path)
+        return self.path.relative_to(self.root)
 
     @property
     def relpublic(self):
@@ -1087,10 +1087,9 @@ class File(Model):
         Returns None if no public path is set or if the common prefix is not
         configured.
         """
-        root = self._meta.get_field('public').path
-        if root is None or self.public is None:
+        if self.public_root is None or self.public is None:
             return None
-        return self.public.relative_to(root)
+        return self.public.relative_to(self.public_root)
 
     def compute_public_path(self):
         """
@@ -1158,7 +1157,7 @@ class File(Model):
         """ helper to hardlink public file against internal """
         public = self.public
         target = self.path
-        if 'public' not in public.parts:
+        if 'public' not in public.parts and 'public-test' not in public.parts:
             # some safety guard
             raise RuntimeError('unsave operation suspected')
 

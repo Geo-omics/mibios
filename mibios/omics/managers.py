@@ -2,7 +2,7 @@
 Module for data load managers
 """
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime
 from functools import partial
 from itertools import groupby, islice
 from logging import getLogger
@@ -190,6 +190,7 @@ class CompoundAbundanceLoader(BulkLoader, SampleLoadMixin):
 
     def get_file(self, sample):
         return resolve_glob(
+            # FIXME: use get_omics_file() API
             sample.get_metagenome_path() / 'annotation',
             f'{sample.sample_id}_compounds_*.txt'
         )
@@ -342,8 +343,7 @@ class ContigLoader(TaxNodeMixin, SequenceLikeLoader):
     fasta_load_flag = 'contig_fasta_loaded'
 
     def get_fasta_path(self, sample):
-        return sample.get_metagenome_path() / 'assembly' \
-            / 'megahit_noNORM' / 'final.contigs.renamed.fa'
+        return sample.get_omics_file('METAG_ASM')
 
     def get_contig_abund_path(self, sample):
         """ get path to samp_NNN_contig_abund.tsv file """
@@ -628,8 +628,8 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
     )
 
     def get_file(self, sample):
-        return sample.get_metagenome_path() \
-            / f'{sample.sample_id}_tophit_report'
+        """ get the *_tophit_report file """
+        return sample.get_omics_file('FUNC_ABUND')
 
     @atomic_dry
     def load_sample(self, sample, *args, **kwargs):
@@ -939,8 +939,7 @@ class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
 
     def get_file(self, sample):
         """ Get path to lca_abund_summarized file """
-        return sample.get_metagenome_path() \
-            / f'{sample.sample_id}_lca_abund_summarized.tsv'
+        return sample.get_omics_file('TAX_ABUND')
 
     @atomic_dry
     def load_sample(self, sample, **kwargs):
@@ -1149,14 +1148,55 @@ class TaxonAbundanceManager(Manager):
 
 
 class FileManager(Manager):
+    def get_instance(self, sample, filetype, only_new=False):
+        """
+        Get object, if possible from the DB, but don't save a new object.
+        """
+        if isinstance(filetype, str):
+            filetype = self.model.Type[filetype]
+
+        try:
+            obj = self.all().get(sample=sample, filetype=filetype)
+        except self.model.DoesNotExist as e:
+            if filetype not in self.model.PATH_TAILS:
+                raise ValueError(
+                    f'File type:{filetype} is not supported by this method (I '
+                    f'don\'t know how to compute the path to the file.'
+                )
+
+            tail = self.model.PATH_TAILS[filetype]
+            if isinstance(tail, str):
+                tail = tail.format(sample=sample)
+
+            if not sample.analysis_dir:
+                raise RuntimeError(
+                    f'can\'t create instance: sample.analysis_dir is blank '
+                    f'for {sample}'
+                ) from e
+
+            obj = self.model(
+                path=settings.OMICS_DATA_ROOT / sample.analysis_dir / tail,
+                public=None,
+                filetype=filetype,
+                sample=sample,
+            )
+        else:
+            if only_new:
+                raise RuntimeError(f'File object already exists: {obj}')
+        return obj
+
     @atomic_dry
     def full_update(self):
         Sample = self.model._meta.get_field('sample').related_model
+
+        good_files = self.get_pipeline_output_files()
+        print(f'Per pipeline there are {len(good_files)} good files.')
 
         existing_objs = {
             (i.sample.sample_id, i.filetype): i
             for i in self.all().select_related('sample')
         }
+        print(f'Already have {len(existing_objs)} files in DB')
 
         expected = []
         print('Scanning samples...', end='', flush=True)
@@ -1169,24 +1209,41 @@ class FileManager(Manager):
                 if i.tax_abund_ok:
                     expected.append((i, self.model.Type.TAX_ABUND))
         print('[OK]')
-        print(f'Will be tracking {len(expected)} files...')
+        print(f'Expecting about {len(expected)} files per sample status...')
 
-        count_all = 0
         count_new = 0
         for sample, filetype in expected:
             if obj := existing_objs.get((sample.sample_id, filetype), None):
-                obj.full_clean()
+                pass
             else:
-                obj = self.model(
-                    path=sample.get_file_path(filetype),
-                    public=None,
-                    filetype=filetype,
-                    sample=sample,
-                )
-                count_new += 1
-                obj.full_clean()
+                obj = self.get_instance(sample, filetype, only_new=True)
+                is_new = True
+
+            obj.full_clean()
+
+            try:
+                good_mtime = good_files[obj.relpath]
+            except KeyError:
+                breakpoint()
+                print(f'not listed "good": {obj} ', end='')
+                if is_new:
+                    print(' [not saved]')
+                else:
+                    print(' [but keeping it?!]')
+                continue
+
+            if good_mtime != obj.modtime:
+                print(f'not "good": {obj} has mtime {obj.modtime} but '
+                      f'expected {good_mtime}', end='')
+                if is_new:
+                    print(' [not saved]')
+                else:
+                    print(' [but keeping it?!]')
+                continue
+
+            if is_new:
                 obj.save()
-            count_all += 1
+                count_new += 1
         print(f'...of those {count_new} are new')
 
         print('Updating public filesystem paths...')

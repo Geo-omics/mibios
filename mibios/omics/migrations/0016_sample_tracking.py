@@ -71,35 +71,10 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.OMICS_SAMPLE_MODEL),
-        ('omics', '0015_auto_20240524_1105'),
+        ('omics', '0014_alter_sample_dataset'),
     ]
 
     operations = [
-        migrations.AlterField(
-            model_name='file',
-            name='filetype',
-            field=models.PositiveSmallIntegerField(choices=[(1, 'metagenomic assembly, fasta format'), (2, 'metatranscriptome assembly, fasta format'), (3, 'functional abundance, csv format'), (4, 'taxonomic abundance, csv format'), (5, 'functional abundance (TPM) [csv]')], verbose_name='file type'),
-        ),
-        migrations.AlterField(
-            model_name='file',
-            name='md5sum',
-            field=models.CharField(blank=True, max_length=32, verbose_name='MD5 sum'),
-        ),
-        migrations.AlterField(
-            model_name='file',
-            name='modtime',
-            field=models.DateTimeField(verbose_name='modification time'),
-        ),
-        migrations.AlterField(
-            model_name='file',
-            name='path',
-            field=mibios.umrad.fields.PathField(max_length=200, path=mibios.omics.models.File.get_path_prefix, recursive=True, unique=True),
-        ),
-        migrations.AlterField(
-            model_name='file',
-            name='public',
-            field=mibios.umrad.fields.PathField(blank=True, max_length=200, null=True, path=mibios.omics.models.File.get_public_prefix, recursive=True),
-        ),
         migrations.AlterField(
             model_name='sample',
             name='contig_fasta_loaded',
