@@ -12,5 +12,5 @@ class AppConfig(_AppConfig):
 
     def ready(self):
 
-        step_reg = import_string('mibios.omics.tracking.registry')
-        step_reg.register_from_module('mibios.omics.steps')
+        job_reg = import_string('mibios.omics.tracking.registry')
+        job_reg.register_from_module('mibios.omics.jobs')

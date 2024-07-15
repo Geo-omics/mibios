@@ -1286,22 +1286,22 @@ class FileManager(Manager):
 
 class SampleTrackingManager(Manager):
     @cached_property
-    def step_classes(self):
+    def job_classes(self):
         """
-        Make step classes available via flag
+        Make job classes available via flag
 
         This is a cached property to avoid circular import
         """
         registry = import_string('mibios.omics.tracking.registry')
         classes = {}
-        for name, cls in registry.steps.items():
+        for name, cls in registry.jobs.items():
             classes[cls.flag] = cls
         return classes
 
     def ready_for_sample(self, sample):
         ready = []
         for obj in self.all().filter(sample=sample):
-            for i in obj.step.before:
+            for i in obj.job.before:
                 if i.is_ready() and i not in ready:
                     ready.append(i)
         return ready

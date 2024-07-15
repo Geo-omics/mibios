@@ -11,7 +11,7 @@ from .models import File, SampleTracking
 Status = Enum('Status', ['READY', 'DONE', 'WAITING', 'MISSING'])
 
 
-class Step:
+class Job:
     enabled = True
     flag = None
     after = None
@@ -30,33 +30,33 @@ class Step:
             )
         self.sample = sample
 
-    _steps = None
+    _jobs = None
     """ object holder for for_sample(); to be initialized to {} in registry """
 
     @classmethod
     def for_sample(cls, sample):
         """
-        Get the step instance for given sample
+        Get the job instance for given sample
 
-        Use this in place of the regular constructor to ensure that steps are
+        Use this in place of the regular constructor to ensure that jobs are
         singleton per sample.
         """
-        if sample not in cls._steps:
+        if sample not in cls._jobs:
             obj = cls(sample)
             # store obj now to avoid infinite recursion trying to instatiate
-            # before and after steps.
-            cls._steps[sample] = obj
-            # FIXME: step declarations should eventually have some
-            # conditionals, e.g. do next step only for some sampletype
+            # before and after jobs.
+            cls._jobs[sample] = obj
+            # FIXME: job declarations should eventually have some
+            # conditionals, e.g. do next job only for some sampletype
             obj.after = [i.for_sample(sample) for i in obj.after
                          if i.is_compatible(sample)]
             obj.before = [i.for_sample(sample) for i in obj.before
                           if i.is_compatible(sample)]
-        return cls._steps[sample]
+        return cls._jobs[sample]
 
     @classmethod
     def is_compatible(cls, sample):
-        """ tell if step is compatible with sample """
+        """ tell if job is compatible with sample """
         if cls.sample_types:
             return sample.sample_type in cls.sample_types
         else:
@@ -105,7 +105,7 @@ class Step:
 
 class Registry:
     def __init__(self):
-        self.steps = {}
+        self.jobs = {}
 
     def register_from_module(self, module):
         if isinstance(module, str):
@@ -118,26 +118,26 @@ class Registry:
             # module imported already
             module_name = module.__name__
 
-        new_steps = dict(inspect.getmembers(
+        new_jobs = dict(inspect.getmembers(
             sys.modules[module],
             lambda x: inspect.isclass(x)
             and x.__module__ == module_name
-            and issubclass(x, Step)
-            and x is not Step
+            and issubclass(x, Job)
+            and x is not Job
         ))
 
-        steps = self.steps
-        for name in new_steps:
-            if name in steps:
+        jobs = self.jobs
+        for name in new_jobs:
+            if name in jobs:
                 raise RuntimeError(
-                    f'{module_name}: step {name} already exists'
+                    f'{module_name}: job class {name} already exists'
                 )
-        steps.update(new_steps)
+        jobs.update(new_jobs)
 
         # replace names with classed
-        for name, cls in steps.items():
-            if cls._steps is None:
-                cls._steps = {}  # separate dict per class
+        for name, cls in jobs.items():
+            if cls._jobs is None:
+                cls._jobs = {}  # separate dict per class
 
             for list_attr in ['after', 'before']:
                 lst = getattr(cls, list_attr)
@@ -147,16 +147,16 @@ class Registry:
                     setattr(cls, list_attr, lst)
                 for i in range(len(lst)):
                     if isinstance(lst[i], str):
-                        if lst[i] in steps:
-                            lst[i] = steps[lst[i]]
+                        if lst[i] in jobs:
+                            lst[i] = jobs[lst[i]]
                         else:
                             raise ValueError(
-                                f'{cls}.{list_attr}: no Step with name '
+                                f'{cls}.{list_attr}: no Job class with name '
                                 f'{lst[i]}'
                             )
 
         # do before-after symmetric closure
-        for name, cls in steps.items():
+        for name, cls in jobs.items():
             for i in cls.after:
                 if cls not in i.before:
                     i.before.append(cls)
@@ -164,7 +164,7 @@ class Registry:
                 if cls not in i.after:
                     i.after.append(cls)
 
-        self.steps = steps
+        self.jobs = jobs
 
 
 registry = Registry()

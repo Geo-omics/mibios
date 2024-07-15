@@ -41,6 +41,6 @@ class AppConfig(_AppConfig):
             if i.name != 'searchvector'
         ))
 
-        # register sample tracking steps her to avoid cyclic import issues
-        step_registry = import_string('mibios.omics.tracking.registry')
-        step_registry.register_from_module('mibios.glamr.steps')
+        # register sample jobs here to avoid cyclic import issues
+        job_registry = import_string('mibios.omics.tracking.registry')
+        job_registry.register_from_module('mibios.glamr.jobs')

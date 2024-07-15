@@ -1667,11 +1667,13 @@ class SampleTracking(Model):
     def __str__(self):
         return f'{self.sample.sample_id}/{self.flag}'
 
-    # @cached_property
     @property
-    def step(self):
-        man = type(self).objects
-        return man.step_classes[self.flag].for_sample(self.sample)
+    def job(self):
+        jobcls = type(self).objects.job_classes[self.flag]
+        # FIXME: the returned job may come from the job class-level cache and
+        # then may have a different tracking instance. This may just be ugly
+        # but I should re-think the surrounding design .
+        return jobcls.for_sample(self.sample, tracking=self)
 
 
 class Sample(AbstractSample):
