@@ -3,9 +3,10 @@ from importlib import import_module
 import inspect
 import sys
 
+from django.db.transaction import atomic
 from django.utils.functional import cached_property
 
-from .models import File, SampleTracking
+from .models import SampleTracking
 
 
 Status = Enum('Status', ['READY', 'DONE', 'WAITING', 'MISSING'])
@@ -18,8 +19,9 @@ class Job:
     before = None
     sample_types = None
     required_files = None
+    run = None
 
-    def __init__(self, sample):
+    def __init__(self, sample, tracking=None):
         """
         don't use this constructor directly, use for_sample() instead.
         """
@@ -30,11 +32,86 @@ class Job:
             )
         self.sample = sample
 
+        if tracking is None:
+            if hasattr(sample, '_prefetched_objects_cache'):
+                for i in sample._prefetched_objects_cache.get('tracking', []):
+                    if i.flag == self.flag.value:
+                        tracking = i
+                        break
+        else:
+            if self.flag.value != tracking.flag:
+                raise ValueError('flag mismatch')
+        self.tracking = tracking
+
+        self._status = None
+
     _jobs = None
     """ object holder for for_sample(); to be initialized to {} in registry """
 
+    def __str__(self):
+        if self.is_done():
+            status = Status.DONE.name
+        elif self.is_ready():
+            status = Status.READY.name
+        elif Status.WAITING in self.status:
+            status = Status.WAITING.name
+        elif Status.MISSING in self.status:
+            status = Status.MISSING.name
+        else:
+            status = self.status()
+
+        return f'{self.sample.sample_id}/{self.__class__.__name__} [{status}]'
+
+    @atomic
+    def __call__(self):
+        """
+        Run the job
+
+        This Calls the callable stored under the run class attribute with the
+        sample as positional argument and tracks the success in the sample
+        tracking table.
+
+        This will not check certain pre-conditions, e.g. one should call e.g.
+        is_ready() beforehand.
+        """
+        if self.run is None:
+            raise RuntimeError('job can not be run')
+        if not self.enabled:
+            raise RuntimeError('job is disabled')
+
+        kw = {}
+
+        for i in self.files:
+            # may raise ValidationError
+            i.full_clean()
+            i.verify_with_pipeline()
+
+        if len(self.files) == 1:
+            kw['file'] = self.files[0].path
+        elif len(self.files) > 1:
+            # SampleLoadMixin etc only expect (and currently only have need
+            # for one file per job) one file with the file kw args
+            raise RuntimeError('implementation supports only single file')
+
+        retval = type(self).run(self.sample, **kw)
+
+        for i in self.files:
+            # may raise ValidationError
+            # TODO: test that this will actually catch file changes
+            i.full_clean()
+            i.save()
+
+        if self.tracking is None:
+            self.tracking = SampleTracking(
+                flag=self.flag,
+                sample=self.sample,
+            )
+        self.tracking.full_clean()
+        self.tracking.save()
+        return retval
+
     @classmethod
-    def for_sample(cls, sample):
+    def for_sample(cls, sample, tracking=None):
         """
         Get the job instance for given sample
 
@@ -42,7 +119,7 @@ class Job:
         singleton per sample.
         """
         if sample not in cls._jobs:
-            obj = cls(sample)
+            obj = cls(sample, tracking=tracking)
             # store obj now to avoid infinite recursion trying to instatiate
             # before and after jobs.
             cls._jobs[sample] = obj
@@ -63,44 +140,59 @@ class Job:
             return True
 
     @cached_property
-    def status(self):
-        state = {}
-        try:
-            track = SampleTracking.objects.get(
-                flag=self.flag,
-                sample=self.sample,
-            )
-        except SampleTracking.DoesNotExist:
-            pass
-        else:
-            state[Status.DONE] = track
+    def files(self):
+        if self.required_files is None:
+            return []
 
-        waiting = [i for i in self.after if not i.is_done()]
-        if waiting:
-            state[self.WAITING] = waiting
+        return [self.sample.get_omics_file(i) for i in self.required_files]
 
-        if self.required_files:
-            ftypes = (File.objects
-                      .filter(filetype__in=self.required_files,
-                              sample=self.sample)
-                      .values_list('filetype', flat=True))
-            missing = [i for i in self.required_files if i not in ftypes]
-            if missing:
+    def status(self, use_cache=True):
+        """
+        Get extended status info for this job
+
+        Returns a dict mapping Status to further information.  For DONE this is
+        the corresponding tracking records, for MISSING it is the list of
+        missing files, for WAITING the list of jobs that have to go before
+        this one.  For READY the info is None.
+
+        DONE, WAITING, and MISSING can all occur together, but READY occurs
+        only in the absense of the others.
+        """
+        if self._status is None or not use_cache:
+            state = {}
+            if self.tracking is None:
+                # Get the tracking instance, optimize for case of self.sample
+                # being member in queryset called via
+                # prefetch_related('tracking'), so no extra DB query for small
+                # cost of iterating over the samples' tracking instances.
+                # TODO: verify that this is not just duplicating the similar
+                # work (and DB query) in __init__()
+                for i in self.sample.tracking.all():
+                    if i.flag == self.flag.value:
+                        self.tracking = i
+                        break
+
+            if self.tracking:
+                state[Status.DONE] = self.tracking
+
+            waiting = [i for i in self.after if not i.is_done()]
+            if waiting:
+                state[self.WAITING] = waiting
+
+            if missing := [i for i in self.files if not i.path.exists()]:
                 state[Status.MISSING] = missing
 
-        if not state:
-            # we're ready for this step
-            state[Status.READY] = None
-        return state
+            if not state:
+                # we're ready for this job
+                state[Status.READY] = None
+            self._status = state
+        return self._status
 
-    def __str__(self):
-        return f'{self.sample.sample_id}@{self.flag}'
+    def is_ready(self, use_cache=True):
+        return Status.READY in self.status(use_cache=use_cache)
 
-    def is_ready(self):
-        return Status.READY in self.status
-
-    def is_done(self):
-        return Status.DONE in self.status
+    def is_done(self, use_cache=True):
+        return Status.DONE in self.status(use_cache=use_cache)
 
 
 class Registry:
@@ -124,6 +216,7 @@ class Registry:
             and x.__module__ == module_name
             and issubclass(x, Job)
             and x is not Job
+            and x.enabled  # FIXME: maybe disable later
         ))
 
         jobs = self.jobs

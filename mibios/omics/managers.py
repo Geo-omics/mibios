@@ -253,7 +253,7 @@ class SequenceLikeLoader(SampleLoadMixin, BulkLoader):
         return {}
 
     @atomic_dry
-    def load_fasta(self, sample, start=0, limit=None, bulk=True,
+    def load_fasta(self, sample, start=0, limit=None, file=None, bulk=True,
                    validate=False, done_ok=True, redo=False):
         """
         import sequence data for one sample
@@ -274,7 +274,7 @@ class SequenceLikeLoader(SampleLoadMixin, BulkLoader):
                     f'{self.fasta_load_flag} -> {sample}'
                 )
 
-        objs = self.from_fasta(sample, start=start, limit=limit)
+        objs = self.from_fasta(sample, start=start, limit=limit, file=file)
         if validate:
             objs = call_each(objs, 'full_clean')
 
@@ -294,14 +294,16 @@ class SequenceLikeLoader(SampleLoadMixin, BulkLoader):
         """
         self.unload_sample(sample, flag=self.fasta_load_flag)
 
-    def from_fasta(self, sample, start=0, limit=None):
+    def from_fasta(self, sample, file=None, start=0, limit=None):
         """
         Generate instances for given sample
 
         Helper for load_fasta().
         """
+        if file is None:
+            file = self.get_fasta_path(sample)
         extra = self.get_set_from_fa_head_extra_kw(sample)
-        with self.get_fasta_path(sample).open('r') as fa:
+        with open(file, 'r') as fa:
             os.posix_fadvise(fa.fileno(), 0, 0, os.POSIX_FADV_SEQUENTIAL)
             print(f'reading {fa.name} ...')
             obj = None
@@ -344,7 +346,7 @@ class ContigLoader(TaxNodeMixin, SequenceLikeLoader):
     fasta_load_flag = 'contig_fasta_loaded'
 
     def get_fasta_path(self, sample):
-        return sample.get_omics_file('METAG_ASM')
+        return sample.get_omics_file('METAG_ASM').path
 
     def get_contig_abund_path(self, sample):
         """ get path to samp_NNN_contig_abund.tsv file """

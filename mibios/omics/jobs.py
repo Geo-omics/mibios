@@ -1,6 +1,9 @@
 from . import get_sample_model
-from .models import File, SampleTracking
+from .models import Contig, File, ReadAbundance, SampleTracking, TaxonAbundance
 from .tracking import Job
+
+
+Sample = get_sample_model()
 
 
 class RegisterWithPipeline(Job):
@@ -9,20 +12,43 @@ class RegisterWithPipeline(Job):
 
 class LoadMetaGAssembly(Job):
     flag = SampleTracking.Flag.ASSEMBLY
-    after = ['RegisterWithPipeline']
-    sample_types = [get_sample_model().TYPE_METAGENOME]
-    requires_files = [File.Type.METAG_ASM]
+    after = [RegisterWithPipeline]
+    sample_types = [Sample.TYPE_METAGENOME]
+    required_files = [File.Type.METAG_ASM]
+    run = Contig.loader.load_fasta
+
+
+class LoadContigAbund(Job):
+    # FIXME: do we still want this data in the DB?
+    enabled = False
+    flag = ...
+    after = [LoadMetaGAssembly]
+    sample_types = [Sample.TYPE_METAGENOME]
+    required_files = ...  # *_contig_abund.tsv
+    run = Contig.loader.load_abundance
+
+
+class LoadContigLCA(Job):
+    # FIXME: do we still want this data in the DB?
+    enabled = False
+    flag = ...
+    after = [LoadMetaGAssembly]
+    sample_types = [Sample.TYPE_METAGENOME]
+    required_files = ...  # *_contig_lca.tsv
+    run = Contig.loader.load_lca
 
 
 class LoadUR1Abund(Job):
     flag = SampleTracking.Flag.UR1ABUND
-    after = ['RegisterWithPipeline']
-    sample_types = [get_sample_model().TYPE_METAGENOME]
-    requires_files = [File.Type.FUNC_ABUND]
+    after = [RegisterWithPipeline]
+    sample_types = [Sample.TYPE_METAGENOME]
+    required_files = [File.Type.FUNC_ABUND]
+    run = ReadAbundance.loader.load_sample
 
 
 class LoadTaxAbund(Job):
     flag = SampleTracking.Flag.TAXABUND
-    after = ['RegisterWithPipeline']
-    sample_types = [get_sample_model().TYPE_METAGENOME]
-    requires_files = [File.Type.TAX_ABUND]
+    after = [RegisterWithPipeline]
+    sample_types = [Sample.TYPE_METAGENOME]
+    required_files = [File.Type.TAX_ABUND]
+    run = TaxonAbundance.loader.load_sample

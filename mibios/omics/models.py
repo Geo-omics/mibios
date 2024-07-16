@@ -226,7 +226,7 @@ class AbstractSample(Model):
         """
         Get path to data analysis / pipeline results
 
-        DEPRECATED - use get_omics_path()
+        DEPRECATED - use get_omics_file()
         """
         path = settings.OMICS_DATA_ROOT / 'data' / 'omics' / 'metagenomes' \
             / self.sample_id
