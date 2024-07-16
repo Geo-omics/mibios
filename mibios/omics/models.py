@@ -952,6 +952,10 @@ class File(Model):
 
     objects = managers.FileManager.from_queryset(FileQuerySet)()
 
+    pipeline_checkout = None
+    """ class variable, maps relative-to-common-root paths to mtime, usually
+    set via the manager """
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -1207,6 +1211,66 @@ class File(Model):
     @property
     def description(self):
         return f'{self.get_filetype_display()} for {self.sample}'
+
+    @classmethod
+    def make_omics_pipeline_checkout(cls, outpath=None):
+        """
+        Compile and save list of timestamped pipeline output files
+
+        This is a utility for development and testing purpose.
+        """
+        root = cls.get_path_prefix()
+        Sample = cls._meta.get_field('sample').related_model
+        with open(outpath, 'w') as ofile:
+            for i in Sample.loader.exclude(analysis_dir=None):
+                for j in cls.Type:
+                    try:
+                        path = i.get_omics_file(j).path
+                    except ValueError:
+                        if j not in cls.PATH_TAILS:
+                            # type is not in File.PATH_TAILS
+                            continue
+                        else:
+                            raise
+
+                    try:
+                        st = path.stat()
+                    except OSError:
+                        # e.g. file not found
+                        continue
+
+                    relpath = path.relative_to(root)
+                    dt = datetime.fromtimestamp(st.st_mtime).astimezone()
+                    ofile.write(f'{dt}\t{relpath}\n')
+
+    @classmethod
+    def load_pipeline_checkout(cls, path='omics.checkout.txt'):
+        """
+        helper to import the omics pipeline good output files listing
+
+        This sets and populates a dict mapping paths to last modified datetime.
+        """
+        files = {}
+        with open(path) as ifile:
+            for line in ifile:
+                mtime, _, relpath = line.strip().partition('\t')
+                # later entries overwrite earlier
+                files[Path(relpath)] = datetime.fromisoformat(mtime)
+        cls.pipeline_checkout = files
+
+    def verify_with_pipeline(self):
+        """ Verify that modtime matches pipeline checkout time """
+        cls = self.__class__
+        if cls.pipeline_checkout is None:
+            cls.load_pipeline_checkout()
+        mtime = cls.pipeline_checkout.get(self.relpath, None)
+        if mtime is None:
+            raise ValidationError('file not in pipeline checkout')
+        if not self.modtime:
+            raise ValidationError(f'modtime not set: {self}')
+        if self.modtime != mtime:
+            raise ValidationError(f'{self}: modtime {self.modtime} differs '
+                                  f'from pipeline checkout {mtime}')
 
 
 class TaxonAbundance(Model):

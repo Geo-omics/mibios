@@ -2,7 +2,7 @@
 Module for data load managers
 """
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date
 from functools import partial
 from itertools import groupby, islice
 from logging import getLogger
@@ -14,6 +14,7 @@ import sys
 import tempfile
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db.transaction import atomic
 from django.utils.functional import cached_property
 from django.utils.module_loading import import_string
@@ -1189,8 +1190,9 @@ class FileManager(Manager):
     def full_update(self):
         Sample = self.model._meta.get_field('sample').related_model
 
-        good_files = self.get_pipeline_output_files()
-        print(f'Per pipeline there are {len(good_files)} good files.')
+        self.model.load_pipeline_checkout()
+        print(f'Found {len(self.model.pipeline_checkout)} file in pipeline '
+              f'checkout')
 
         existing_objs = {
             (i.sample.sample_id, i.filetype): i
@@ -1222,39 +1224,31 @@ class FileManager(Manager):
             obj.full_clean()
 
             try:
-                good_mtime = good_files[obj.relpath]
-            except KeyError:
+                obj.verify_with_pipeline()
+            except ValidationError as e:
+                print(f'checkout verification failed: {obj}: {e} ', end='')
+                if is_new:
+                    print(' [not saved]')
+                else:
+                    print(' [but iwe\'re keeping it?!]')
                 breakpoint()
-                print(f'not listed "good": {obj} ', end='')
-                if is_new:
-                    print(' [not saved]')
-                else:
-                    print(' [but keeping it?!]')
                 continue
-
-            if good_mtime != obj.modtime:
-                print(f'not "good": {obj} has mtime {obj.modtime} but '
-                      f'expected {good_mtime}', end='')
+            else:
                 if is_new:
-                    print(' [not saved]')
-                else:
-                    print(' [but keeping it?!]')
-                continue
+                    obj.save()
+                    count_new += 1
 
-            if is_new:
-                obj.save()
-                count_new += 1
         print(f'...of those {count_new} are new')
 
         print('Updating public filesystem paths...')
         try:
             rm, changed, new = self.update_public_paths()
         except KeyboardInterrupt:
-            print('\n(aborted)')
-            return
-        print(f'      new: {new}')
-        print(f'  removed: {rm}')
-        print(f'  changed: {changed}')
+            print('\n(aborting changes to public files)')
+        else:
+            print(f'      new: {new}')
+            print(f'  removed: {rm}')
+            print(f'  changed: {changed}')
         print('[All done]')
 
     @atomic_dry
