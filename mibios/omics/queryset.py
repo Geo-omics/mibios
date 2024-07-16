@@ -1,3 +1,4 @@
+from itertools import chain, groupby
 import os
 from pathlib import Path
 import traceback
@@ -50,154 +51,123 @@ class FileQuerySet(QuerySet):
 
 
 class SampleQuerySet(QuerySet):
-    def check_metagenomic_data(self):
+    def get_ready(self, sort_by_sample=False):
         """
-        Return samples for which there is metagenomic data missing
+        Return Job instances which are ready to go (but not yet done).
 
-        Also checks for consistency of the flags.
+        Params:
+        sort_by_sample:
+            Sort jobs by sample.  The default is to sort jobs by the flag, in
+            order as defined in SampleTracking.Flag.
         """
-        flags = [i for i, _ in self._manager.get_metagenomic_loader_script()]
-        flags = ['metag_pipeline_reg'] + flags
+        SampleTracking = import_string('mibios.omics.models.SampleTracking')
 
-        qs = self.filter(sample_type='metagenome')
-
+        qs = self
         blocklist = self._manager.get_blocklist().values_list('pk', flat=True)
         if blocklist:
-            print(f'{qs.filter(pk__in=blocklist).count()} metagenomic samples '
+            print(f'{qs.filter(pk__in=blocklist).count()} samples '
                   f'in blocklist')
             qs = qs.exclude(pk__in=blocklist)
 
-        total = qs.count()
-        qs = qs.filter(metag_pipeline_reg=True)
-        reg_count = qs.count()
-        print(f'Of {total} metagenomic samples, {reg_count} are registered, of those:')  # noqa: E501
+        qs = qs.filter(tracking__flag=SampleTracking.Flag.PIPELINE)
+        qs = qs.prefetch_related('tracking')
 
-        # flag consistency: A False flag must not be followed by one set True
-        # for counting, we're only interested in registered samples
-        all_missing_count = 0
-        some_missing_count = 0
-        for i in qs:
-            some_false = False
-            some_true = False
-            for j in flags:
-                if getattr(i, j):
-                    if j != 'metag_pipeline_reg':
-                        some_true = True
-                    if some_false:
-                        msg = f'Inconsistency with {i.sample_id} (pk={i.pk}): '
-                        for k in flags:
-                            msg += f'\n   {repr(getattr(i, k)):<5} {k}'
-                        msg += '\n'
-                        raise RuntimeError(msg)
-                    continue
-                else:
-                    some_false = True
+        if sort_by_sample:
+            jobs = []
+        else:
+            jobs = {i: [] for i in SampleTracking.Flag}
 
-            # count registered only:
-            if i.metag_pipeline_reg and some_false:
-                if some_true:
-                    some_missing_count += 1
-                else:
-                    all_missing_count += 1
+        for sample in qs:
+            ready_jobs = []
+            for tr in sample.tracking.all():
+                for job in tr.job.before:
+                    if job.is_ready() and job not in ready_jobs:
+                        ready_jobs.append(job)
+            if sort_by_sample:
+                jobs += ready_jobs
+            else:
+                for i in ready_jobs:
+                    jobs[i.flag].append(i)
 
-        print(f'   all missing: {all_missing_count}')
-        print(f'  some missing: {some_missing_count}')
-        complete_count = reg_count - all_missing_count - some_missing_count
-        print(f'      complete: {complete_count}')
-
-        # all ok, return queryset with missing data
-        return qs.filter(**{flags[-1]: False}).order_by('pk')
+        if sort_by_sample:
+            return jobs
+        else:
+            return list(chain(*jobs.values()))
 
     @gentle_int
-    def load_metagenomic_data(self, skip_check=False):
+    def load_omics_data(self):
         """
         Load all metagenomics data
         """
         timestamper = Timestamper(
             template='[ {timestamp} ]  ',
-            file_copy=settings.METAGENOMIC_LOADING_LOG,
+            file_copy=settings.OMICS_LOADING_LOG,
         )
         with timestamper:
-            print(f'Loading metagenomic data / version: {version}')
-            if skip_check:
-                samples = self
-                print(f'{len(self)} samples')
-            else:
-                samples = self.check_metagenomic_data()
+            print(f'Loading omics data / version: {version}')
+            jobs = self.get_ready(sort_by_sample=True)
+            jobs_total = len(jobs)
+            jobs = {
+                sample: list(job_grp)
+                for sample, job_grp
+                in groupby(jobs, key=lambda x: x.sample)
+            }
+            print(f'samples: {len(jobs)} -- total jobs: {jobs_total}')
 
-            # get number of stages
-            total_stages = 0
-            script = self._manager.get_metagenomic_loader_script()
-            print('Stages / flags: ')
-            for flag, funcs in script:
-                if callable(funcs):
-                    total_stages += 1
-                    print(f'  {total_stages} / {flag} ')
-                else:
-                    total_stages += len(funcs)
-                    print(f'  {total_stages - len(funcs) + 1}-{total_stages} / {flag} ')  # noqa: E501
-
-        template = f'[ {{sample}} {{{{stage}}}}/{total_stages} {{{{{{{{timestamp}}}}}}}} ]  '  # noqa: E501
+        template = '[ {sample} {{stage}}/{{total_stages}} {{{{timestamp}}}} ]  '  # noqa: E501
         fkmap_cache_reset()
-        for num, sample in enumerate(samples):
-            print(f'{len(samples) - num} samples to go...')
-            stage = 1
+        for num, (sample, job_grp) in enumerate(jobs.items()):
+            print(f'{len(jobs) - num} samples to go...')
             abort_sample = False
-            for flag, funcs in script:
-                if callable(funcs):
-                    funcs = [funcs]
-
-                if getattr(sample, flag):
-                    stage += len(funcs)
-                    continue
+            # for flag, funcs in script:  # OLD
+            stage = 0
+            while job_grp:
+                job = job_grp.pop(0)
+                stage += 1
 
                 t = template.format(sample=sample.sample_id)
 
-                with atomic():
-                    for fn in funcs:
-                        timestamper = Timestamper(
-                            template=t.format(stage=stage),
-                            file_copy=settings.METAGENOMIC_LOADING_LOG,
+                timestamper = Timestamper(
+                    template=t.format(stage=stage, total_stages=stage + len(job_grp)),  # noqa: E501
+                    file_copy=settings.OMICS_LOADING_LOG,
+                )
+                with atomic(), timestamper:
+                    try:
+                        job()
+                    except KeyboardInterrupt as e:
+                        print(repr(e))
+                        raise
+                    except Exception as e:
+                        msg = (f'FAIL: {e.__class__.__name__} "{e}": on '
+                               f'{sample.sample_id} at or near {job.run=}')
+                        print(msg)
+                        # If we're configured to write a log file, then print
+                        # the stack to a special FAIL.log file and continue
+                        # with the next sample. This optimizes for the case
+                        # that the error is caused by occasional unusual data
+                        # for individual samples and not a regular bug, which
+                        # would trigger on every sample.
+                        log = settings.OMICS_LOADING_LOG
+                        if not log:
+                            raise
+                        faillog = Path(log).with_suffix(
+                            f'.{sample.sample_id}.FAIL.log'
                         )
-                        with timestamper:
-                            try:
-                                fn(sample)
-                            except KeyboardInterrupt as e:
-                                print(repr(e))
-                                raise
-                            except Exception as e:
-                                # If we're configured to write a log file, then
-                                # print the stack to a special FAIL.log file
-                                # and continue with the next sample. This
-                                # assumes the error is caused not by a regular
-                                # bug but by occasional unusual data for
-                                # individual samples.
-                                path = settings.METAGENOMIC_LOADING_LOG
-                                if not path:
-                                    raise
-                                path, _, _ = path.rpartition('.')
-                                path = f'{path}.{sample.sample_id}.FAIL.log'
-                                msg = (f'FAIL: {e.__class__.__name__} {e} on '
-                                       f'{sample.sample_id} at {fn=}')
-                                print(msg)
-                                with open(path, 'w') as ofile:
-                                    ofile.write(msg + '\n')
-                                    traceback.print_exc(file=ofile)
-                                print(f'see traceback at {ofile.name}')
-                                # skip to next sample, do not set the flag,
-                                # fn() is assumed to have rolled back any
-                                # its own changes to the DB
-                                abort_sample = True
-                                break
-                        stage += 1
-
-                    if abort_sample:
+                        with faillog.open('w') as ofile:
+                            ofile.write(msg + '\n')
+                            traceback.print_exc(file=ofile)
+                        print(f'see traceback at {faillog}')
+                        # skip to next sample, do not set the flag, fn() is
+                        # assumed to have rolled back any its own changes to
+                        # the DB
+                        abort_sample = True
                         break
-
-                    if not getattr(sample, flag):
-                        # not all functions will set the progress flag
-                        setattr(sample, flag, True)
-                        sample.save()
+                    else:
+                        # add newly ready jobs
+                        for i in reversed(job.before):
+                            if i not in job_grp:
+                                if i.is_ready(use_cache=False):
+                                    job_grp.insert(0, i)
 
             if abort_sample:
                 print(f'Aborting {sample.sample_id}/{sample}!', end=' ')

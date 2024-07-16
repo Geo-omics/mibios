@@ -17,7 +17,7 @@ OMICS_DATASET_MODEL = 'omics.Dataset'
 # register logging
 LOGGING['loggers']['omics'] = LOGGING['loggers']['mibios']  # noqa:F405
 
-METAGENOMIC_LOADING_LOG = None
+OMICS_LOADING_LOG = None
 
 # path to sample block list (or leave empty)
 # The block list should list, one per line, the sample_id of samples that
