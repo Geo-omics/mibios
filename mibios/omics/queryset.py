@@ -1,17 +1,12 @@
-from itertools import chain, groupby
+from itertools import chain
 import os
 from pathlib import Path
-import traceback
 from urllib.parse import quote_plus
 
 from django.conf import settings
-from django.db.transaction import atomic
 from django.utils.module_loading import import_string
 
-from mibios import __version__ as version
 from mibios.umrad.manager import QuerySet
-from .managers import fkmap_cache_reset
-from .utils import gentle_int, Timestamper
 
 
 class FileQuerySet(QuerySet):
@@ -94,86 +89,11 @@ class SampleQuerySet(QuerySet):
         else:
             return list(chain(*jobs.values()))
 
-    @gentle_int
     def load_omics_data(self):
         """
-        Load all metagenomics data
+        Convenience method to load all omics data for retieved samples
         """
-        timestamper = Timestamper(
-            template='[ {timestamp} ]  ',
-            file_copy=settings.OMICS_LOADING_LOG,
-        )
-        with timestamper:
-            print(f'Loading omics data / version: {version}')
-            jobs = self.get_ready(sort_by_sample=True)
-            jobs_total = len(jobs)
-            jobs = {
-                sample: list(job_grp)
-                for sample, job_grp
-                in groupby(jobs, key=lambda x: x.sample)
-            }
-            print(f'samples: {len(jobs)} -- total jobs: {jobs_total}')
-
-        template = '[ {sample} {{stage}}/{{total_stages}} {{{{timestamp}}}} ]  '  # noqa: E501
-        fkmap_cache_reset()
-        for num, (sample, job_grp) in enumerate(jobs.items()):
-            print(f'{len(jobs) - num} samples to go...')
-            abort_sample = False
-            # for flag, funcs in script:  # OLD
-            stage = 0
-            while job_grp:
-                job = job_grp.pop(0)
-                stage += 1
-
-                t = template.format(sample=sample.sample_id)
-
-                timestamper = Timestamper(
-                    template=t.format(stage=stage, total_stages=stage + len(job_grp)),  # noqa: E501
-                    file_copy=settings.OMICS_LOADING_LOG,
-                )
-                with atomic(), timestamper:
-                    try:
-                        job()
-                    except KeyboardInterrupt as e:
-                        print(repr(e))
-                        raise
-                    except Exception as e:
-                        msg = (f'FAIL: {e.__class__.__name__} "{e}": on '
-                               f'{sample.sample_id} at or near {job.run=}')
-                        print(msg)
-                        # If we're configured to write a log file, then print
-                        # the stack to a special FAIL.log file and continue
-                        # with the next sample. This optimizes for the case
-                        # that the error is caused by occasional unusual data
-                        # for individual samples and not a regular bug, which
-                        # would trigger on every sample.
-                        log = settings.OMICS_LOADING_LOG
-                        if not log:
-                            raise
-                        faillog = Path(log).with_suffix(
-                            f'.{sample.sample_id}.FAIL.log'
-                        )
-                        with faillog.open('w') as ofile:
-                            ofile.write(msg + '\n')
-                            traceback.print_exc(file=ofile)
-                        print(f'see traceback at {faillog}')
-                        # skip to next sample, do not set the flag, fn() is
-                        # assumed to have rolled back any its own changes to
-                        # the DB
-                        abort_sample = True
-                        break
-                    else:
-                        # add newly ready jobs
-                        for i in reversed(job.before):
-                            if i not in job_grp:
-                                if i.is_ready(use_cache=False):
-                                    job_grp.insert(0, i)
-
-            if abort_sample:
-                print(f'Aborting {sample.sample_id}/{sample}!', end=' ')
-            else:
-                print(f'Sample {sample.sample_id}/{sample} done!', end=' ')
-        print()
+        return self._manager.load_omics_data(samples=self)
 
     def ur100_accession_crawler(self, outname=None, verbose=False):
         """ Extract UniRef100 accessions from omics data """

@@ -337,6 +337,14 @@ class AbstractSample(Model):
         # TODO: need better localization data to do this
         '''
 
+    def get_ready_jobs(self):
+        """ Convenience method to get jobs with status READY """
+        return self.__class__.loader.filter(pk=self.pk).get_ready()
+
+    def load_omics_data(self):
+        """ Convenience methodto load the sample's omics data """
+        return self.__class__.loader.load_omics_data(samples=[self])
+
 
 class AbstractDataset(Model):
     """

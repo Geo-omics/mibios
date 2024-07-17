@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import traceback
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -19,6 +20,7 @@ from django.db.transaction import atomic
 from django.utils.functional import cached_property
 from django.utils.module_loading import import_string
 
+from mibios import __version__ as version
 from mibios.models import QuerySet
 from mibios.ncbi_taxonomy.models import (
     DeletedNode, MergedNodes, TaxNode, TaxName,
@@ -28,7 +30,7 @@ from mibios.umrad.manager import BulkLoader, Manager, MetaDataLoader
 from mibios.umrad.utils import CSV_Spec, atomic_dry, InputFileError
 
 from . import get_sample_model
-from .utils import call_each, get_fasta_sequence
+from .utils import call_each, gentle_int, get_fasta_sequence, Timestamper
 
 log = getLogger(__name__)
 
@@ -852,6 +854,109 @@ class SampleLoader(MetaDataLoader):
         # assumes the block list has valid sample_id values, if not this will
         # fail silently
         return self.filter(sample_id__in=blocklist)
+
+    @atomic_dry
+    @gentle_int
+    def load_omics_data(self, jobs=None, samples=None):
+        """
+        Run given jobs or ready jobs for given samples
+        """
+        if jobs and samples:
+            raise ValueError('either provide jobs or sample, not both')
+
+        if not jobs and not samples:
+            raise ValueError('either jobs or sample must be provided')
+
+        timestamper = Timestamper(
+            template='[ {timestamp} ]  ',
+            file_copy=settings.OMICS_LOADING_LOG,
+        )
+        with timestamper:
+            print(f'Loading omics data / version: {version}')
+            if samples:
+                if isinstance(samples, self._queryset_class):
+                    sample_qs = samples
+                else:
+                    sample_qs = self.filter(pk__in=[i.pk for i in samples])
+                jobs = sample_qs.get_ready(sort_by_sample=True)
+                if not jobs:
+                    print('NOTICE: Given samples have no ready jobs.')
+
+            jobs_total = len(jobs)
+            # some of the accounting below makes more sense if jobs are sorted
+            # by sample, but the logic should still work even if later jobs
+            # return to same sample.
+            jobs_per_sample = [
+                (sample, list(job_grp))
+                for sample, job_grp
+                in groupby(jobs, key=lambda x: x.sample)
+            ]
+            if samples:
+                sample_count = len(samples)
+            else:
+                sample_count = len(set((i for i, _ in jobs_per_sample)))
+            print(f'samples: {sample_count} -- total jobs: {jobs_total}')
+
+        template = '[ {sample} {{stage}}/{{total_stages}} {{{{timestamp}}}} ]  '  # noqa: E501
+        fkmap_cache_reset()
+        for num, (sample, job_grp) in enumerate(jobs_per_sample):
+            print(f'{len(jobs) - num} samples to go...')
+            abort_sample = False
+            # for flag, funcs in script:  # OLD
+            stage = 0
+            while job_grp:
+                job = job_grp.pop(0)
+                stage += 1
+
+                t = template.format(sample=sample.sample_id)
+
+                timestamper = Timestamper(
+                    template=t.format(stage=stage, total_stages=stage + len(job_grp)),  # noqa: E501
+                    file_copy=settings.OMICS_LOADING_LOG,
+                )
+                with atomic(), timestamper:
+                    try:
+                        job()
+                    except KeyboardInterrupt as e:
+                        print(repr(e))
+                        raise
+                    except Exception as e:
+                        msg = (f'FAIL: {e.__class__.__name__} "{e}": on '
+                               f'{sample.sample_id} at or near {job.run=}')
+                        print(msg)
+                        # If we're configured to write a log file, then print
+                        # the stack to a special FAIL.log file and continue
+                        # with the next sample. This optimizes for the case
+                        # that the error is caused by occasional unusual data
+                        # for individual samples and not a regular bug, which
+                        # would trigger on every sample.
+                        log = settings.OMICS_LOADING_LOG
+                        if not log:
+                            raise
+                        faillog = Path(log).with_suffix(
+                            f'.{sample.sample_id}.FAIL.log'
+                        )
+                        with faillog.open('w') as ofile:
+                            ofile.write(msg + '\n')
+                            traceback.print_exc(file=ofile)
+                        print(f'see traceback at {faillog}')
+                        # skip to next sample, do not set the flag, fn() is
+                        # assumed to have rolled back any its own changes to
+                        # the DB
+                        abort_sample = True
+                        break
+                    else:
+                        # add newly ready jobs
+                        for i in reversed(job.before):
+                            if i not in job_grp:
+                                if i.is_ready(use_cache=False):
+                                    job_grp.insert(0, i)
+
+            if abort_sample:
+                print(f'Aborting {sample.sample_id}/{sample}!', end=' ')
+            else:
+                print(f'Sample {sample.sample_id}/{sample} done!', end=' ')
+        print()
 
 
 class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
