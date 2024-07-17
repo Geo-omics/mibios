@@ -1116,27 +1116,16 @@ class DBInfoView(RequiredSettingsMixin, BaseMixin, SingleTableView):
         'umrad_',
     )
 
-    view_attrs = {
-        'postgresql': {
-            'model': pg_class,
-            'extra_where': None,
-        },
-        'sqlite': {
-            # see: https://www.sqlite.org/dbstat.html
-            'model': dbstat,
-            'extra_where': ['aggregate = TRUE'],
-        },
+    MODEL = {
+        'postgresql': pg_class,
+        'sqlite': dbstat,
     }
 
     def setup(self, *args, **kwargs):
         try:
-            attrs = self.view_attrs[connection.vendor]
+            self.model = self.MODEL[connection.vendor]
         except KeyError as e:
             raise Http404(f'unsupported db vendor: {e}')
-
-        # set vendor-specific view attributes (model, name column name)
-        for attrname, value in attrs.items():
-            setattr(self, attrname, value)
         return super().setup(*args, **kwargs)
 
     def get_queryset(self):
@@ -1144,10 +1133,7 @@ class DBInfoView(RequiredSettingsMixin, BaseMixin, SingleTableView):
         q = Q()
         for pref in self.table_prefixes:
             q = q | Q(name__startswith=pref)
-        qs = qs.filter(q)
-        if self.extra_where:
-            qs = qs.extra(where=self.extra_where)
-        return qs
+        return qs.filter(q)
 
 
 class RecordView(BaseMixin, DetailView):

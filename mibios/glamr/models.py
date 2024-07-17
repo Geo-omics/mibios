@@ -28,6 +28,7 @@ from .load import (
     DatasetLoader, DatasetManager, ReferenceLoader, SampleLoader,
     SampleManager, SearchableManager, UniqueWordManager,
 )
+from .managers import dbstatManager
 from .queryset import (
     DatasetQuerySet, SampleQuerySet, SearchableQuerySet, UniqueWordQuerySet,
 )
@@ -781,6 +782,8 @@ class dbstat(models.Model):
     num_pages = models.IntegerField(db_column='pageno')
     num_rows = models.IntegerField(db_column='ncell')
     # other columns ignored
+
+    objects = dbstatManager()
 
     PAGE_SIZE = 4096
 
