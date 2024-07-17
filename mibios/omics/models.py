@@ -83,21 +83,6 @@ class AbstractSample(Model):
     rev_primer = models.TextField(max_length=32, **ch_opt)
 
     # sample data accounting flags
-    meta_data_loaded = models.BooleanField(
-        # this flag is not managed in mibios.omics but by downstream
-        # implementers of the abstract sample model
-        default=False,
-        help_text='meta data successfully loaded',
-    )
-    metag_pipeline_reg = models.BooleanField(
-        default=False,
-        help_text='is registered in metagenomic pipeline',
-    )
-    contig_fasta_loaded = models.BooleanField(
-        default=False,
-        verbose_name='assembly available',
-        help_text='fasta-formatted assembly is available',
-    )
     contig_abundance_loaded = models.BooleanField(
         default=False,
         help_text='contig abundance/rpkm data loaded',
@@ -109,45 +94,6 @@ class AbstractSample(Model):
     gene_alignments_loaded = models.BooleanField(
         default=False,
         help_text='genes loaded via contig_tophit_aln file',
-    )
-    read_abundance_loaded = models.BooleanField(
-        default=False,
-        verbose_name='functional abundance available',
-        help_text='read-mapping-based (tophit_report) abundance against '
-                  'UniRef100',
-    )
-    gene_abundance_loaded = models.BooleanField(
-        default=False,
-        help_text='abundance data from contig_tophit_report loaded',
-    )
-    binning_ok = models.BooleanField(
-        default=False,
-        help_text='Binning data loaded',
-    )
-    checkm_ok = models.BooleanField(
-        default=False,
-        help_text='Binning stats loaded',
-    )
-    genes_ok = models.BooleanField(
-        default=False,
-        help_text='Gene data and coverage loaded',
-    )
-    proteins_ok = models.BooleanField(
-        default=False,
-        help_text='Protein data loaded',
-    )
-    tax_abund_ok = models.BooleanField(
-        default=False,
-        verbose_name='taxonomic abundance available',
-        help_text='abundance against taxonomy',
-    )
-    func_abund_ok = models.BooleanField(
-        default=False,
-        help_text='Function abundance data loaded',
-    )
-    comp_abund_ok = models.BooleanField(
-        default=False,
-        help_text='Compound abundance data loaded',
     )
 
     analysis_dir = models.TextField(
@@ -177,8 +123,7 @@ class AbstractSample(Model):
     def __str__(self):
         return self.sample_id
 
-    default_internal_fields = ['id', 'analysis_dir', 'sample_id',
-                               'metag_pipeline_reg']
+    default_internal_fields = ['id', 'analysis_dir', 'sample_id']
     """ see also the overriding get_internal_fields() """
 
     @classmethod
@@ -1702,11 +1647,11 @@ class SampleTracking(Model):
     Track progress loading omics data for a sample
     """
     class Flag(models.TextChoices):
-        METADATA = 'MD', 'meta data loaded'  # meta_data_loaded
-        PIPELINE = 'PL', 'omics pipeline registered'  # metag_pipeline_reg
-        ASSEMBLY = 'ASM', 'assembly loaded'  # contig_fasta_loaded
-        UR1ABUND = 'UAB', 'reads/UR100 abundance loaded'  # read_abundance_load
-        TAXABUND = 'TAB', 'taxa abundance loaded'  # was tax_abund_ok
+        METADATA = 'MD', 'meta data loaded'
+        PIPELINE = 'PL', 'omics pipeline registered'
+        ASSEMBLY = 'ASM', 'assembly loaded'
+        UR1ABUND = 'UAB', 'reads/UR100 abundance loaded'
+        TAXABUND = 'TAB', 'taxa abundance loaded'
 
     flag = models.CharField(max_length=3, choices=Flag.choices)
     sample = models.ForeignKey(

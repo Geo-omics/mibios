@@ -254,26 +254,12 @@ class SequenceLikeLoader(SampleLoadMixin, BulkLoader):
 
     @atomic_dry
     def load_fasta(self, sample, start=0, limit=None, file=None, bulk=True,
-                   validate=False, done_ok=True, redo=False):
+                   validate=False):
         """
         import sequence data for one sample
 
         limit - limit to that many contigs, for testing only
         """
-        done = getattr(sample, self.fasta_load_flag)
-        if done:
-            if done_ok:
-                if redo:
-                    self.unload_fasta_sample()
-                else:
-                    # nothing to do
-                    return
-            else:
-                raise RuntimeError(
-                    f'data already loaded - update not supported: '
-                    f'{self.fasta_load_flag} -> {sample}'
-                )
-
         objs = self.from_fasta(sample, start=start, limit=limit, file=file)
         if validate:
             objs = call_each(objs, 'full_clean')
@@ -284,15 +270,12 @@ class SequenceLikeLoader(SampleLoadMixin, BulkLoader):
             for i in objs:
                 i.save()
 
-        setattr(sample, self.fasta_load_flag, True)
-        sample.save()
-
     @atomic
     def unload_fasta(self, sample):
         """
         Counterpart of load_fasta but will delete more, abundance etc.
         """
-        self.unload_sample(sample, flag=self.fasta_load_flag)
+        self.unload_sample(sample)
 
     def from_fasta(self, sample, file=None, start=0, limit=None):
         """
@@ -343,8 +326,6 @@ class SequenceLikeLoader(SampleLoadMixin, BulkLoader):
 
 class ContigLoader(TaxNodeMixin, SequenceLikeLoader):
     """ Manager for the Contig model """
-    fasta_load_flag = 'contig_fasta_loaded'
-
     def get_fasta_path(self, sample):
         return sample.get_omics_file('METAG_ASM').path
 
@@ -619,7 +600,6 @@ class GeneAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
 
 class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
     """ load data from *_tophit_report files """
-    load_flag_attr = 'read_abundance_loaded'
     spec = CSV_Spec(
         ('ref', 'parse_ur100'),
         ('read_count', ),
@@ -795,7 +775,6 @@ class SampleLoader(MetaDataLoader):
                     unchanged += 1
 
                 if need_save:
-                    obj.metag_pipeline_reg = True
                     obj.full_clean()
                     obj.save()
                     log(save_info)
@@ -835,41 +814,6 @@ class SampleLoader(MetaDataLoader):
             log(f'WARNING The DB has {missing.count()} samples not at all '
                 f'listed in {source_file}')
 
-    def status(self):
-        if not self.exists():
-            print('No samples in database yet.')
-            return
-
-        print(' ' * 10, 'contigs', 'bins', 'checkm', 'genes', sep='\t')
-        for i in self.all():
-            print(
-                f'{i}:',
-                'OK' if i.contigs_ok else '',
-                'OK' if i.binning_ok else '',
-                'OK' if i.checkm_ok else '',
-                'OK' if i.genes_ok else '',
-                sep='\t'
-            )
-
-    def status_long(self):
-        if not self.exists():
-            print('No samples in database yet')
-            return
-
-        print(' ' * 10, 'cont cl', 'MAX', 'MET93', 'MET97', 'MET99', 'genes',
-              sep='\t')
-        for i in self.all():
-            print(
-                f'{i}:',
-                i.contig_set.count(),
-                i.binmax_set.count(),
-                i.binmet93_set.count(),
-                i.binmet97_set.count(),
-                i.binmet99_set.count(),
-                i.gene_set.count(),
-                sep='\t'
-            )
-
     def get_metagenomic_loader_script(self):
         """
         Gets 'script' to load metagenomic data
@@ -880,16 +824,11 @@ class SampleLoader(MetaDataLoader):
         """
         Contig = import_string('mibios.omics.models.Contig')
         Gene = import_string('mibios.omics.models.Gene')
-        ReadAbundance = import_string('mibios.omics.models.ReadAbundance')
-        TaxonAbundance = import_string('mibios.omics.models.TaxonAbundance')
 
         return [
-            ('contig_fasta_loaded', Contig.loader.load_fasta),
             ('contig_abundance_loaded', Contig.loader.load_abundance),
             ('contig_lca_loaded', Contig.loader.load_lca),
             ('gene_alignments_loaded', Gene.loader.load_alignments),
-            ('read_abundance_loaded', ReadAbundance.loader.load_sample),
-            ('tax_abund_ok', TaxonAbundance.loader.load_sample),
         ]
 
     def get_blocklist(self):
@@ -917,8 +856,6 @@ class SampleLoader(MetaDataLoader):
 
 class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
     """ loader manager for the TaxonAbundance model """
-    load_flag_attr = 'tax_abund_ok'
-
     def process_tpm(self, value, obj):
         # obj.taxon may be None for unclassified or deleted taxids
         # tpm values for those get added together
@@ -1190,6 +1127,7 @@ class FileManager(Manager):
 
     @atomic_dry
     def full_update(self):
+        """ for transitional use """
         Sample = self.model._meta.get_field('sample').related_model
 
         self.model.load_pipeline_checkout()

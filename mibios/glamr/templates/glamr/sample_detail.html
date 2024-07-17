@@ -6,21 +6,9 @@
 {% endblock %}
 
 {% block detail_header %}{{ block.super }}
-{% if object.sample_type == "metagenome" %}
-[
-    {% if object.tax_abund_ok and not object.private %}
-        <a href="{% url 'krona' samp_no=object.get_samp_no %}">krona chart</a>
-        | <a href="{% url 'relations' obj_model='sample' pk=object.pk field='taxonabundance'%}">abundance/taxa</a>
-    {% else %}
-        krona chart | abundance/taxa
-    {% endif %}
-    |
-    {% if object.read_abundance_loaded and not object.private %}
-        <a href="{% url 'relations' obj_model='sample' pk=object.pk field='functional_abundance'%}">abundance/functions</a>
-    {% else %}
-        abundance/functions
-    {% endif %}
-]
-{% endif %}
-[{%if sample_has_files%}<a href="{% url 'relations' obj_model='sample' pk=object.pk field='file' %}">file downloads</a>{%else%}file downloads{%endif%}]
+{% for link_grp in header_link_groups %}
+{% for url, txt in link_grp %}
+{% if forloop.first%}[{%endif%}{%if url %}<a href="{{url}}">{{txt}}</a>{%else%}{{txt}}{%endif%}{%if forloop.last%}]{%else%} | {%endif%}
+{% endfor %}
+{% endfor %}
 {% endblock %}

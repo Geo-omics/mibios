@@ -34,6 +34,7 @@ from mibios.views import ExportBaseMixin, TextRendererZipped, VersionInfoMixin
 from mibios.omics import get_sample_model
 from mibios.omics.models import (
     CompoundAbundance, FuncAbundance, ReadAbundance, TaxonAbundance,
+    SampleTracking,
 )
 from mibios.ncbi_taxonomy.models import TaxNode
 from mibios.umrad.models import FuncRefDBEntry, UniRef100
@@ -1831,9 +1832,59 @@ class SampleView(RecordView):
         value = self.object.format_collection_timestamp()
         return (name, info, [(value, None)], None)
 
+    def get_header_links(self):
+        """ a list of lists of pairs (url, link text) """
+        obj = self.object
+        tr = {i.flag for i in obj.tracking.all()}
+
+        krona_url = None
+        taxabund_url = None
+        if not obj.private:
+            if SampleTracking.Flag.TAXABUND in tr:
+                krona_url = reverse(
+                    'krona', kwargs=dict(samp_no=obj.get_samp_no())
+                )
+                taxabund_url = reverse(
+                    'relations',
+                    kwargs=dict(
+                        obj_model='sample',
+                        pk=obj.pk,
+                        field='taxonabundance',
+                    ),
+                )
+        abund_links = [
+            (krona_url, 'krona chart'),
+            (taxabund_url, 'abundance/taxa'),
+        ]
+
+        if obj.sample_type == 'metagenome':
+            funcabund_url = None
+            if not obj.private and SampleTracking.Flag.UR1ABUND in tr:
+                funcabund_url = reverse(
+                    'relations',
+                    kwargs=dict(
+                        obj_model='sample',
+                        pk=obj.pk,
+                        field='functional_abundance',
+                    ),
+                )
+            abund_links.append((funcabund_url, 'abundance/functions'))
+
+        if obj.file_set.exists():
+            urlkw = dict(
+                obj_model='sample',
+                pk=obj.pk,
+                field='file',
+            )
+            dl_url = reverse('relations', kwargs=urlkw)
+        else:
+            dl_url = None
+
+        return [abund_links, [(dl_url, 'file downloads')]]
+
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['sample_has_files'] = self.object.file_set.exists()
+        ctx['header_link_groups'] = self.get_header_links()
         return ctx
 
 
