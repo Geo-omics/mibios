@@ -188,10 +188,14 @@ class FileTable(Table):
         fields = ['download_url', 'filetype', 'size', 'modtime']
 
     def render_download_url(self, value, record):
-        if value:
+        if value and record.public:
             return mark_safe(f'<a href="{value}">{record.public.name}</a>')
         else:
-            return f'(unavailable) {record.public.name}'
+            if record.public:
+                name = record.public.name
+            else:
+                name = ''
+            return f'(unavailable) {name}'
 
 
 class FunctionAbundanceTable(Table):

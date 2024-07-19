@@ -19,12 +19,11 @@ class FileQuerySet(QuerySet):
             ctx.update(self.object_list.extra_context())
         """
         ctx = {}
-        globus_base = settings.GLOBUS_FILE_APP_URL_BASE
-        if globus_base:
+        if globus_base := settings.GLOBUS_FILE_APP_URL_BASE:
             # the files' directories, split into parts:
             # FIXME: this does an additional DB query, unecessary but no idea
             # how to avoid (still an issue?)
-            paths = [i.relpublic.parts[:-1] for i in self if i]
+            paths = [i.relpublic.parts[:-1] for i in self if i.relpublic]
             if paths:
                 common_parts = []
                 for parts in zip(*paths):

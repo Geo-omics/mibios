@@ -931,7 +931,7 @@ class File(Model):
     """ file location, relative to a sample's data dir """
 
     def __str__(self):
-        return f'{self.path}'
+        return f'{self.relpath}'
 
     def __fspath__(self):
         """ implement os.PathLike """
