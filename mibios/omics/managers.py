@@ -602,6 +602,11 @@ class GeneAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
 
 class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
     """ load data from *_tophit_report files """
+    def check_sample_id(self, value, obj):
+        if not value == self.sample.sample_id:
+            raise InputFileError('sample id: {value}')
+        return CSV_Spec.IGNORE_COLUMN
+
     spec = CSV_Spec(
         ('ref', 'parse_ur100'),
         ('read_count', ),
@@ -610,6 +615,13 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
         ('avg_ident', ),
         # ignore taxonomy columns
         has_header=False,
+    )
+
+    tpm_spec = CSV_Spec(
+        ('sample', None, check_sample_id),
+        ('uniref100_id', 'ref'),
+        ('tpm', 'tpm'),
+        ('rpkm', 'rpkm'),
     )
 
     def get_file(self, sample):
@@ -621,6 +633,22 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
         self.spec.pre_load_hook = \
             partial(self.uniref100_helper, field_name='ref')
         super().load_sample(sample, *args, **kwargs)
+
+    @atomic_dry
+    def load_tpm_sample(self, sample, *args, file=None, **kwargs):
+        """
+        Load tpm, rpkm values from tophit_TPM files.  Run after load_samples()
+        """
+        self.spec.pre_load_hook = \
+            partial(self.uniref100_helper, field_name='ref')
+        if file is None:
+            file = sample.get_omics_file('FUNC_ABUND_TPM')
+        update = kwargs.pop('update', True)
+        if not update:
+            raise ValueError('update kwarg must not be False, loader method '
+                             'must run in update mode')
+        super().load_sample(sample, *args, file=file, spec=self.tpm_spec,
+                            update=True, **kwargs)
 
 
 class SampleLoader(MetaDataLoader):

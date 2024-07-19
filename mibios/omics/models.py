@@ -514,6 +514,8 @@ class ReadAbundance(Model):
     read_count = models.PositiveIntegerField(
         help_text='number of sequences aligning to target',
     )
+    tpm = models.FloatField(null=True, verbose_name='TPM')
+    rpkm = models.FloatField(null=True, verbose_name='RPKM')
 
     loader = managers.ReadAbundanceLoader()
 
@@ -880,6 +882,8 @@ class File(Model):
         FUNC_ABUND = 3, 'functional abundance, csv format'
         """ e.g. samp_14/samp_14_tophit_report """
         TAX_ABUND = 4, 'taxonomic abundance, csv format'
+        """ *_lca_abund_summarized.tsv """
+        FUNC_ABUND_TPM = 5, 'functional abundance (TPM) [csv]'
 
     path = PathField(
         root=get_path_prefix,
@@ -927,6 +931,7 @@ class File(Model):
             Path('assembly', 'megahit_noNORM', 'final.contigs.renamed.fa'),
         Type.TAX_ABUND: '{sample.sample_id}_lca_abund_summarized.tsv',
         Type.FUNC_ABUND: '{sample.sample_id}_tophit_report',
+        Type.FUNC_ABUND_TPM: '{sample.sample_id}_tophit_TPM.tsv',
     }
     """ file location, relative to a sample's data dir """
 
@@ -1659,6 +1664,7 @@ class SampleTracking(Model):
         PIPELINE = 'PL', 'omics pipeline registered'
         ASSEMBLY = 'ASM', 'assembly loaded'
         UR1ABUND = 'UAB', 'reads/UR100 abundance loaded'
+        UR1TPM = 'TPM', 'reads/UR100/TPM loaded'
         TAXABUND = 'TAB', 'taxa abundance loaded'
 
     flag = models.CharField(max_length=3, choices=Flag.choices)

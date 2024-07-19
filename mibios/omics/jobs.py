@@ -46,6 +46,14 @@ class LoadUR1Abund(Job):
     run = ReadAbundance.loader.load_sample
 
 
+class LoadUR1TPM(Job):
+    flag = SampleTracking.Flag.UR1TPM
+    after = [LoadUR1Abund]
+    sample_types = [Sample.TYPE_METAGENOME]
+    required_files = [File.Type.FUNC_ABUND_TPM]
+    run = ReadAbundance.loader.load_tpm_sample
+
+
 class LoadTaxAbund(Job):
     flag = SampleTracking.Flag.TAXABUND
     after = [RegisterWithPipeline]
