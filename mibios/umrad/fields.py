@@ -2,6 +2,7 @@ from pathlib import Path
 
 from django.core.exceptions import ValidationError
 from django.db.models import Field, CharField
+from django.utils.functional import cached_property
 
 
 def path_exists_validator(value):
@@ -124,6 +125,8 @@ class PathField(Field):
     the relative path below the common root is stored on the database and the
     values reconstituted when passed back to the django app.
     """
+    DEFAULT_MAX_LENGTH = 200
+
     def __init__(self, root=None, **kwargs):
         self._root_kwarg = root
         if root is None:
@@ -132,20 +135,27 @@ class PathField(Field):
             self.root = root()
         else:
             self.root = Path(root)
-        kwargs.setdefault('max_length', 200)
+        kwargs.setdefault('max_length', self.DEFAULT_MAX_LENGTH)
         super().__init__(**kwargs)
 
     def deconstruct(self):
         name, path, args, kwargs = super().deconstruct()
-        if isinstance(self._root_kwarg, Path):
-            # TODO: or can this be left as Path?
-            kwargs['root'] = str(self.root)
-        else:
-            kwargs['root'] = self.root
+        kwargs['root'] = self._root_kwarg
+        if self.max_length == self.DEFAULT_MAX_LENGTH:
+            del kwargs['max_length']
         return name, path, args, kwargs
 
     def get_internal_type(self):
         return 'FilePathField'
+
+    @cached_property
+    def root(self):
+        if self._root_kwarg is None:
+            return None
+        elif callable(self._root_kwarg):
+            return self._root_kwarg()
+        else:
+            return Path(self._root_kwarg)
 
     def _put_under_root(self, value):
         try:
