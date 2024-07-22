@@ -14,7 +14,7 @@ import pandas
 
 from django.conf import settings
 from django.core.exceptions import FieldDoesNotExist
-from django.db import router, transaction
+from django.db import connection, router, transaction
 from django.db.models import Q
 
 # Workaround for weird pandas/xlrd=1.2/defusedxml combination runtime issue,
@@ -810,7 +810,7 @@ def atomic_dry(f):
     return wrapper
 
 
-def compile_ranges(int_list, min_range_size=2):
+def compile_ranges(int_list, min_range_size=2, max_num_ranges=None):
     """
     Compile ranges and singles from sequence of integers
 
@@ -819,9 +819,17 @@ def compile_ranges(int_list, min_range_size=2):
     Ranges will be (start, end) and inclusive, as for Django's range lookup and
     SQL's BETWEEN operator.
     """
+    if not min_range_size >= 2:
+        raise ValueError('minimum range size must be 2 or larger')
+
+    if max_num_ranges is not None and max_num_ranges < 1:
+        # just being explicit, 0 would mess up the logic below
+        raise ValueError('max_num_ranges must None or >= 1')
+
     END = object()
     singles = []
     ranges = []
+    num_ranges = 0
     range_min = None
     range_max = None
 
@@ -830,7 +838,7 @@ def compile_ranges(int_list, min_range_size=2):
     if first is END:
         return ranges, singles
     else:
-        # initilize a range
+        # initialize a range
         range_min = first
         range_max = first
 
@@ -842,12 +850,21 @@ def compile_ranges(int_list, min_range_size=2):
             # finish current range
             if range_max - range_min + 1 >= min_range_size:
                 ranges.append((range_min, range_max))
+                num_ranges += 1
+                if max_num_ranges and num_ranges >= max_num_ranges:
+                    break
             else:
                 for j in range(range_min, range_max + 1):
                     singles.append(j)
             # start new range
             range_min = i
             range_max = i
+
+    singles.extend(ints)
+    if singles[-1] is END:
+        # max_num_ranges was reached, rm end marker
+        singles.pop()
+
     return ranges, singles
 
 
@@ -867,9 +884,15 @@ def make_int_in_filter(lookup_name, integers):
     The idea is that for most workloads this will result in a smaller SQL
     statement and maybe even a smaller query execution time.  In particular
     with sqlite2 we seem to run into some limit when using __in with a list of
-    more than 250,000 integers, givinh us a "too many variables" error.
+    more than 250,000 integers, giving us a "too many variables" error.
     """
-    ranges, singles = compile_ranges(integers)
+    if connection.vendor == 'sqlite':
+        # avoiding "Expression tree is too large (maximum depth 1000)"
+        max_num_ranges = 997
+    else:
+        max_num_ranges = None
+
+    ranges, singles = compile_ranges(integers, max_num_ranges=max_num_ranges)
     q = Q(**{lookup_name + '__in': singles})
     for start, end in ranges:
         q = q | Q(**{lookup_name + '__range': (start, end)})
