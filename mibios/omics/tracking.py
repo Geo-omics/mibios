@@ -177,7 +177,7 @@ class Job:
 
             waiting = [i for i in self.after if not i.is_done()]
             if waiting:
-                state[self.WAITING] = waiting
+                state[Status.WAITING] = waiting
 
             if missing := [i for i in self.files if not i.path.exists()]:
                 state[Status.MISSING] = missing
