@@ -605,12 +605,8 @@ class GeneAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
 
 class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
     """ load data from *_tophit_report files """
-    def check_sample_id(self, value, obj):
-        if not value == self.sample.sample_id:
-            raise InputFileError('sample id: {value}')
-        return CSV_Spec.IGNORE_COLUMN
 
-    spec = CSV_Spec(
+    report_spec = CSV_Spec(
         ('ref', 'parse_ur100'),
         ('read_count', ),
         ('unique_cov', ),
@@ -621,8 +617,7 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
     )
 
     tpm_spec = CSV_Spec(
-        ('sample', None, check_sample_id),
-        ('uniref100_id', 'ref'),
+        ('uniref100_id', 'ref', 'parse_ur100'),
         ('tpm', 'tpm'),
         ('rpkm', 'rpkm'),
     )
@@ -632,16 +627,26 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
         return sample.get_omics_file('FUNC_ABUND')
 
     @atomic_dry
-    def load_sample(self, sample, *args, **kwargs):
+    def load_sample(self, sample, *args, spec=None, **kwargs):
+        if spec is None:
+            self.spec = self.report_spec
+        else:
+            self.spec = spec
+
         self.spec.pre_load_hook = \
             partial(self.uniref100_helper, field_name='ref')
         super().load_sample(sample, *args, **kwargs)
 
     @atomic_dry
-    def load_tpm_sample(self, sample, *args, file=None, **kwargs):
+    def load_tpm_sample(self, sample, *args, file=None, spec=None, **kwargs):
         """
         Load tpm, rpkm values from tophit_TPM files.  Run after load_samples()
         """
+        if spec is None:
+            self.spec = self.tpm_spec
+        else:
+            self.spec = spec
+
         self.spec.pre_load_hook = \
             partial(self.uniref100_helper, field_name='ref')
         if file is None:
@@ -650,8 +655,7 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
         if not update:
             raise ValueError('update kwarg must not be False, loader method '
                              'must run in update mode')
-        super().load_sample(sample, *args, file=file, spec=self.tpm_spec,
-                            update=True, **kwargs)
+        super().load_sample(sample, *args, file=file, update=True, **kwargs)
 
 
 class SampleLoader(MetaDataLoader):
