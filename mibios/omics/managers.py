@@ -461,12 +461,15 @@ class UniRefMixin:
         if spec is None:
             spec = self.spec
 
-        col = spec.field_names.index(field_name)
-
         rows = self.spec.iterrows()
         print('Extracting distinct UniRef100s...', end='', flush=True)
         # get accessions w/o prefix, unique values only
-        urefs = {UniRef100.loader.parse_ur100(row[col]) for row in rows}
+        urefs = {
+            UniRef100.loader.parse_ur100(
+                spec.row2dict(spec.row_data(row))[field_name]
+            )
+            for row in rows
+        }
         print(f' [{len(urefs)} OK]')
 
         # Create placeholders for missing UR100 records ...
