@@ -614,7 +614,7 @@ class BaseLoader(MibiosBaseManager):
                             fk_skip_count += 1
                             break  # skip this obj / skips for-else block
                     else:
-                        setattr(obj, field.name + '_id', pk)
+                        setattr(obj, field.attname, pk)
                 else:
                     # regular field with value
                     # TODO: find out why leaving '' in for int fields fails
