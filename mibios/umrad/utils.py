@@ -1011,3 +1011,78 @@ class DefaultDict(dict):
             return self[self.default_key]
         else:
             raise KeyError(key)
+
+
+class FKMap(dict):
+    """
+    Container to pre-load and index objects, helper for Loader.load()
+    """
+    def __init__(self, spec):
+        """
+        Create the FK mapping, usually called upfront in Loader.load()
+
+        spec: The loader's fully initialized spec.
+
+        This is a dict of dicts, mapping field names to maps from (tuples of)
+        values to PKs.
+        """
+        self.to_pythons = {}  # any needed Field.to_python() functions
+        for i in spec.fields:
+            if not i.many_to_one:
+                continue
+
+            if i.name in spec.fk_attrs:
+                # lookup field given by dot-notaton
+                lookups = (spec.fk_attrs[i.name], )
+            else:
+                # use defaults
+                lookups = i.related_model.get_accession_lookups()
+
+            if lookups == ('pk', ) or lookups == ('id', ):
+                # the values will be PKs
+                continue
+
+            self.to_pythons[i.name] = \
+                [i.related_model._meta.get_field(j).to_python for j in lookups]
+
+            f = spec.fkmap_filters.get(i.name, {})
+
+            print(f'Retrieving {i.related_model._meta.verbose_name} data, '
+                  f'{"filtered, " if f else ""}'
+                  f'indexing by ({",".join(lookups)}) ...',
+                  end='', flush=True)
+            related_manager = getattr(i.related_model, 'loader', None) \
+                or getattr(i.related_model, 'objects')
+            if callable(f):
+                self[i.name] = f()
+            else:
+                self[i.name] = {
+                    tuple(a): pk for *a, pk
+                    in related_manager.filter(**f).values_list(*lookups, 'pk')
+                }
+            print(f'[{len(self[i.name])} OK]')
+
+    def get_pk(self, field, value):
+        """
+        Get the PK
+
+        Returns None if no objects exists for the given value.
+
+        Raises KeyError if we're not set up for given field (as expected in
+        cases where the values are PKs already.)
+        """
+        self[field.name]  # check, raise KeyError as needed
+
+        if not isinstance(value, tuple):
+            value = (value, )  # fkmap keys are tuples
+
+        try:
+            value = tuple((
+                fn(v) for fn, v
+                in zip(self.to_pythons[field.name], value)
+            ))
+        except Exception as e:
+            print(f'conversion to python values failed: {e}')
+            raise e
+
+        return self[field.name].get(value, None)

@@ -17,7 +17,8 @@ from mibios.models import (
 )
 
 from .utils import (CSV_Spec, ProgressPrinter, atomic_dry, InputFileError,
-                    get_last_timer, make_int_in_filter, save_import_diff)
+                    get_last_timer, make_int_in_filter, save_import_diff,
+                    FKMap)
 
 
 log = getLogger(__name__)
@@ -491,44 +492,7 @@ class BaseLoader(MibiosBaseManager):
             print(f'[{len(obj_pool)} OK]')
 
         # loading info to process FKs
-        fkmap = {}  # the (acc,...)->pk mappings
-        fk2pythons = {}  # any needed Field.to_python() functions
-        f = None
-        for i in fields:
-            if not i.many_to_one:
-                continue
-
-            if i.name in self.spec.fk_attrs:
-                # lookup field given by dot-notaton
-                lookups = (self.spec.fk_attrs[i.name], )
-            else:
-                # use defaults
-                lookups = i.related_model.get_accession_lookups()
-
-            if lookups == ('pk', ) or lookups == ('id', ):
-                # the values will be PKs
-                continue
-
-            fk2pythons[i.name] = \
-                [i.related_model._meta.get_field(j).to_python for j in lookups]
-
-            f = self.spec.fkmap_filters.get(i.name, {})
-
-            print(f'Retrieving {i.related_model._meta.verbose_name} data, '
-                  f'{"filtered, " if f else ""}'
-                  f'indexing by ({",".join(lookups)}) ...',
-                  end='', flush=True)
-            related_manager = getattr(i.related_model, 'loader', None) \
-                or getattr(i.related_model, 'objects')
-            if callable(f):
-                fkmap[i.name] = f()
-            else:
-                fkmap[i.name] = {
-                    tuple(a): pk for *a, pk
-                    in related_manager.filter(**f).values_list(*lookups, 'pk')
-                }
-            print(f'[{len(fkmap[i.name])} OK]')
-        del f
+        fkmap = FKMap(self.spec)
 
         pp = ProgressPrinter(f'{model_name} rows read from file')
         new_objs = []  # will be created
@@ -577,27 +541,34 @@ class BaseLoader(MibiosBaseManager):
                         row_skip_count += 1
                         break  # skips line
 
-                    value = field.to_python(value)
-                    if value in obj_pool:
-                        obj = obj_pool[value]
+                    if field.many_to_one and field.name in fkmap:
+                        pool_key = fkmap.get_pk(field, value)
+                    else:
+                        pool_key = field.to_python(value)
+
+                    try:
+                        obj = obj_pool[pool_key]
+                    except KeyError:
+                        if strict_update:
+                            raise InputFileError(
+                                f'strict update violation at line {lineno}: '
+                                f'record with ID value(s) "{pool_key}" does '
+                                f'not exist in DB'
+                            )
+                        else:
+                            # not found, obj remains None, create new one below
+                            pass
+                    else:
+                        # ensure obj is only updated once
                         if obj is None:
                             raise InputFileError(
                                 f'duplicate key value: {value} at line '
                                 f'{lineno}'
                             )
-                        obj_pool[value] = None
+                        obj_pool[pool_key] = None
                         obj_is_new = False
                         # the value is already set, go to next field please
                         continue
-                    elif strict_update:
-                        raise InputFileError(
-                            f'strict update violation at line {lineno}: '
-                            f'record with ID value "{value}" does not '
-                            f'exist in DB'
-                        )
-                    else:
-                        # not found, obj remains None, create new one below
-                        pass
 
                 if obj is None:
                     obj = self.model(**template)
@@ -625,29 +596,15 @@ class BaseLoader(MibiosBaseManager):
                     setattr(obj, field.name, field.get_default())
 
                 elif field.many_to_one:
-                    if field.name in fkmap:
-                        if not isinstance(value, tuple):
-
-                            value = (value, )  # fkmap keys are tuples
-                        try:
-                            value = tuple((
-                                fn(v) for fn, v
-                                in zip(fk2pythons[field.name], value)
-                            ))
-                        except Exception as e:
-                            print(f'conversion to python values failed: {e}')
-                            raise e
-
-                        try:
-                            pk = fkmap[field.name][value]
-                        except KeyError:
-                            pk = None
-                    else:
+                    try:
+                        pk = fkmap.get_pk(field, value)
+                    except KeyError:
                         # value is PK
                         if isinstance(value, int):
                             pk = value
                         else:
                             pk = None
+
                     if pk is None:
                         # FK target object does not exist
                         missing_fks[field.name].add(value)
@@ -1062,18 +1019,23 @@ class BaseLoader(MibiosBaseManager):
         into account if conversion functions are used to mangle the field's
         value to match the keys.
         """
-        pool_key_fields = [
-            i.name for i in self.model.get_accession_fields()
+        # 1. get the key(s) with which to index the pool
+        key_fields = [
+            i for i in self.model.get_accession_fields()
             if i.name not in template
         ]
-        get_pool_key = attrgetter(*pool_key_fields)
+        # use attname, so for FKs we index by PK
+        get_pool_key = attrgetter(*[i.attname for i in key_fields])
         # so the key is either a scalar value or a tuple of values
+
+        qs = self.filter(**template)
+
         obj_pool = {}
-        for i in self.filter(**template):
+        for i in qs:
             key = get_pool_key(i)
             if key in obj_pool:
-                # Field should be unique, but maybe nulls are allowed, anyways,
-                # can't let this go through here
+                # Field should be unique (after any template filter), but maybe
+                # nulls are allowed, anyways, can't let this go through here
                 raise RuntimeError(f'duplicate key: {key=} {len(obj_pool)=}')
             obj_pool[key] = i
         return obj_pool
