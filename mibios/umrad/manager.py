@@ -691,12 +691,13 @@ class BaseLoader(MibiosBaseManager):
 
         if update or delete:
             missing_objs = [(j.pk, i) for i, j in obj_pool.items() if j]
-            if missing_objs:
-                print(f'WARNING: {len(missing_objs)} existing {model_name} '
-                      f'records missing from input data')
             del obj_pool
-            if not diff_stats:
-                del missing_objs
+            if not delete:
+                if missing_objs:
+                    print(f'WARNING: {len(missing_objs)} existing {model_name}'
+                          f' records not updated (missing from input data)')
+                if not diff_stats:
+                    del missing_objs
 
         sleep(0.2)  # let the progress meter finish before printing warnings
 
