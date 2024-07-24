@@ -108,6 +108,14 @@ class Job:
             )
         self.tracking.full_clean()
         self.tracking.save()
+
+        # clear cached tracking data, then update status
+        try:
+            del self.sample._prefetched_objects_cache['tracking']
+        except (AttributeError, KeyError):
+            pass
+        self.status(use_cache=False)
+
         return retval
 
     @classmethod
