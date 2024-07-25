@@ -16,7 +16,7 @@ import traceback
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db.transaction import atomic
+from django.db.transaction import atomic, set_rollback
 from django.utils.functional import cached_property
 from django.utils.module_loading import import_string
 
@@ -890,12 +890,25 @@ class SampleLoader(MetaDataLoader):
         # fail silently
         return self.filter(sample_id__in=blocklist)
 
-    @atomic_dry
     @gentle_int
-    def load_omics_data(self, jobs=None, samples=None):
+    def load_omics_data(self, jobs=None, samples=None, dry_run=False):
         """
         Run given jobs or ready jobs for given samples
+
+        This is a wrapper to handle the dry_run parameter.  In a dry run
+        everything is done inside an outer transaction that is then rolled
+        back, as usual.  But in a production run we don't want the outer
+        transaction as to not lose work of successful jobs when we later crash.
         """
+        if dry_run:
+            with atomic():
+                ret = self._load_omics_data(jobs=jobs, samples=samples)
+                set_rollback(True)
+                return ret
+        else:
+            return self._load_omics_data(jobs=jobs, samples=samples)
+
+    def _load_omics_data(self, jobs=None, samples=None):
         if jobs and samples:
             raise ValueError('either provide jobs or sample, not both')
 
