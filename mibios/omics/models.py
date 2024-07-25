@@ -1202,7 +1202,7 @@ class File(Model):
                     ofile.write(f'{dt}\t{relpath}\n')
 
     @classmethod
-    def load_pipeline_checkout(cls, path='omics.checkout.txt'):
+    def load_pipeline_checkout(cls, path=settings.OMICS_CHECKOUT_FILE):
         """
         helper to import the omics pipeline good output files listing
 

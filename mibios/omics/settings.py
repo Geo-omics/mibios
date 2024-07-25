@@ -52,12 +52,19 @@ DATABASES = get_db_settings()
 INTERNAL_DEPLOYMENT = False
 
 OMICS_DATA_ROOT = Path()  # noqa:F405
+
 KRONA_CACHE_DIR = './krona-cache'
+
 GLOBUS_DIRECT_URL_BASE = None
 """ root Globus url for publicly accessible direct download links """
+
 GLOBUS_FILE_APP_URL_BASE = None
 """ root Globus url for file app, publicly shared directory """
+
 PUBLIC_DATA_ROOT = None
 """ path to publicly accessible directory on staging server, this needs to be
 set even on other deployments so that relative paths to the public files can be
 computed """
+
+OMICS_CHECKOUT_FILE = None
+""" path to the file checkout listing """
