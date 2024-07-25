@@ -926,11 +926,13 @@ class SampleLoader(MetaDataLoader):
                 for sample, job_grp
                 in groupby(jobs, key=lambda x: x.sample)
             ]
+            sample_count = len(set((i for i, _ in jobs_per_sample)))
             if samples:
-                sample_count = len(samples)
-            else:
-                sample_count = len(set((i for i, _ in jobs_per_sample)))
-            print(f'samples: {sample_count} -- total jobs: {jobs_total}')
+                if no_job_sample_count := len(samples) - sample_count:
+                    print(f'{no_job_sample_count} of the given samples have no'
+                          f' jobs ready')
+            print(f'{jobs_total} jobs over {sample_count} samples are ready to'
+                  f'go...')
 
         template = '[ {sample} {{stage}}/{{total_stages}} {{{{timestamp}}}} ]  '  # noqa: E501
         fkmap_cache_reset()
@@ -950,6 +952,9 @@ class SampleLoader(MetaDataLoader):
                     file_copy=settings.OMICS_LOADING_LOG,
                 )
                 with atomic(), timestamper:
+                    if stage == 1:
+                        print(f'--> {type(job).__name__}')
+
                     try:
                         job()
                     except KeyboardInterrupt as e:
