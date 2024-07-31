@@ -398,7 +398,7 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
         ('microcystis_count', 'microcystis_count', parse_human_int),  # BL
         ('planktothrix_count', 'planktothrix_count', parse_human_int),  # BM
         ('anabaena_D_count', 'anabaena_d_count', parse_human_int),  # BN
-        ('sampling_device', 'sampling_device'),  # BR
+        ('samp_collect_device', 'sampling_device'),  # BX
         ('modified_or_experimental', 'modified_or_experimental', 'parse_bool'),
         ('is_isolate', 'is_isolate', 'parse_bool'),  # BT
         ('is_blank_neg_control', 'is_neg_control', 'parse_bool'),  # BU

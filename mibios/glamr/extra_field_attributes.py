@@ -27,7 +27,6 @@ extra_sample_field_attrs = {
     'potassium': {'verbose_name': 'Potassium', 'unit': 'mg/L'},
     'phosphate': {'verbose_name': 'Phosphate', 'unit': 'mg/L'},
     'magnesium': {'verbose_name': 'Magnesium', 'unit': 'mg/L'},
-    'nitrate': {'verbose_name': 'Nitrate', 'unit': 'mg/L'},
     'ammonium': {'verbose_name': 'Ammonium', 'unit': 'mg/L'},
     'secchi': {'verbose_name': 'Secchi depth', 'unit': 'm'},
     'part_microcyst': {'verbose_name': 'Particulate microcystin', 'unit': 'μg/L'},
@@ -42,6 +41,7 @@ extra_sample_field_attrs = {
     'soluble_react_phos': {'verbose_name': 'Soluble reactive phosphorus', 'unit': 'μg/L'},
     'ammonia': {'verbose_name': 'Ammonia', 'unit': 'μg/L'},
     'nitrate_nitrite': {'verbose_name': 'Nitrate and nitrite', 'unit': 'mg/L'},
+    'nitrate': {'verbose_name': 'Nitrate', 'unit': 'mg/L'},
     'nitrite': {'verbose_name': 'Nitrite', 'unit': 'μg/L'},
     'urea': {'verbose_name': 'Urea', 'unit': 'μg/L'},
     'part_org_carb': {'verbose_name': 'Particulate organic carbon', 'unit': 'mg/L'},
@@ -92,4 +92,5 @@ extra_sample_field_attrs = {
     'orp': {'verbose_name': 'Redox potential-ORP', 'unit': 'millivolts (mV)'},
     'cyano_sonde': {'verbose_name': 'AlgaeTorch Cyanobacterial abundance detection (cyanobacteria chlorophyll-a)', 'unit': 'c/L'},
     'total_sonde': {'verbose_name': 'AlgaeTorch total chlorophyll-a detection', 'unit': 'c/L'},
+    'sampling_device': {'verbose_name': 'Method or device employed for collecting sample'},
 }
