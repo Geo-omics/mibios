@@ -64,7 +64,8 @@ class Command(BaseCommand):
                         attrs['unit'] = unit
 
                 if not field_name:
-                    # ignore this row
+                    print(f'[WARNING] django fieldname missing: line:{lineno} '
+                          f'{row[0]=}')
                     continue
 
                 try:
@@ -82,6 +83,15 @@ class Command(BaseCommand):
                     )
 
                 data[field_name] = attrs
+
+        unlisted = [
+            i.name for i in Sample._meta.get_fields()
+            if i.name not in data and not i.many_to_one and not i.one_to_many
+        ]
+        if unlisted:
+            print('[Notice] Fields not listed in units sheet:')
+            for i in unlisted:
+                print('   ', i)
 
         app_conf = apps.get_app_config(Sample._meta.app_label)
         templ_path = Path(app_conf.path) / TEMPLATE
