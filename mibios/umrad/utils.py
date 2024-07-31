@@ -826,6 +826,10 @@ def compile_ranges(int_list, min_range_size=2, max_num_ranges=None):
         # just being explicit, 0 would mess up the logic below
         raise ValueError('max_num_ranges must None or >= 1')
 
+    ints = sorted(set(int_list))
+    if not ints:
+        return [], []
+
     END = object()
     singles = []
     ranges = []
@@ -833,14 +837,11 @@ def compile_ranges(int_list, min_range_size=2, max_num_ranges=None):
     range_min = None
     range_max = None
 
-    ints = chain(sorted(set(int_list)), [END])
+    ints = chain(ints, [END])
+    # initialize a range from first (smallest) element
     first = next(ints)
-    if first is END:
-        return ranges, singles
-    else:
-        # initialize a range
-        range_min = first
-        range_max = first
+    range_min = first
+    range_max = first
 
     for i in ints:
         if i == range_max + 1:
@@ -852,16 +853,19 @@ def compile_ranges(int_list, min_range_size=2, max_num_ranges=None):
                 ranges.append((range_min, range_max))
                 num_ranges += 1
                 if max_num_ranges and num_ranges >= max_num_ranges:
+                    # just do singles from here on
+                    singles.append(i)
                     break
             else:
+                # range too small
                 for j in range(range_min, range_max + 1):
                     singles.append(j)
-            # start new range
+            # start new range, assigns END before exiting
             range_min = i
             range_max = i
 
-    singles.extend(ints)
-    if singles[-1] is END:
+    singles.extend(ints)  # noop unless coming from break
+    if singles and singles[-1] is END:
         # max_num_ranges was reached, rm end marker
         singles.pop()
 
