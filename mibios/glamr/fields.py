@@ -1,5 +1,5 @@
 from django.core.validators import URLValidator
-from django.db.models import URLField
+from django.db.models import DecimalField, URLField
 
 
 class OptionalHTTPSURLValidator(URLValidator):
@@ -20,3 +20,16 @@ class OptionalURLField(URLField):
     def __init__(self, **kwargs):
         kwargs.setdefault('blank', True)
         super().__init__(**kwargs)
+
+
+class FreeDecimalField(DecimalField):
+    def db_type(self, connection):
+        """
+        On postgres use the 'numeric' type without parameters
+
+        For other vendors degrade to normal behaviour.
+        """
+        if connection.vendor == 'postgresql':
+            return 'numeric'
+        else:
+            return super().db_type(connection)
