@@ -249,7 +249,10 @@ class Command(BaseCommand):
         decs = counts['decs']
         values = [str(i) for i in list(ints) + list(decs)]
         # max number of digits in a value:
-        maxdigits = max((len(i.replace('.', '')) for i in values))
+        maxdigits = max((
+            len(i.removeprefix('-').replace('.', ''))
+            for i in values
+        ))
         # collect numbers of fractional places occurring in values
         places = sorted(set((len(i.partition('.')[2]) for i in values)))
         return maxdigits, places
