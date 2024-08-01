@@ -142,7 +142,7 @@ class Command(BaseCommand):
         strings = Counter()
 
         for i in self.data[colname]:
-            if i in ['', 'NF', 'NA']:
+            if i in ['', 'NF', 'NA', 'N/A']:
                 blanks[i] += 1
                 continue
 
