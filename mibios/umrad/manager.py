@@ -1,4 +1,5 @@
 from collections import defaultdict
+from decimal import Decimal
 from functools import partial
 from inspect import trace
 from itertools import islice
@@ -701,13 +702,19 @@ class BaseLoader(MibiosBaseManager):
                 old_objs = self.filter(upd_q)
                 upd_objs_by_pk = {i.pk: i for i in upd_objs}  # for fast access
                 old_value, upd_value, items = None, None, None
-                for i in old_objs.iterator():
+                for i in old_objs:
                     # compile differences
                     items = []
                     for j in update_fields:
                         old_value = getattr(i, j)
                         upd_value = getattr(upd_objs_by_pk[i.pk], j)
-                        if old_value != upd_value:
+                        if isinstance(old_value, Decimal) and isinstance(upd_value, Decimal):  # noqa:E501
+                            # since Decimal('1') == Decimal('1.0'), but we want
+                            # to tell the difference
+                            is_equal = lambda a, b: not a.compare_total(b)  # noqa: E731,E501
+                        else:
+                            is_equal = lambda a, b: a == b  # noqa: E731
+                        if not is_equal(old_value, upd_value):
                             items.append((j, old_value, upd_value))
                     if items:
                         diff['change_set'].append(
