@@ -244,7 +244,8 @@ class SampleInputSpec(CSV_Spec):
 
 class SampleLoader(BoolColMixin, OmicsSampleLoader):
     """ loader for Great_Lakes_Omics_Datasets.xlsx """
-    empty_values = ['NA', 'Not Listed', 'NF', '#N/A', 'ND', 'not applicable']
+    empty_values = ['NA', 'Not Listed', 'NF', '#N/A', 'ND', 'not applicable',
+                    'N/A']
 
     def load_all_meta_data(self, dry_run=False):
         """
