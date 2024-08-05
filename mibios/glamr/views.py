@@ -633,17 +633,19 @@ class MapMixin():
 
         Returns a dict str->str to be turned into json in the template.
         """
-        qs = self.get_sample_queryset()
-        qs = qs.exclude(longitude='')
-        qs = qs.exclude(latitude='')
-        qs = qs.select_related('dataset')
-        qs = qs.values(
+        # Sample fields to be included in map data:
+        map_data_fields = [
             'id', 'sample_name', 'latitude', 'longitude', 'sample_type',
-            'dataset_id', 'collection_timestamp', 'sample_id', 'biosample',
-        )
+            'collection_timestamp', 'sample_id', 'biosample',
+        ]
+        qs = self.get_sample_queryset()
+        qs = qs.exclude(longitude=None)
+        qs = qs.exclude(latitude=None)
+        qs = qs.select_related('dataset')
+        qs = qs.only(*map_data_fields, 'dataset_id')
         qs = qs.order_by('longitude', 'latitude')
 
-        dataset_pks = set((i['dataset_id'] for i in qs))
+        dataset_pks = set((i.dataset_id for i in qs))
         datasets = Dataset.objects.filter(pk__in=dataset_pks)
         # str() will access the reference
         datasets = datasets.select_related('primary_ref')
@@ -652,21 +654,23 @@ class MapMixin():
 
         base_cnf = DataConfig(Sample)
         map_data = []
-        by_coords = groupby(qs, key=lambda x: (x['longitude'], x['latitude']))
+        by_coords = groupby(qs, key=lambda x: (x.longitude, x.latitude))
         for coords, grp in by_coords:
             grp = list(grp)
-
             # take only the first sample at these coordinates
-            item = grp[0]
+            sample = grp[0]
 
-            item['sample_url'] = fast_reverse(
-                'sample', args=[item['sample_id'].removeprefix('samp_')],
-            )
+            item = {i: getattr(sample, i) for i in map_data_fields}
+
+            try:
+                sample_url_args = [sample.get_samp_no()]
+            except ValueError:
+                sample_url_args = ['pk:', sample.pk]
+            item['sample_url'] = fast_reverse('sample', args=sample_url_args)
             item['dataset_url'] = fast_reverse(
-                'dataset', args=[dataset_no[item['dataset_id']]],
+                'dataset', args=[dataset_no[sample.dataset_id]],
             )
-            item['dataset_name'] = dataset_name[item['dataset_id']]
-            del item['dataset_id']
+            item['dataset_name'] = dataset_name[sample.dataset_id]
 
             # types_at_location: construct a CSS selector prefix for the map
             # marker/icon.  The map javascript will add '-icon'.  Assumes that
@@ -674,7 +678,7 @@ class MapMixin():
             # no sample in the group has a sample_type then we put in an empty
             # string, resulting in a (hopefully) invalid selector in which case
             # no marker will be displayed.
-            stypes = set((i['sample_type'] for i in grp if i['sample_type']))
+            stypes = set((i.sample_type for i in grp if i.sample_type))
             item['types_at_location'] = '-'.join(sorted(stypes))
 
             if len(grp) > 1:

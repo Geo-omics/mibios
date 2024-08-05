@@ -638,6 +638,14 @@ class Sample(AbstractSample):
             kwargs['ktype'] = 'pk:'
         return reverse('sample', kwargs=kwargs)
 
+    def get_samp_no(self):
+        """
+        Get sample_id number: "samp_NNN" -> NNN
+
+        Raises ValueError if sample_id does not conform to convention.
+        """
+        return int(self.sample_id.removeprefix('samp_'))
+
     def format_collection_timestamp(self):
         """
         format partial timestamp
