@@ -52,7 +52,7 @@ def get_record_url(*args, **kwargs):
         # called with object
         obj = args[0]
         if hasattr(obj, 'get_record_url'):
-            return obj.get_record_url(obj, ktype=None)
+            return obj.get_record_url(obj)
         model_name = obj._meta.model_name
         key = obj.pk
         ktype = None

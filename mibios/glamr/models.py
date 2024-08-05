@@ -34,6 +34,67 @@ from .queryset import (
 )
 
 
+class IDMixin:
+    """ model mixin to support the standard GLAMR ID pattern """
+
+    ID_PREFIX = None
+    """ The implementing model must set this. """
+
+    def get_record_id_no(self):
+        """
+        Strip ID prefix and return the record's ID number (as int)
+
+        Raises ValueError if the ID does not conform to convention.  The
+        implementing model must have a {model_name}_id field/attribute to hold
+        the record ID.
+        """
+        id_attr = self._meta.model_name + '_id'
+        return int(getattr(self, id_attr).removeprefix(self.ID_PREFIX))
+
+    @classmethod
+    def _get_url_template(cls):
+        """ helper to get record URL """
+        try:
+            return cls._url_template
+        except AttributeError:
+            # model name must also be URL name
+            # arg number and order must correspond to url conf
+            cls._url_template = reverse(
+                cls._meta.model_name,
+                args=['_KTYPE_', '_KEY_'],
+            )
+            return cls._url_template
+
+    @classmethod
+    def get_record_url(cls, key, ktype=''):
+        if ktype is None:
+            ktype = ''
+
+        if ktype:
+            ktype.removesuffix(':')
+            if ktype != 'pk':
+                raise ValueError(f'illegal key type: {ktype=}')
+
+        if isinstance(key, cls):
+            # object given
+            if ktype == '':
+                try:
+                    key = str(key.get_record_id_no())
+                except ValueError:
+                    # unusual sample_id, degrade to pk: url style
+                    ktype = 'pk'
+
+            if ktype == 'pk':
+                key = key.pk
+
+        return (cls._get_url_template()
+                .replace('_KTYPE_', ktype)
+                .replace('_KEY_', key))
+
+    def get_absolute_url(self):
+        return self.get_record_url(self)
+
+
 class AboutInfo(Model):
     when_published = models.DateTimeField(null=True, blank=True, unique=True)
     src_version = models.TextField()
@@ -210,7 +271,7 @@ class Credit(Model):
         return obj
 
 
-class Dataset(AbstractDataset):
+class Dataset(IDMixin, AbstractDataset):
     """
     A collection of related samples, e.g. a study or project
     """
@@ -290,6 +351,8 @@ class Dataset(AbstractDataset):
     EXTERNAL_ACCN_FIELDS = \
         ['bioproject', 'jgi_project', 'gold_id', 'mgrast_study']
 
+    ID_PREFIX = 'set_'
+
     @classmethod
     def get_internal_fields(cls):
         """
@@ -337,24 +400,6 @@ class Dataset(AbstractDataset):
 
         return s
 
-    @classmethod
-    def get_record_url(cls, key, ktype=None):
-        if ktype is not None:
-            ktype.removesuffix(':')
-            if ktype != 'pk':
-                raise ValueError(f'illegal key type: {ktype=}')
-        if isinstance(key, cls):
-            # object given
-            if ktype == 'pk':
-                key = key.pk
-            else:
-                key = key.get_set_no()
-
-        kwargs = dict(key=key)
-        if ktype == 'pk':
-            kwargs['ktype'] = 'pk:'
-        return reverse('dataset', kwargs=kwargs)
-
     URL_TEMPLATES = {
         'bioproject': {
             '^PRJNA': 'https://www.ncbi.nlm.nih.gov/bioproject/{}',
@@ -384,14 +429,11 @@ class Dataset(AbstractDataset):
         elif self.accession_db == self.DB_JGI:
             return f'https://genome.jgi.doe.gov/portal/?core=genome&query={self.accession}'  # noqa: E501
 
-    def get_absolute_url(self):
-        return self.get_record_url(self)
-
     def get_samples_url(self):
         return reverse('dataset_sample_list', args=[self.get_set_no()])
 
 
-class Reference(Model):
+class Reference(IDMixin, Model):
     """
     A journal article or similar, primary reference for a data set
     """
@@ -421,6 +463,8 @@ class Reference(Model):
     class Meta:
         verbose_name = 'publication'
 
+    ID_PREFIX = 'paper_'
+
     def __str__(self):
         maxlen = 60
         value = f'{self.short_reference} "{self.title}"'
@@ -433,32 +477,8 @@ class Reference(Model):
             value = f'{value} ({self.reference_id})'
         return value
 
-    def get_paper_no(self):
-        return self.reference_id.removeprefix('paper_')
 
-    @classmethod
-    def get_record_url(cls, key, ktype=None):
-        if ktype is not None:
-            ktype.removesuffix(':')
-            if ktype != 'pk':
-                raise ValueError(f'illegal key type: {ktype=}')
-        if isinstance(key, cls):
-            # object given
-            if ktype == 'pk':
-                key = key.pk
-            else:
-                key = key.get_paper_no()
-
-        kwargs = dict(key=key)
-        if ktype == 'pk':
-            kwargs['ktype'] = 'pk:'
-        return reverse('reference', kwargs=kwargs)
-
-    def get_absolute_url(self):
-        return self.get_record_url(self)
-
-
-class Sample(AbstractSample):
+class Sample(IDMixin, AbstractSample):
     DATE_ONLY = 'date_only'
     YEAR_ONLY = 'year_only'
     MONTH_ONLY = 'month_only'
@@ -596,6 +616,8 @@ class Sample(AbstractSample):
     objects = SampleManager.from_queryset(SampleQuerySet)()
     loader = SampleLoader.from_queryset(SampleQuerySet)()
 
+    ID_PREFIX = 'samp_'
+
     class Meta:
         default_manager_name = 'objects'
 
@@ -619,32 +641,6 @@ class Sample(AbstractSample):
             'notes',
         ]
         return fields
-
-    @classmethod
-    def get_record_url(cls, key, ktype=None):
-        if ktype is not None:
-            ktype.removesuffix(':')
-            if ktype != 'pk':
-                raise ValueError(f'illegal key type: {ktype=}')
-        if isinstance(key, cls):
-            # object given
-            if ktype == 'pk':
-                key = key.pk
-            else:
-                key = key.get_samp_no()
-
-        kwargs = dict(key=key)
-        if ktype == 'pk':
-            kwargs['ktype'] = 'pk:'
-        return reverse('sample', kwargs=kwargs)
-
-    def get_samp_no(self):
-        """
-        Get sample_id number: "samp_NNN" -> NNN
-
-        Raises ValueError if sample_id does not conform to convention.
-        """
-        return int(self.sample_id.removeprefix('samp_'))
 
     def format_collection_timestamp(self):
         """

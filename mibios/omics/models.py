@@ -137,10 +137,6 @@ class AbstractSample(Model):
             if i.name.endswith(('_ok', '_loaded'))
         ]
 
-    def get_samp_no(self):
-        """ Get sample_id number: "samp_NNN" -> NNN """
-        return int(self.sample_id.removeprefix('samp_'))
-
     def load_bins(self):
         if not self.binning_ok:
             with atomic():

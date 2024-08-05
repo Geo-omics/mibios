@@ -45,7 +45,6 @@ from . import models, tables, GREAT_LAKES
 from .forms import QBuilderForm, QLeafEditForm, SearchForm
 from .search_fields import ADVANCED_SEARCH_MODELS, search_fields
 from .search_utils import get_suggestions
-from .url_utils import fast_reverse
 from .utils import estimate_row_totals, get_record_url
 
 
@@ -645,9 +644,8 @@ class MapMixin():
         qs = qs.only(*map_data_fields, 'dataset_id')
         qs = qs.order_by('longitude', 'latitude')
 
-        datasets = set((i.dataset for i in qs))
-        dataset_name = {i.pk: str(i) for i in datasets}  # str needs the refs
-        dataset_no = {i.pk: i.get_set_no() for i in datasets}
+        # str needs the refs
+        dataset_name = {i.pk: str(i) for i in set((j.dataset for j in qs))}
 
         base_cnf = DataConfig(Sample)
         map_data = []
@@ -659,14 +657,8 @@ class MapMixin():
 
             item = {i: getattr(sample, i) for i in map_data_fields}
 
-            try:
-                sample_url_args = [sample.get_samp_no()]
-            except ValueError:
-                sample_url_args = ['pk:', sample.pk]
-            item['sample_url'] = fast_reverse('sample', args=sample_url_args)
-            item['dataset_url'] = fast_reverse(
-                'dataset', args=[dataset_no[sample.dataset_id]],
-            )
+            item['sample_url'] = sample.get_absolute_url()
+            item['dataset_url'] = sample.dataset.get_absolute_url()
             item['dataset_name'] = dataset_name[sample.dataset_id]
 
             # types_at_location: construct a CSS selector prefix for the map
@@ -1843,7 +1835,7 @@ class SampleView(RecordView):
         if not obj.private:
             if SampleTracking.Flag.TAXABUND in tr:
                 krona_url = reverse(
-                    'krona', kwargs=dict(samp_no=obj.get_samp_no())
+                    'krona', kwargs=dict(samp_no=obj.get_record_id_no())
                 )
                 taxabund_url = reverse(
                     'relations',
