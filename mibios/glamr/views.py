@@ -641,15 +641,12 @@ class MapMixin():
         qs = self.get_sample_queryset()
         qs = qs.exclude(longitude=None)
         qs = qs.exclude(latitude=None)
-        qs = qs.select_related('dataset')
+        qs = qs.prefetch_related('dataset', 'dataset__primary_ref')
         qs = qs.only(*map_data_fields, 'dataset_id')
         qs = qs.order_by('longitude', 'latitude')
 
-        dataset_pks = set((i.dataset_id for i in qs))
-        datasets = Dataset.objects.filter(pk__in=dataset_pks)
-        # str() will access the reference
-        datasets = datasets.select_related('primary_ref')
-        dataset_name = {i.pk: str(i) for i in datasets}
+        datasets = set((i.dataset for i in qs))
+        dataset_name = {i.pk: str(i) for i in datasets}  # str needs the refs
         dataset_no = {i.pk: i.get_set_no() for i in datasets}
 
         base_cnf = DataConfig(Sample)
