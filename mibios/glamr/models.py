@@ -44,12 +44,19 @@ class IDMixin:
         """
         Strip ID prefix and return the record's ID number (as int)
 
-        Raises ValueError if the ID does not conform to convention.  The
-        implementing model must have a {model_name}_id field/attribute to hold
+        Raises ValueError if the ID does not conform to convention.  We want to
+        be rather strict when parsing the ID as elsewhere we do the reverse,
+        re-creating the ID from the number. This may not result in the original
+        value.  E.g. int() is lossy as in int(' 123 ') == 123 is True.
+
+        Implementing model must have a {model_name}_id field/attribute to hold
         the record ID.
         """
         id_attr = self._meta.model_name + '_id'
-        return int(getattr(self, id_attr).removeprefix(self.ID_PREFIX))
+        value = getattr(self, id_attr).removeprefix(self.ID_PREFIX)
+        if not value.isdecimal():
+            raise ValueError('value without prefix must be decimal')
+        return int(value)
 
     @classmethod
     def _get_url_template(cls):
@@ -79,7 +86,7 @@ class IDMixin:
             # object given
             if ktype == '':
                 try:
-                    key = str(key.get_record_id_no())
+                    key = key.get_record_id_no()
                 except ValueError:
                     # unusual sample_id, degrade to pk: url style
                     ktype = 'pk'
@@ -87,9 +94,12 @@ class IDMixin:
             if ktype == 'pk':
                 key = key.pk
 
+        if ktype:
+            ktype += ':'
+
         return (cls._get_url_template()
                 .replace('_KTYPE_', ktype)
-                .replace('_KEY_', key))
+                .replace('_KEY_', str(key)))
 
     def get_absolute_url(self):
         return self.get_record_url(self)
