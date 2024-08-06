@@ -57,7 +57,8 @@ class SampleQuerySet(QuerySet):
         SampleTracking = import_string('mibios.omics.models.SampleTracking')
 
         qs = self
-        blocklist = self._manager.get_blocklist().values_list('pk', flat=True)
+        blocklist = \
+            self._manager.get_omics_blocklist().values_list('pk', flat=True)
         if blocklist:
             print(f'{qs.filter(pk__in=blocklist).count()} samples '
                   f'in blocklist')

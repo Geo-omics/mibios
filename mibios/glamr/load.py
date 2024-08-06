@@ -22,6 +22,7 @@ from mibios.umrad.manager import (
 from mibios.umrad.model_utils import delete_all_objects_quickly
 from mibios.umrad.utils import CSV_Spec, atomic_dry, SpecError
 from mibios.omics.models import SampleTracking
+from mibios.omics.utils import get_sample_blocklist
 
 from .search_fields import search_fields
 
@@ -271,21 +272,39 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
         """ Remove leading "SAMPLE_" from accession value """
         return value.removeprefix('Sample_')
 
-    def check_empty(self, sample_id_value, obj):
-        """ check to allow skipping essentially empty rows """
-        if not sample_id_value:
+    def check_sample_id(self, value, obj):
+        """
+        allow skipping row based on blank or blocked sample_id
+
+        Also checks the whole row against the blocklist.
+        """
+        if not value:
             return self.spec.SKIP_ROW
 
+        if value in self.blocklist:
+            if blocked_fields := self.blocklist[value]:
+                # mask values for fields on blocklist
+                row_data = enumerate(self.current_row_data[1:], start=1)
+                for pos, (field, fn, _) in row_data:
+                    if field.name in blocked_fields:
+                        self.current_row_data[pos] = \
+                                (field, fn, self.spec.IGNORE_COLUMN)
+            else:
+                # no fields specified means block whole sample
+                return self.spec.SKIP_ROW
+
         # check other values in row
-        for f, _, value in self.current_row_data[1:]:
-            if value is None or value is self.spec.IGNORE_COLUMN:
+        for f, _, other in self.current_row_data[1:]:
+            if other in self.empty_values or other is None or other is self.spec.IGNORE_COLUMN:  # noqa:E501
                 continue
             else:
-                # keep going normally
-                return sample_id_value
+                break  # row is non-empty
+        else:
+            # consider row blank
+            return self.spec.SKIP_ROW
 
-        # consider row blank
-        return self.spec.SKIP_ROW
+        # keep going normally
+        return value
 
     # re for yyyy or yyyy-mm (year or year/month only) timestamp formats
     partial_date_pat = re.compile(r'^([0-9]{4})(?:-([0-9]{2})?)$')
@@ -374,7 +393,7 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
             return value
 
     spec = SampleInputSpec(
-        ('SampleID', 'sample_id', check_empty),  # A
+        ('SampleID', 'sample_id', check_sample_id),  # A
         # id_fixed B  --> ignore
         # sample_input_complete C  --> ignore
         ('SampleName', 'sample_name'),  # D
@@ -412,6 +431,10 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
         """ samples meta data """
         self._saved_samples = []
         post_save.connect(self.on_save, sender=self.model)
+        self.blocklist = {
+            key: [i for i in field_list if i != 'omics']
+            for key, field_list in get_sample_blocklist().items()
+        }
         self.load(**kwargs)
         flag = SampleTracking.Flag.METADATA
         for i in self._saved_samples:

@@ -2,6 +2,7 @@ from contextlib import redirect_stdout
 from datetime import datetime
 from functools import wraps
 from operator import methodcaller
+import shlex
 import sys
 
 from django.apps import apps as django_apps
@@ -311,3 +312,31 @@ def gentle_int(fn):
             print(f'\n<returning from {fn} via keyboard interrupt>')
             return
     return wrapper
+
+
+def get_sample_blocklist(file=None):
+    """
+    Read and parse the block list
+
+    The blocklist has this format:
+
+    Lines first list the sample record ID / first field in the sample sheet.
+    This ID string must be quoted if it contains white space.  Optional the ID
+    is followed by the work "omics" or any number of sample field names.  Empty
+    lines and comment lines starting with # are ignored.
+    """
+    if file is None:
+        file = settings.SAMPLE_BLOCKLIST
+        if not file:
+            return {}
+
+    blocklist = {}
+    with open(file) as ifile:
+        for line in ifile:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+
+            record_id, *fields = shlex.split(line)
+            blocklist[record_id] = fields
+    return blocklist

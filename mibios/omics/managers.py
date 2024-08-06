@@ -30,7 +30,8 @@ from mibios.umrad.manager import BulkLoader, Manager, MetaDataLoader
 from mibios.umrad.utils import CSV_Spec, atomic_dry, InputFileError
 
 from . import get_sample_model
-from .utils import call_each, gentle_int, get_fasta_sequence, Timestamper
+from .utils import (call_each, gentle_int, get_fasta_sequence,
+                    get_sample_blocklist, Timestamper)
 
 log = getLogger(__name__)
 
@@ -868,23 +869,17 @@ class SampleLoader(MetaDataLoader):
             ('gene_alignments_loaded', Gene.loader.load_alignments),
         ]
 
-    def get_blocklist(self):
+    def get_omics_blocklist(self):
         """
-        Return QuerySet of blocked samples
+        Return QuerySet of samples for which 'omics data loading is blocked
 
         Blocked samples are those for which something is wrong with the omics
-        data.  Beyond meta-data no other data should be loaded.
+        data.
         """
-        if not settings.SAMPLE_BLOCKLIST:
-            return self.none()
-
         blocklist = []
-        with open(settings.SAMPLE_BLOCKLIST) as ifile:
-            for line in ifile:
-                line = line.strip()
-                if line.startswith('#'):
-                    continue
-                blocklist.append(line)
+        for sample_id, fields in get_sample_blocklist().items():
+            if not fields or 'omics' in fields:
+                blocklist.append(sample_id)
 
         # assumes the block list has valid sample_id values, if not this will
         # fail silently
