@@ -1,4 +1,5 @@
 from django.apps import AppConfig as _AppConfig
+from django.core.exceptions import FieldDoesNotExist
 from django.utils.module_loading import import_string
 
 from mibios import __version__
@@ -24,11 +25,15 @@ class AppConfig(_AppConfig):
         else:
             Sample = self.get_model('Sample')
             for field_name, attrs in sample_field_attrs.items():
-                # raises FieldDoesNotExist if attrs module and Sample model
-                # went out of sync:
-                field = Sample._meta.get_field(field_name)
-                for attr_name, value in attrs.items():
-                    setattr(field, attr_name, value)
+                try:
+                    field = Sample._meta.get_field(field_name)
+                    for attr_name, value in attrs.items():
+                        setattr(field, attr_name, value)
+                except FieldDoesNotExist as e:
+                    # skip this, just issue a warning
+                    print(f'WARNING: Patching field attributes: {e}')
+                    print('This means that the Sample model and the '
+                          'extra_field_attributes module are out of sync.')
 
         # Monkey patching concrete fields of Searchable:
         # since the searchvector field is a generated column, we can't let the
