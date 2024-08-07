@@ -500,29 +500,12 @@ class Sample(IDMixin, AbstractSample):
         (FULL_TIMESTAMP, FULL_TIMESTAMP),
     )
 
-    project_id = models.TextField(
-        max_length=32, **ch_opt,
-        verbose_name='NCBI BioProject',
-        help_text='Project accession, e.g. NCBI bioproject',
-    )
+    project_id = models.TextField(max_length=32, **ch_opt)
     biosample = models.TextField(max_length=32, **ch_opt)
-    gold_analysis_id = models.TextField(
-        max_length=32, **ch_opt,
-        verbose_name='GOLD analysis ID',
-    )
-    gold_seq_id = models.TextField(
-        max_length=32,
-        **ch_opt,
-        verbose_name='GOLD sequencing project ID',
-    )
-    jgi_study = models.TextField(
-        max_length=32, **ch_opt,
-        verbose_name='JGI study ID',
-    )
-    jgi_biosample = models.TextField(
-        max_length=32, **ch_opt,
-        verbose_name='JGI biosample ID',
-    )
+    gold_analysis_id = models.TextField(max_length=32, **ch_opt)
+    gold_seq_id = models.TextField(max_length=32, **ch_opt)
+    jgi_study = models.TextField(max_length=32, **ch_opt)
+    jgi_biosample = models.TextField(max_length=32, **ch_opt)
     geo_loc_name = models.TextField(max_length=64, **ch_opt)
     gaz_id = models.TextField(max_length=32, **ch_opt, verbose_name='GAZ id')
     latitude = FreeDecimalField(max_digits=10, decimal_places=8, **opt)
@@ -562,7 +545,7 @@ class Sample(IDMixin, AbstractSample):
     ext_phyco = FreeDecimalField(max_digits=11, decimal_places=8, **opt)
     ext_microcyst = FreeDecimalField(max_digits=3, decimal_places=2, **opt)
     ext_anatox = FreeDecimalField(max_digits=3, decimal_places=2, **opt)
-    chlorophyl = FreeDecimalField(max_digits=10, decimal_places=7, **opt)
+    chlorophyll = FreeDecimalField(max_digits=10, decimal_places=7, **opt)
     total_phos = models.TextField(max_length=8, **ch_opt)
     diss_phos = FreeDecimalField(max_digits=7, decimal_places=4, **opt)
     soluble_react_phos = models.TextField(max_length=8, **ch_opt)
@@ -583,7 +566,7 @@ class Sample(IDMixin, AbstractSample):
     anabaena_d_count = models.PositiveIntegerField(**opt)
     cylindrospermopsis_count = models.PositiveIntegerField(**opt)
     ice_cover = models.PositiveSmallIntegerField(**opt)
-    chlorophyl_fluoresence = FreeDecimalField(max_digits=5, decimal_places=2, **opt)  # noqa:E501
+    chlorophyll_fluoresence = FreeDecimalField(max_digits=5, decimal_places=2, **opt)  # noqa:E501
     sampling_device = models.TextField(max_length=32, **ch_opt)
     modified_or_experimental = models.BooleanField(default=False)
     is_isolate = models.BooleanField(**opt)
