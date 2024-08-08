@@ -245,7 +245,7 @@ class SearchResult(dict):
             hits = {}
             overflow = set()  # to count object hits above soft limit
             for num, i in enumerate(grp, start=1):
-                if len(hits) >= soft_limit:
+                if soft_limit and len(hits) >= soft_limit:
                     overflow.add(i.object_id)
                     continue
 
@@ -258,7 +258,7 @@ class SearchResult(dict):
 
             data[model] = hits
             totals[model] = len(hits) + len(overflow)
-            at_hard_limit[model] = (num >= hard_limit)
+            at_hard_limit[model] = bool(hard_limit) and (num >= hard_limit)
 
         # forget pk keys and order model-wise by top rank
         _data = (
