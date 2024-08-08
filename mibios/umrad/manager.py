@@ -660,11 +660,12 @@ class BaseLoader(MibiosBaseManager):
         sleep(0.2)  # let the progress meter finish before printing warnings
 
         for fname, bad_ids in missing_fks.items():
+            bad_id_list = [
+                [str(j) for j in i] if isinstance(i, tuple) else str(i)
+                for i in islice(bad_ids, 5)
+            ]
             print(f'WARNING: found {len(bad_ids)} distinct unknown {fname} '
-                  'IDs:',
-                  ' '.join([
-                      '/'.join([str(j) for j in i]) for i in islice(bad_ids, 5)
-                  ]),
+                  'IDs:', ' '.join(bad_id_list),
                   '...' if len(bad_ids) > 5 else '')
         if fk_skip_count:
             print(f'WARNING: skipped {fk_skip_count} rows due to unknown but '
@@ -682,7 +683,7 @@ class BaseLoader(MibiosBaseManager):
             return
 
         if missing_fks:
-            del fname, bad_ids
+            del fname, bad_ids, bad_id_list
         del missing_fks, row_skip_count, fk_skip_count
 
         update_fields = [i.name for i in fields if not i.many_to_many]
