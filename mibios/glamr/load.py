@@ -272,13 +272,16 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
         """ Remove leading "SAMPLE_" from accession value """
         return value.removeprefix('Sample_')
 
+    sample_id_pat = re.compile(r'^samp_[0-9]+$')
+
     def check_sample_id(self, value, obj):
         """
         allow skipping row based on blank or blocked sample_id
 
         Also checks the whole row against the blocklist.
         """
-        if not value:
+        if not self.sample_id_pat.match(value):
+            # skip row for invalid sample id
             return self.spec.SKIP_ROW
 
         if value in self.blocklist:
