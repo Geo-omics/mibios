@@ -79,7 +79,7 @@ from mibios.glamr.settings import *  # noqa:F403
 # UMRAD_ROOT = Path('/path/to/UMRAD')
 # UMRAD_VERSION = 'DEV_0'
 # UNIREF100_INFO_PATH = Path('path/to/UNIREF100_INFO_special.txt')  # noqa:E501
-# IMPORT_DIFF_DIR = '/path/to/import_diffs/'
+# IMPORT_LOG_DIR = '/path/to/import_logs/'
 
 ### Settings for omics data loading
 # OMICS_DATA_ROOT = Path('/some/where/GLAMR')

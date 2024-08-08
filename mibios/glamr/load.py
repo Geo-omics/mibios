@@ -20,7 +20,7 @@ from mibios.umrad.manager import (
     InputFileError, Loader, MetaDataLoader, Manager,
 )
 from mibios.umrad.model_utils import delete_all_objects_quickly
-from mibios.umrad.utils import CSV_Spec, atomic_dry, SpecError
+from mibios.umrad.utils import CSV_Spec, atomic_dry, SkipRow, SpecError
 from mibios.omics.models import SampleTracking
 from mibios.omics.utils import get_sample_blocklist
 
@@ -107,7 +107,7 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
     def ensure_id(self, value, obj):
         """ Pre-processor to skip rows without dataset id """
         if not value:
-            return self.spec.SKIP_ROW
+            raise SkipRow('no dataset id')
 
         return value
 
@@ -151,16 +151,16 @@ class ReferenceLoader(MetaDataLoader):
             value = value.replace('doi-org.proxy.lib.umich.edu', 'doi.org')
         return value
 
-    def check_skip(self, value, obj):
+    def check_empty(self, value, obj):
         """ Pre-processor to determine if row needs to be skipped """
         if not value:
-            return self.spec.SKIP_ROW
+            raise SkipRow('field is empty')
 
         return value
 
     spec = CSV_Spec(
-        ('PaperID', 'reference_id', check_skip),
-        ('Reference', 'short_reference', check_skip),
+        ('PaperID', 'reference_id', check_empty),
+        ('Reference', 'short_reference', check_empty),
         ('pub_year', 'year'),
         ('Authors', 'authors'),
         ('last_author', 'last_author'),
@@ -282,7 +282,7 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
         """
         if not self.sample_id_pat.match(value):
             # skip row for invalid sample id
-            return self.spec.SKIP_ROW
+            raise SkipRow('invalid sample_id')
 
         if value in self.blocklist:
             if blocked_fields := self.blocklist[value]:
@@ -294,7 +294,7 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
                                 (field, fn, self.spec.IGNORE_COLUMN)
             else:
                 # no fields specified means block whole sample
-                return self.spec.SKIP_ROW
+                raise SkipRow('found in blocklist')
 
         # check other values in row
         for f, _, other in self.current_row_data[1:]:
@@ -304,7 +304,7 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
                 break  # row is non-empty
         else:
             # consider row blank
-            return self.spec.SKIP_ROW
+            raise SkipRow('row seems empty, except sample id')
 
         # keep going normally
         return value

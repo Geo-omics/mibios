@@ -47,6 +47,19 @@ class InputFileError(Exception):
         super().__init__(*args)
 
 
+class SkipRow(Exception):
+    """
+    Raised during Loader.load() to skip a row of input
+
+    The condition may or may not be an error.  In case this indicates an error,
+    it is not severe enough to abort loading the data, just to skip the one
+    row.
+    """
+    def __init__(self, *args, log=True, **kwargs):
+        self.log = log
+        super().__init__(*args, **kwargs)
+
+
 class ReturningGenerator:
     """
     A wrapper to catch return values of generators
@@ -353,7 +366,6 @@ class SpecError(Exception):
 
 class InputFileSpec:
     IGNORE_COLUMN = object()
-    SKIP_ROW = object()
     CALC_VALUE = object()
     NO_HEADER = object()
 
@@ -903,8 +915,9 @@ def make_int_in_filter(lookup_name, integers):
     return q
 
 
-def save_import_diff(
+def save_import_log(
     model,
+    skip_log,
     change_set=[],
     unchanged_count=None,
     new_count=None,
@@ -916,10 +929,10 @@ def save_import_diff(
     dry_run=False,
 ):
     """
-    Save change set to disk, called by Loader.load()
+    Save import log to disk, called by Loader.load()
     """
     if path is None:
-        path = settings.IMPORT_DIFF_DIR
+        path = settings.IMPORT_LOG_DIR
 
     summary = (
         f'new: {new_count},  changed: {len(change_set)},  unchanged: '
@@ -975,7 +988,18 @@ def save_import_diff(
                 ofile.write(f'\t\t{i}\n')
         for pk, key in missing_objs:
             ofile.write(f'missing: {pk} / {key}\n')
-    print(f'Diff saved to: {opath}')
+        for i in skip_log:
+            # skip log items are dicts usually with lineno and messages keys
+            out = ''
+            if lineno := i.pop('lineno', None):
+                out += f'Skipped line {lineno}:'
+            else:
+                out += 'Skipped line(s):'
+            msg = i.pop('message', '')
+            items = ' '.join((f'{k}={v}' for k, v in i.items()))
+            ofile.write(f'{out}{items}: {msg}\n')
+
+    print(f'Import log saved to: {opath}')
 
 
 class DefaultDict(dict):

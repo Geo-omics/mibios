@@ -27,7 +27,7 @@ from mibios.ncbi_taxonomy.models import (
 )
 from mibios.umrad.models import UniRef100
 from mibios.umrad.manager import BulkLoader, Manager, MetaDataLoader
-from mibios.umrad.utils import CSV_Spec, atomic_dry, InputFileError
+from mibios.umrad.utils import CSV_Spec, atomic_dry, InputFileError, SkipRow
 
 from . import get_sample_model
 from .utils import (call_each, gentle_int, get_fasta_sequence,
@@ -703,7 +703,7 @@ class SampleLoader(MetaDataLoader):
         )
 
         # setup log file output
-        if log_dir := getattr(settings, 'IMPORT_DIFF_DIR', ''):
+        if log_dir := getattr(settings, 'IMPORT_LOG_DIR', ''):
             # find a unique log file name and set up the log handler
             path = Path(log_dir) / 'omics_status_update'
             today = date.today()
@@ -1013,16 +1013,17 @@ class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
         # obj.taxon may be None for unclassified or deleted taxids
         # tpm values for those get added together
         taxid = getattr(obj.taxon, 'taxid', None)
-        if taxid in self.tpm_data:
-            # is a row for merged taxid (duplicate)
-            retval = self.spec.SKIP_ROW
-        else:
-            # zero as temp placeholder
-            retval = 0.0
+        is_duplicate = taxid in self.tpm_data
 
         # save value for post-processing
         self.tpm_data[taxid] += float(value)
-        return retval
+
+        if is_duplicate:
+            # is a row for merged taxid (duplicate)
+            raise SkipRow('is duplicate for merged taxid', log=False)
+        else:
+            # zero as temp placeholder
+            return 0.0
 
     spec = CSV_Spec(
         ('tax_id', 'taxon', 'check_taxid'),

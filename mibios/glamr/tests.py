@@ -167,7 +167,7 @@ class AAALoadMetaDataTests(TestCase):
         if not settings.GLAMR_META_ROOT.is_dir():
             self.skipTest(f'{settings.GLAMR_META_ROOT=} does not exist')
 
-        with self.settings(IMPORT_DIFF_DIR=self.tmpd.name):
+        with self.settings(IMPORT_LOG_DIR=self.tmpd.name):
             Sample.loader.load_all_meta_data()
             call_command(
                 'dumpdata',
@@ -213,7 +213,7 @@ class LoaderTests(TestDataMixin, TestCase):
 
         self.assertEqual(qs.count(), count + 1)
 
-        with self.settings(IMPORT_DIFF_DIR=self.tmpd.name):
+        with self.settings(IMPORT_LOG_DIR=self.tmpd.name):
             # should delete the above sample
             Sample.loader.load(delete=True, no_input=True)
 

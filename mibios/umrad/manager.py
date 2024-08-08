@@ -18,8 +18,8 @@ from mibios.models import (
 )
 
 from .utils import (CSV_Spec, ProgressPrinter, atomic_dry, InputFileError,
-                    get_last_timer, make_int_in_filter, save_import_diff,
-                    FKMap)
+                    get_last_timer, make_int_in_filter, save_import_log,
+                    FKMap, SkipRow)
 
 
 log = getLogger(__name__)
@@ -390,7 +390,7 @@ class BaseLoader(MibiosBaseManager):
             kwargs['skip_on_error'] = -1
 
         try:
-            diff = self._load_rows(
+            diff, skip_log = self._load_rows(
                 row_it,
                 template=template,
                 dry_run=dry_run,
@@ -429,28 +429,26 @@ class BaseLoader(MibiosBaseManager):
             else:
                 raise
 
-        if not diff:
-            return
-
+        # _load_rows returned
         something_changed = any((
             diff.get(i, None)
             for i
             in ('delete_info', 'new_count', 'change_set', 'missing_objs')
         ))
 
-        if something_changed:
+        if something_changed or skip_log:
             try:
-                diff_dir = settings.IMPORT_DIFF_DIR
+                log_dir = settings.IMPORT_LOG_DIR
             except AttributeError:
-                diff_dir = ''
+                log_dir = ''
 
-            if diff_dir:
-                save_import_diff(self.model, **diff, dry_run=dry_run)
+            if log_dir:
+                save_import_log(self.model, skip_log, **diff, dry_run=dry_run)
             else:
-                print('WARNING: IMPORT_DIFF_DIR not configured - not '
-                      'saving import diff')
+                print('WARNING: IMPORT_LOG_DIR not configured - not '
+                      'saving import log')
         else:
-            print('diff: no changes recorded')
+            print('nothing to log / diff: no changes recorded')
 
     def setup_spec(self, spec=None, **kwargs):
         if spec is None:
@@ -500,7 +498,8 @@ class BaseLoader(MibiosBaseManager):
         upd_objs = []  # will be updated
         m2m_data = {}
         missing_fks = defaultdict(set)
-        row_skip_count = 0
+        skipped_rows = []
+        skipped_rows_not_logged = 0
         fk_skip_count = 0
         field = pk = value = obj = m2m = None
 
@@ -513,25 +512,36 @@ class BaseLoader(MibiosBaseManager):
                 if callable(fn):
                     try:
                         value = fn(value, obj)
+                    except SkipRow as e:
+                        if e.log:
+                            skipped_rows.append(dict(
+                                lineno=lineno,
+                                field=field,
+                                value=value,
+                                message=' / '.join((str(i) for i in e.args)),
+                            ))
+                        else:
+                            skipped_rows_not_logged += 1
+                        break  # skips line / avoids for-else block
                     except Exception as e:
-                        msg = (f'\nERROR at line {lineno} / field {field}: '
-                               f'value was "{value}" -- {e}')
                         if skip_on_error and isinstance(e, InputFileError):
                             # skip line on expected errors
-                            print(msg, '-- will skip offending row:')
-                            print(self.current_row)
-                            skip_on_error -= 1
-                            break  # skips line
+                            skipped_rows.append(dict(
+                                lineno=lineno,
+                                field=field,
+                                value=value,
+                                row=self.current_row,
+                                type=type(e).__name__,
+                                message=' / '.join((str(i) for i in e.args)),
+                            ))
+                            break  # skips line / avoids for-else block
                         else:
-                            print(msg)
+                            print(f'\nERROR at line {lineno} / field {field}: '
+                                  f'value was "{value}" -- {e}')
                             raise
 
                 if value is self.spec.IGNORE_COLUMN:
                     continue  # next column
-
-                if value is self.spec.SKIP_ROW:
-                    row_skip_count += 1
-                    break  # skips line / avoids for-else block
 
                 # obj is always None for first field
                 if obj is None and update:
@@ -539,7 +549,11 @@ class BaseLoader(MibiosBaseManager):
                     # the object, the value's type must match that of the obj
                     # pool's keys
                     if value is None:
-                        row_skip_count += 1
+                        skipped_rows.append(dict(
+                            lineno=lineno,
+                            field=field,
+                            message='no record ID in row\'s first item',
+                        ))
                         break  # skips line
 
                     if field.many_to_one and field.name in fkmap:
@@ -670,9 +684,13 @@ class BaseLoader(MibiosBaseManager):
         if fk_skip_count:
             print(f'WARNING: skipped {fk_skip_count} rows due to unknown but '
                   f'non-null FK IDs')
-        if row_skip_count:
-            print(f'Skipped {row_skip_count} rows (blank rows/other reasons '
-                  f'see file spec)')
+        if skip_total := skipped_rows_not_logged + len(skipped_rows):
+            print(f'Skipped {skip_total} rows (see import log for details)')
+            if skipped_rows_not_logged:
+                skipped_rows.append(dict(message=f'skipped (but no details'
+                                    f' logged): {skipped_rows_not_logged}'))
+            del skip_total
+        del skipped_rows_not_logged
 
         if not new_objs and not upd_objs:
             # Assume the empty file (or what else?) is an error.  In
@@ -680,16 +698,16 @@ class BaseLoader(MibiosBaseManager):
             # data.  Accordingly, all data changes happen further down in this
             # method.
             print('WARNING: nothing saved, empty file or all got skipped')
-            return
+            return {}, skipped_rows
 
         if missing_fks:
             del fname, bad_ids, bad_id_list
-        del missing_fks, row_skip_count, fk_skip_count
+        del missing_fks, fk_skip_count
 
         update_fields = [i.name for i in fields if not i.many_to_many]
 
+        diff = {}
         if diff_stats:
-            diff = {}
             if update or delete:
                 diff['missing_objs'] = missing_objs
 
@@ -741,9 +759,6 @@ class BaseLoader(MibiosBaseManager):
             if diff_stats:
                 if del_info != (0, {}):
                     diff['delete_info'] = del_info
-                return diff
-            else:
-                return
 
         if upd_objs:
             if bulk:
@@ -795,8 +810,7 @@ class BaseLoader(MibiosBaseManager):
 
         sleep(1)  # let progress meter finish before returning
 
-        if diff_stats:
-            return diff
+        return diff, skipped_rows
 
     def _update_m2m(self, field_name, m2m_data, update=False):
         """
@@ -1271,7 +1285,7 @@ class ReactionRecordLoader(BulkLoader):
         """ Pre-processor to skip extra header rows """
         # FIXME: remove this function when source data is fixed
         if value == 'rxn':
-            return CSV_Spec.SKIP_ROW
+            raise SkipRow('value == "rxn" (see source code)')
         return value
 
     def process_xrefs(self, value, obj):
@@ -1442,7 +1456,7 @@ class UniRef100Loader(BulkLoader):
         value = self.parse_ur100(value)
         if self.selected_accns is not None:
             if value not in self.selected_accns:
-                return CSV_Spec.SKIP_ROW
+                raise SkipRow('record was not selected by caller', log=False)
         return value
 
     def process_func_xrefs(self, value, obj):
