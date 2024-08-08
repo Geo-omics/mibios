@@ -263,8 +263,9 @@ class SearchableQuerySet(QuerySet):
         """
         rank the full-text search results
 
-        Call this only for querysets that filter by some SearchQuery.  For
-        postgresql only.
+        This will only do anything interesting for postgresql queries filtered
+        by a SearchQuery.  Otherwise the same arbitrary default rank is
+        assigned to every hit.
 
         Results get ordered (secondarily) by rank s.t. existing order is
         preserved.
@@ -276,16 +277,11 @@ class SearchableQuerySet(QuerySet):
             if isinstance(getattr(i, 'rhs', None), SearchQuery)
         ]
         if len(tsqueries) == 1:
-            tsquery = tsqueries[0]
+            rank = SearchRank(F('searchvector'), tsqueries[0])
+            qs = self.annotate(rank=rank)
+            return qs.order_by(*qs.query.order_by, '-rank')
         else:
-            raise RuntimeError(
-                'rank() must be called after filtering on exactly one '
-                'SearchQuery'
-            )
-
-        rank = SearchRank(F('searchvector'), tsquery)
-        qs = self.annotate(rank=rank)
-        return qs.order_by(*qs.query.order_by, '-rank')
+            return self.annotate(rank=Value(0))
 
     def limit(self, start=1, limit=None):
         """
