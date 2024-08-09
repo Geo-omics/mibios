@@ -477,9 +477,7 @@ class BaseLoader(MibiosBaseManager):
         """
         Do the data loading, called by load()
 
-        If diff_stats=True and data loading proceeds normally, then the return
-        value is a dict with diff statistics.  If diff_stats=False or in rare
-        cases, e.g. empty input file we return None.
+        Returns a tuple (diffs dict, skip log list).
         """
         fields = self.spec.fields
         model_name = self.model._meta.model_name

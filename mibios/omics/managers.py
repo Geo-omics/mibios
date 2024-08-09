@@ -890,6 +890,8 @@ class SampleLoader(MetaDataLoader):
         """
         Run given jobs or ready jobs for given samples
 
+        Usually called via Sample.loader.all().load_omics_data()
+
         This is a wrapper to handle the dry_run parameter.  In a dry run
         everything is done inside an outer transaction that is then rolled
         back, as usual.  But in a production run we don't want the outer

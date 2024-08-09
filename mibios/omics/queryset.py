@@ -91,7 +91,7 @@ class SampleQuerySet(QuerySet):
 
     def load_omics_data(self):
         """
-        Convenience method to load all omics data for retieved samples
+        Convenience method to load all omics data for retrieved samples
         """
         return self._manager.load_omics_data(samples=self)
 
