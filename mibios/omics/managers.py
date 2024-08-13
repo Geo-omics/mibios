@@ -1381,6 +1381,24 @@ class FileManager(Manager):
 
         return removed_count, changed_count, set_new_count
 
+    def check_for_public_orphans(self):
+        """
+        Check for any stray files or directories under the public root
+        """
+        public = {i.public: i for i in self.model.objects.exclude(public=None)}
+        for root, dirs, files in os.walk(settings.PUBLIC_DATA_ROOT):
+            root = Path(root)
+            if not dirs and not files:
+                if root == settings.PUBLIC_DATA_ROOT:
+                    # this can be empty
+                    pass
+                else:
+                    print(f'empty directory: {root})')
+            for i in files:
+                file = root / i
+                if file not in public:
+                    print(f'orphan: {file}')
+
 
 class SampleTrackingManager(Manager):
     @cached_property
