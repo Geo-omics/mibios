@@ -1349,6 +1349,14 @@ class FileManager(Manager):
 
     @atomic_dry
     def update_public_paths(self):
+        # check settings
+        root = settings.PUBLIC_DATA_ROOT
+        if 'public' not in root.parts and 'public-test' not in root.parts:
+            raise RuntimeError('PUBLIC_DATA_ROOT setting does not look right')
+
+        if not root.exists():
+            raise RuntimeError(f'PUBLIC_DATA_ROOT does not exist: {root}')
+
         input(f'PLEASE CONFIRM you intend to make changes to '
               f'{settings.PUBLIC_DATA_ROOT} !!! ')
 

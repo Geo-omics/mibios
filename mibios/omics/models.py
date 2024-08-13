@@ -1075,6 +1075,9 @@ class File(Model):
         Returns a status tuple of booleans indicating any change of the public
         field value: (old path unlinked, new path set).  A status of (True,
         True) means an existing public path got changed.
+
+        Call this from File.objects.update_public_path() as that does some
+        additional safety checks.
         """
         old = self.public
         self.public = self.compute_public_path()
@@ -1094,7 +1097,10 @@ class File(Model):
             # no changes
             return (False, False)
         elif old is None:
-            self._hardlink()
+            if self.public.exists():
+                print(f'[NOTICE] file already exits: {self.public}')
+            else:
+                self._hardlink()
             # a new File
             return (False, True)
         else:
@@ -1115,10 +1121,6 @@ class File(Model):
         """ helper to hardlink public file against internal """
         public = self.public
         target = self.path
-        if 'public' not in public.parts and 'public-test' not in public.parts:
-            # some safety guard
-            raise RuntimeError('unsave operation suspected')
-
         if not public.is_relative_to(self.public_root):
             # another safety guard
             raise RuntimeError('unsave operation suspected')
@@ -1137,6 +1139,8 @@ class File(Model):
             raise RuntimeError('unsave operation suspected')
         if oldpath == self.public:
             raise RuntimeError('unsave operation suspected')
+        if oldpath.stat().st_nlink == 1:
+            raise RuntimeError(f'does not have further hardlinks: {oldpath}')
 
         oldpath.unlink()
         parent = oldpath.parent
