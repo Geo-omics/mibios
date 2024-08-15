@@ -2,6 +2,7 @@ import cProfile
 from functools import wraps
 import logging
 import pstats
+import tracemalloc
 
 from django.conf import settings
 from django.contrib.auth import backends
@@ -103,3 +104,35 @@ def profile(func):
         return retval
 
     return profiled_func
+
+
+class TraceMalloc:
+    """
+    Memory allocation tracing middleware
+    """
+    def __init__(self, get_response):
+        self.get_response = get_response
+        self.request_count = 0
+
+    def __call__(self, request):
+        try:
+            a = tracemalloc.take_snapshot()
+        except RuntimeError:
+            tracemalloc.start()
+            a = tracemalloc.take_snapshot()
+
+        response = self.get_response(request)
+
+        b = tracemalloc.take_snapshot()
+        stats = b.compare_to(a, 'lineno')
+        self.request_count += 1
+        path = request.META['PATH_INFO']
+        qstr = request.META['QUERY_STRING']
+        total_size = sum((i.size for i in stats))
+        total_diff = sum((i.size_diff for i in stats))
+        with open(f'/tmp/mem_trace.{self.request_count}.txt', 'w') as ofile:
+            ofile.write(f'{total_size}\t{total_diff}\t{path}?{qstr}\n')
+            for i in stats[:1000]:
+                ofile.write(f'{i}\n')
+
+        return response
