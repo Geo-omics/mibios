@@ -12,7 +12,7 @@ from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
 from django.db import OperationalError, connection
 from django.db.models import Count, Field, Prefetch, URLField
-from django.http import Http404, HttpResponse
+from django.http import Http404
 from django.urls import reverse
 from django.utils.functional import cached_property, classproperty
 from django.utils.html import format_html
@@ -43,6 +43,7 @@ from mibios.omics.models import File, Gene
 from mibios.omics.views import RequiredSettingsMixin
 from . import models, tables, GREAT_LAKES
 from .forms import QBuilderForm, QLeafEditForm, SearchForm
+from .response import HttpResponse, TemplateResponse
 from .search_fields import ADVANCED_SEARCH_MODELS, search_fields
 from .search_utils import get_suggestions
 from .utils import estimate_row_totals, get_record_url
@@ -52,6 +53,8 @@ log = getLogger(__name__)
 
 
 class BaseMixin(VersionInfoMixin):
+    response_class = TemplateResponse
+
     def dispatch(self, request, *args, cache=True, **kwargs):
         if cache:
             return cache_page(300)(super().dispatch)(request, *args, **kwargs)
