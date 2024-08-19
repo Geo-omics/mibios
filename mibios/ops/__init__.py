@@ -4,6 +4,7 @@ from logging import getLogger
 import os
 from pathlib import Path
 import sys
+from time import sleep, time
 
 from django.core.management.utils import get_random_secret_key
 
@@ -59,32 +60,48 @@ def get_secret_key(keyfile):
     If file does not exist, generate a key randomly and store it in the file
     first.
 
+    This should be safe if settings.py gets imported multiple times and/or
+    concurrently.  Only at most on file is created and everyone gets the same
+    key.
+
     Example usage in settings.py:
         SECRET_KEY = get_secret_key('./secret-key.txt')
     """
+    MIN_AGE = 1
     keyfile = Path(keyfile)
+
     try:
-        if not keyfile.exists():
-            if keyfile.is_symlink():
-                # A broken symlink, not doing anything about that, even though
-                # write_text() could create the target just fine, touch()
-                # however is a bit touchy, and will, with exits_ok=False raise
-                # a "File exist", but create the target with exist_ok=True.
-                # Let's just assume that the broken symlink is fully intended.
-                raise RuntimeError('is broken symlink')
+
+        while time() - keyfile.stat().st_mtime < MIN_AGE:
+            sleep(MIN_AGE)
+
+    except FileNotFoundError:
+        if keyfile.is_symlink():
+            # A broken symlink, not doing anything about that, even though
+            # write_text() could create the target just fine, touch()
+            # however is a bit touchy, and will, with exits_ok=False raise
+            # a "File exist", but create the target with exist_ok=True.
+            # Let's just assume that the broken symlink is fully intended.
+            raise RuntimeError('is broken symlink')
+
+        # while this whole function isn't TOCTOU-safe, at least make the
+        # key writing safe from preying eyes of other users:
+        try:
+            keyfile.touch(mode=0o600, exist_ok=False)
+        except FileExistsError:
+            # Path.touch() uses open with O_CREAT | O_EXCL so other thread or
+            # process got here first, give them time to write to file
+            sleep(MIN_AGE)
+        except Exception as e:
+            log.error(f'ERROR ({__name__}) Failed touching {keyfile}: '
+                      f'{e.__class__.__name__}: {e}')
+            raise
+        else:
             # log.warning() + formatting here and below since django logging is
             # not yet configured, level must be warning or higher to be printed
             # (and will go to stderr)
             log.warning(f'[{datetime.now()}] INFO ({__name__}) Creating secret'
-                        f' key file {keyfile} ...')
-            # while this whole function isn't TOCTOU-safe, at least make the
-            # key writing safe from preying eyes of other users:
-            try:
-                keyfile.touch(mode=0o600, exist_ok=False)
-            except Exception as e:
-                log.error(f'ERROR ({__name__}) Failed touching {keyfile}: '
-                          f'{e.__class__.__name__}: {e}')
-                raise
+                        f' key file: {keyfile}')
             try:
                 keyfile.write_text(get_random_secret_key())
             except Exception as e:
@@ -97,14 +114,13 @@ def get_secret_key(keyfile):
                 log.error(f'ERROR ({__name__}) Failed mode setting {keyfile}: '
                           f'{e.__class__.__name__}: {e}')
                 raise
+    except Exception as e:
+        log.error(f'ERROR ({__name__}) Failed getting age of {keyfile}: '
+                  f'{e.__class__.__name__}: {e}')
+        sleep(MIN_AGE)
 
-        try:
-            return keyfile.read_text()
-        except Exception as e:
-            log.error(f'ERROR ({__name__}) Failed reading {keyfile}: '
-                      f'{e.__class__.__name__}: {e}')
-            raise
-
+    try:
+        return keyfile.read_text()
     except Exception as e:
         # file permissions?
         # TODO: explore consequences of non-permanent keys
