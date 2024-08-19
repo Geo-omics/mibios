@@ -1,4 +1,6 @@
 """The project package for mibios"""
+from datetime import datetime
+from logging import getLogger
 import os
 from pathlib import Path
 import sys
@@ -9,6 +11,8 @@ from django.core.management.utils import get_random_secret_key
 VAR = 'DJANGO_SETTINGS_MODULE'
 DEFAULT_SETTINGS = 'mibios.ops.settings'
 LOCAL_SETTINGS = 'settings'
+
+log = getLogger(__name__)
 
 
 def manage(settings=None, default_settings=DEFAULT_SETTINGS):
@@ -68,38 +72,42 @@ def get_secret_key(keyfile):
                 # a "File exist", but create the target with exist_ok=True.
                 # Let's just assume that the broken symlink is fully intended.
                 raise RuntimeError('is broken symlink')
-            print(f'Creating secret key file {keyfile} ...')
+            # log.warning() + formatting here and below since django logging is
+            # not yet configured, level must be warning or higher to be printed
+            # (and will go to stderr)
+            log.warning(f'[{datetime.now()}] INFO ({__name__}) Creating secret'
+                        f' key file {keyfile} ...')
             # while this whole function isn't TOCTOU-safe, at least make the
             # key writing safe from preying eyes of other users:
             try:
                 keyfile.touch(mode=0o600, exist_ok=False)
             except Exception as e:
-                print(f'WARNING: failed touching {keyfile}: '
-                      f'{e.__class__.__name__}: {e}')
+                log.error(f'ERROR ({__name__}) Failed touching {keyfile}: '
+                          f'{e.__class__.__name__}: {e}')
                 raise
             try:
                 keyfile.write_text(get_random_secret_key())
             except Exception as e:
-                print(f'WARNING: failed writing to {keyfile}: '
-                      f'{e.__class__.__name__}: {e}')
+                log.error(f'ERROR ({__name__}) Failed writing to {keyfile}: '
+                          f'{e.__class__.__name__}: {e}')
                 raise
             try:
                 keyfile.chmod(0o400)
             except Exception as e:
-                print(f'WARNING: failed mode setting {keyfile}: '
-                      f'{e.__class__.__name__}: {e}')
+                log.error(f'ERROR ({__name__}) Failed mode setting {keyfile}: '
+                          f'{e.__class__.__name__}: {e}')
                 raise
 
         try:
             return keyfile.read_text()
         except Exception as e:
-            print(f'WARNING: failed reading {keyfile}: '
-                  f'{e.__class__.__name__}: {e}')
+            log.error(f'ERROR ({__name__}) Failed reading {keyfile}: '
+                      f'{e.__class__.__name__}: {e}')
             raise
 
     except Exception as e:
         # file permissions?
         # TODO: explore consequences of non-permanent keys
-        print(f'WARNING: failed accessing secret key file {keyfile}: {e} -- '
-              'will be using a temporary key')
+        log.warning(f'Failed accessing secret key file {keyfile}: {e} -- '
+                    f'will be using a temporary key')
         return get_random_secret_key()

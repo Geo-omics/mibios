@@ -159,7 +159,7 @@ LOGGING = {
     },
     'formatters': {
         'verbose': {
-            'format': '{levelname} {asctime} ({name}) '
+            'format': '[{asctime}] {levelname} ({name}) '
                       'pid:{process:d}/{thread:d} {message}',
             'style': '{',
         },
@@ -170,8 +170,7 @@ LOGGING = {
     },
     'handlers': {
         'console': {
-            'level': 'DEBUG',
-            'filters': ['require_debug_true'],
+            'level': 'INFO',
             'class': 'logging.StreamHandler',
             'formatter': 'simple',
         },
@@ -199,21 +198,28 @@ LOGGING = {
     },
     'loggers': {
         'django': {
-            # log to file if DJANGO_LOG_LEVEL=DEBUG in env
-            # FIXME: this does not work as we want to
-            'handlers': ['file', 'mail_admins'],
+            'handlers': ['console', 'file', 'mail_admins'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'django.db.backends': {
+            'handlers': ['file'],
             'level': 'DEBUG',
             'propagate': False,
         },
         'mibios': {
-            'handlers': ['console', 'file', 'mail_admins'],
-            'level': 'DEBUG',
+            'handlers': ['file', 'console', 'mail_admins'],
+            'level': 'INFO',
             'propagate': False,
         },
         'dataimport': {
             'handlers': ['import_log_file'],
             'level': 'INFO',
         },
+        # Stop spamming on dev server autoreload
+        'django.utils.autoreload': {'level': 'ERROR'},
+        # Uncomment to stop spamming log with missing context variables
+        'django.template': {'handlers': ['null'], 'propagate': False},
     },
 }
 
