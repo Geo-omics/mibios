@@ -18,6 +18,7 @@ from mibios import urls as mibios_urls
 from mibios.omics import urls as omics_urls
 from mibios.omics.views import krona
 from . import views
+from .accounts import LoginView, UserProfileView
 from .admin import admin_site
 
 
@@ -52,6 +53,9 @@ urlpatterns = [
     # see INTERNAL_DEPLOYMENT, ENABLE_TEST_VIEWS, ENABLE_OPEN_ADMIN
     path('dbinfo/', never_cache(views.DBInfoView.as_view()), name='dbinfo'),
     path('admin/', admin_site.urls),
+    path('accounts/login/', LoginView.as_view(), name='login'),
+    path('accounts/', include('django.contrib.auth.urls')),
+    path('accounts/profile/', UserProfileView.as_view(), name='user_profile'),
     path('errortest/', never_cache(views.test_server_error)),
     path('minitest/', never_cache(views.MiniTestView.as_view())),
     path('basetest/', never_cache(views.BaseTestView.as_view())),

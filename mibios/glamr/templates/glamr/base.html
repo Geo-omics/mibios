@@ -24,8 +24,19 @@
             <li class="nav-item">{% nav_linker 'schemata_top' 'DB schemata' %}</li>
             <li class="nav-item">{% nav_linker 'sample_tracking' 'sample status' %}</li>
             <li class="nav-item">{% nav_linker 'dbinfo' 'DB info' %}</li>
+            {% if user.is_authenticated and user.is_staff %}
+                <li class="nav-item">{% nav_linker 'glamr_admin:index' 'admin' %}</li>
+            {% endif %}
         </ul>
     {% endif %}
+    <ul class="navbar-nav ms-auto">
+        {% if user.is_authenticated %}
+            <li class="nav-item">{% nav_linker 'user_profile' user.username %}</li>
+            <li class="nav-item">{% nav_linker 'logout' 'Log out' %}</li>
+        {% else %}
+            <li class="nav-item">{% nav_linker 'login' 'Log in' %}</li>
+        {% endif %}
+    </ul>
 {% endblock %}
 
 {% block notifications %}{% if messages %}                                                       

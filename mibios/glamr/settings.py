@@ -45,6 +45,9 @@ MESSAGE_TAGS = {
     message_constants.ERROR: 'alert-danger',
 }
 
+LOGIN_REDIRECT_URL = '/'
+LOGOUT_REDIRECT_URL = '/'
+
 # Set to True to enable URLs for testing
 ENABLE_TEST_VIEWS = False
 
