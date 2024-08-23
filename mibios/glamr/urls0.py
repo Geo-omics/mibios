@@ -10,9 +10,11 @@ url declarations for the mibios.glamr app
 from functools import partial
 
 from django.conf import settings
+from django.http.response import Http404
 from django.urls import include, path, re_path
 from django.views import defaults
 from django.views.decorators.cache import never_cache
+from django.views.generic import RedirectView
 
 from mibios import urls as mibios_urls
 from mibios.omics import urls as omics_urls
@@ -24,6 +26,16 @@ from .admin import admin_site
 
 kpat = r'(?P<ktype>pk:)?(?P<key>[\w:-]+)'
 """ accession/primary key pattern for RecordView """
+
+
+def disable_url(*args, **kwargs):
+    """
+    view for 404 response
+
+    use this as view in urlconf to disable a urls that would otherwise be
+    included via some following include()
+    """
+    raise Http404('disabled')
 
 
 urlpatterns = [
@@ -52,8 +64,12 @@ urlpatterns = [
     # URLs are served depending on settings, e.g. RequiredSettingsMixin
     # see INTERNAL_DEPLOYMENT, ENABLE_TEST_VIEWS, ENABLE_OPEN_ADMIN
     path('dbinfo/', never_cache(views.DBInfoView.as_view()), name='dbinfo'),
+    path('admin/login/', RedirectView.as_view(pattern_name='login', query_string=True)),  # noqa:E501
     path('admin/', admin_site.urls),
     path('accounts/login/', LoginView.as_view(), name='login'),
+    # password resetting is disabled for now as it requires email to work
+    re_path('accounts/password_reset/', disable_url),
+    re_path('accounts/reset/', disable_url),
     path('accounts/', include('django.contrib.auth.urls')),
     path('accounts/profile/', UserProfileView.as_view(), name='user_profile'),
     path('errortest/', never_cache(views.test_server_error)),
@@ -66,7 +82,6 @@ if settings.INTERNAL_DEPLOYMENT:
     urlpatterns.append(
         path('', include(mibios_urls.model_graph_urls))
     )
-
 
 # The default template names are without path, so take up the global name space
 # and mibios' templates may take precedence if mibios is listed first in
