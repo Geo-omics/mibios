@@ -645,11 +645,12 @@ class ExportBaseMixin:
     )
     DEFAULT_FORMAT = 'csv'
 
-    def get_format(self):
+    def get_format(self, fmt_name=None):
         """
         Get the requested export file format
         """
-        fmt_name = self.request.GET.get(QUERY_FORMAT)
+        if fmt_name is None:
+            fmt_name = self.request.GET.get(QUERY_FORMAT)
         for i in self.FORMATS:
             if fmt_name == i[0]:
                 return i

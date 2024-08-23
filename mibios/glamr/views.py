@@ -12,7 +12,7 @@ from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
 from django.db import OperationalError, connection
 from django.db.models import Count, Field, Prefetch, URLField
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, StreamingHttpResponse
 from django.urls import reverse
 from django.utils.functional import cached_property, classproperty
 from django.utils.html import format_html
@@ -78,16 +78,26 @@ class ExportMixin(ExportBaseMixin):
     """
     export_query_param = 'export'
     export_options = None
+    """ all available export options, by default this will be populated with
+    the EXPORT_TABLE option.  To exclude this default option overwrite with a
+    (empty or otherwise) list.  No options (empty list) will disable the export
+    functionality. """
 
     exclude = ['id']
     """ Which fields to exclude """
+
+    EXPORT_TABLE = object()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Instances get their own lists as they may modify them:
         self.exclude = list(self.exclude)
+        if self.export_options is None:
+            self.export_options = [self.EXPORT_TABLE]
+        else:
+            self.export_options = list(self.export_options)
 
-    def get_filename(self, option=''):
+    def get_filename(self):
         parts = []
         if hasattr(self, 'object_model') and self.object_model:
             parts.append(self.object_model._meta.verbose_name)
@@ -96,11 +106,11 @@ class ExportMixin(ExportBaseMixin):
         if hasattr(self, 'model') and self.model:
             parts.append(self.model._meta.verbose_name_plural)
 
-        if option:
+        if isinstance(self.requested_export_option, str):
             try:
-                field = self.model._meta.get_field(option)
+                field = self.model._meta.get_field(self.requested_export_option)  # noqa:E501
             except Exception:
-                parts.append(option)
+                parts.append(self.requested_export_option)
             else:
                 parts.append(field.related_name or field.name)
 
@@ -113,57 +123,65 @@ class ExportMixin(ExportBaseMixin):
         value = value.replace(' ', '-')
         return value
 
-    def dispatch(self, request, *args, cache=False, **kwargs):
-        # do not cache data export
-        cache = cache or self.export_check() is None
+    def dispatch(self, request, *args, cache=True, **kwargs):
+        # never cache data export
+        cache = cache and not self.download_requested()
         return super().dispatch(request, *args, cache=cache, **kwargs)
 
     def get(self, request, *args, **kwargs):
-        export_opt = self.export_check()
-        if export_opt is None:
-            self.populate_export_options()
+        if self.download_requested():
+            # data export response
+            return self.export_response()
+        else:
+            # Normal html table response
             return super().get(request, *args, **kwargs)
 
-        return self.export_response(export_opt)
-
-    def export_check(self):
+    def download_requested(self):
         """
-        Evaluate the GET query string for the export parameter
+        Tell if we need an download response from GET query string.
 
-        Returns the export option (a str) if any, or None if not export reponse
-        was requested, meaning the data will then be displayed normally as
-        HTML.  Returns the empty string to export the normal table.  Otherwise
-        it is an accessor to a relation.
+        Evaluate the GET query string for the export parameter.  This sets the
+        self.requested_export_option attribute and returns True or False.
         """
-        export_opt = self.request.GET.get(self.export_query_param)
+        opt = self.request.GET.get(self.export_query_param)
         # With GET.get() we get None if the key does not appear in the query
         # string.  It's an empty string if the key is there but without a
         # value, otherwise we get the value, and the last such value should
         # there be multiple export params.
-        if export_opt not in [None, '']:
-            # TODO: check for valid parameter?
-            ...
+        if opt is None:
+            return False
 
-        return export_opt
+        if opt == '':
+            opt = self.EXPORT_TABLE
 
-    def export_response(self, option):
-        """ generate file download response """
-        name, suffix, renderer_class = self.get_format()
+        if opt not in self.export_options:
+            raise Http404('not a valid export option')
 
-        response = HttpResponse(content_type=renderer_class.content_type)
-        filename = self.get_filename(option) + suffix
+        self.requested_export_option = opt
+        return True
+
+    def export_response(self):
+        name, suffix, Renderer = self.get_format(fmt_name='tab/zipped')
+
+        if Renderer.streaming:
+            response = StreamingHttpResponse(
+                content_type=Renderer.content_type
+            )
+        else:
+            response = HttpResponse(content_type=Renderer.content_type)
+
+        filename = self.get_filename() + suffix
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
 
-        renderer = renderer_class(response, filename=filename)
-        renderer.render(self.get_values(option))
+        Renderer(response, filename=filename).render(self.get_values())
 
         return response
 
-    def get_values(self, option):
+    def get_values(self):
         """
         Collect data to be exported
         """
-        if option == '':
+        if self.requested_export_option is self.EXPORT_TABLE:
             # export current table
             if hasattr(self, 'get_table'):
                 return self.get_table(**self.get_table_kwargs()).as_values()
@@ -172,7 +190,7 @@ class ExportMixin(ExportBaseMixin):
 
         try:
             # try exporting related data
-            field = self.model._meta.get_field(option)
+            field = self.model._meta.get_field(self.requested_export_option)
         except FieldDoesNotExist:
             pass
         else:
@@ -183,25 +201,28 @@ class ExportMixin(ExportBaseMixin):
                 # for use with ModelTableMixin:
                 tab_cls = self.TABLE_CLASSES[field.related_model]
             except (AttributeError, KeyError):
-                raise
+                raise   # <-+-- FIXME something wrong here
+                #           V
                 tab_cls = table_factory(field.related_model, tables.Table)
             return tab_cls(data=qs).as_values()
 
         raise Http404('the given export option is not implemented')
 
-    def populate_export_options(self):
-        """ Automatically fill in export options """
-        if hasattr(self, 'get_queryset'):
-            # if we have a queryset, we want to offer downloading it
-            self.add_export_option('')
+    def get_export_options_context_data(self):
+        """ helper for get_context_data() """
+        if not hasattr(self, 'get_queryset'):
+            # FIXME: not sure when this is triggtered
+            # TODO: maybe disable downloads for empty querysets?
+            return []
 
-    def add_export_option(self, option):
+        return [self._get_export_ctx(i) for i in self.export_options]
+
+    def _get_export_ctx(self, option):
         disable_link = False
-        if self.export_options is None:
-            self.export_options = []
 
-        if option == '':
+        if option is self.EXPORT_TABLE:
             # default export, the view's model
+            option = ''
             link_txt = self.model._meta.verbose_name_plural
             link_txt += ' (this table)'
         else:
@@ -224,11 +245,11 @@ class ExportMixin(ExportBaseMixin):
         url = f'?{qstr.urlencode()}'
         if disable_link:
             url = None
-        self.export_options.append((url, link_txt))
+        return url, link_txt
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['export_options'] = self.export_options
+        ctx['export_options'] = self.get_export_options_context_data()
         return ctx
 
 
@@ -522,6 +543,9 @@ class ModelTableMixin(ExportMixin):
             if est > self.LAZY_PAGINATION_THRESHOLD:
                 self.paginator_class = LazyPaginator
 
+        for i in self.EXTRA_EXPORT_OPTIONS.get(self.model, []):
+            self.export_options.append(i)
+
     def get_table_kwargs(self):
         kw = super().get_table_kwargs()
         kw['exclude'] = list(self.exclude)
@@ -592,9 +616,6 @@ class ModelTableMixin(ExportMixin):
         return cols
 
     def get_context_data(self, **ctx):
-        # add export opts before ExportMixin makes context data:
-        for i in self.EXTRA_EXPORT_OPTIONS.get(self.model, []):
-            self.add_export_option(i)
         if hasattr(self.object_list, 'extra_context'):
             ctx.update(self.object_list.extra_context())
         ctx = super().get_context_data(**ctx)

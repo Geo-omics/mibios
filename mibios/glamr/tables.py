@@ -303,7 +303,7 @@ class ReadAbundanceTable(Table):
             # we want to get the UniRef100 accessions
             fields[ref_field_pos] = 'ref__accession'
 
-        qs = self.data.data.order_by().values_list(*fields)
+        qs = self.data.data.order_by().values_list(*fields).iterator()
 
         try:
             sample_field_pos = self.sequence.index('sample')
@@ -384,7 +384,7 @@ class TaxonAbundanceTable(Table):
         # declarations.
         fields = ['sample_id', 'taxon_id', 'taxon__taxid', 'taxon__rank',
                   'tpm']
-        for spk, tpk, taxid, rank, tpm in qs.values_list(*fields):
+        for spk, tpk, taxid, rank, tpm in qs.values_list(*fields).iterator():
             if tpk is None:
                 taxid = ''
                 rank = ''
