@@ -1,6 +1,7 @@
 {% extends "glamr/base.html" %}
 {% block content %}
 <h3>Your GLAMR account</h3>
+<p>{% if password_change_done %}Password change was successful.{% endif %}</p>
 <dl class="row">
     <dt class="col-sm-1">Username</dt><dd class="col-sm-11">{{object.username}}</dd>
 </dl>
