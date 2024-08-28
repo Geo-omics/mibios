@@ -1,4 +1,5 @@
 from django.apps import AppConfig as _AppConfig
+from django.core.checks import register as register_checks
 from django.core.exceptions import FieldDoesNotExist
 from django.utils.module_loading import import_string
 
@@ -49,3 +50,6 @@ class AppConfig(_AppConfig):
         # register sample jobs here to avoid cyclic import issues
         job_registry = import_string('mibios.omics.tracking.registry')
         job_registry.register_from_module('mibios.glamr.jobs')
+
+        # register checks
+        register_checks()(import_string('mibios.glamr.accounts.accounts_check'))  # noqa:E501
