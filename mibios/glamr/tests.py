@@ -14,15 +14,17 @@ import tempfile
 
 from django.apps import apps
 from django.conf import settings
+from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.db import connections
 from django.test import Client, override_settings, runner, TestCase, tag
 from django.urls import reverse
 
 from mibios.umrad.model_utils import Model
-from .models import Sample
+from .models import Dataset, Sample
 
 from . import urls0, models as glamr_models
+from .accounts import create_staff_group
 from .views import SearchMixin
 
 
@@ -44,10 +46,38 @@ class DiscoverRunner(runner.DiscoverRunner):
         )
 
 
-class TestDataMixin:
+class TestUserMixin:
+    TEST_USERS = {
+        'Alice': 'aedf4wagb53@#FSDGs',
+        'Bob': 'vcvewr4@$%$TFAdadsga',
+    }
+
+    @classmethod
+    def setUpTestData(cls):
+        User.objects.create_user('Alice', password=cls.TEST_USERS['Alice'],
+                                 is_staff=True)
+        User.objects.create_user('Bob', password=cls.TEST_USERS['Bob'])
+        # admin pages check permissions, so the staff group has to be set up
+        staff_grp = create_staff_group()
+        staff_grp.user_set.add(*User.objects.filter(is_staff=True))
+
+    def login(self, user):
+        """ convenience wrapper around client.login() """
+        if isinstance(user, User):
+            username = user.username
+        else:
+            username = user
+        return self.client.login(
+            username=username,
+            password=self.TEST_USERS[username],
+        )
+
+
+class TestDataMixin(TestUserMixin):
     """ Mixin for TestCase with a populated test database """
     @classmethod
     def setUpTestData(cls):
+        super().setUpTestData()
         call_command(
             'loaddata',
             f'{settings.TEST_FIXTURES_DIR / "test_metadata.json"}',
@@ -92,17 +122,6 @@ class EmptyDBViewTests(TestCase):
         resp = self.client.get('/doesnotexist/')
         self.assertEqual(resp.status_code, 404)
 
-    def test_internal_pages(self):
-        for view_name in ['dbinfo', 'sample_tracking']:
-            with self.settings(INTERNAL_DEPLOYMENT=True):
-                with self.subTest(view_name=view_name, view_enabled=True):
-                    resp = self.client.get(reverse(view_name))
-                    self.assertEqual(resp.status_code, 200)
-            with self.settings(INTERNAL_DEPLOYMENT=False):
-                with self.subTest(view_name=view_name, view_enabled=False):
-                    resp = self.client.get(reverse(view_name))
-                    self.assertEqual(resp.status_code, 404)
-
     def test_test_view_pages(self):
         for url in ['/minitest/', '/basetest/']:
             with self.settings(ENABLE_TEST_VIEWS=True):
@@ -129,20 +148,77 @@ class EmptyDBViewTests(TestCase):
                 resp = c.get(url)
                 self.assertEqual(resp.status_code, 404)
 
+
+@override_settings(ROOT_URLCONF=urls0)
+class StaffAccessTests(TestDataMixin, TestCase):
+    """
+    Test accessing certain pages while logged in as staff or non-staff
+    """
+    settings_kw = dict(
+        AUTHENTICATION_BACKENDS=['django.contrib.auth.backends.ModelBackend']
+    )
+
+    def _get_page_with_login(self, view):
+        """
+        request page for each user
+
+        non-staff should get a 302 response redicrecting them to the login page
+        """
+        qs = User.objects.all()
+        # need staff and non-staff for this test
+        self.assertTrue(qs.filter(is_staff=True).exists())
+        self.assertTrue(qs.filter(is_staff=False).exists())
+        for user in qs:
+            params = dict(view=view, user=user, is_staff=user.is_staff)
+            with self.subTest(**params), self.settings(**self.settings_kw):
+                self.assertTrue(self.login(user))
+                resp = self.client.get(reverse(view))
+                self.assertEqual(
+                    resp.status_code,
+                    200 if user.is_staff else 302
+                )
+
+    def test_simple_login(self):
+        """ check that users were created correctly and that login() works """
+        for i in User.objects.all():
+            with self.subTest(user=i.username):
+                self.assertTrue(self.login(i))
+
+    def test_internal_pages(self):
+        for view in ['dbinfo', 'sample_tracking']:
+            self._get_page_with_login(view)
+
     def test_admin_pages(self):
-        urls = ['/admin/', '/admin/glamr/', '/admin/glamr/aboutinfo/',
-                '/admin/glamr/credit/']
+        PREF = 'glamr_admin:'
+        views = ['glamr_aboutinfo_changelist', 'glamr_credit_changelist',
+                 'index']
+        for view in views:
+            self._get_page_with_login(PREF + view)
 
-        # The admin interface is setup during django's setup at module loading
-        # time, so we can't dynamically enable/disable it via settings here.
-        if not settings.INTERNAL_DEPLOYMENT:
-            self.skipTest('INTERNAL_DEPLOYMENT is not True')
-        if not settings.ENABLE_OPEN_ADMIN:
-            self.skipTest('ENABLE_OPEN_ADMIN is not True')
+    def test_private_data_access(self):
+        qs = Dataset.loader.filter(private=True)
+        if not qs.exists():
+            self.skipTest('no private datasets in test data')
 
-        for i in urls:
-            with self.subTest(url=i):
-                self.assertEqual(self.client.get(i).status_code, 200)
+        staff = User.objects.filter(is_staff=True).first()
+        normal = User.objects.filter(is_staff=False).first()
+
+        setno = qs.first().get_set_no()
+        views = [
+            ('dataset_sample_list', (setno, )),
+            ('dataset', (setno, )),
+        ]
+        for user in [staff, normal]:
+            self.assertTrue(self.login(user))
+            for view_name, args in views:
+                params = dict(user=user, is_staff=user.is_staff,
+                              view=(view_name, args))
+                with self.subTest(**params):
+                    resp = self.client.get(reverse(view_name, args=args))
+                    self.assertEqual(
+                        resp.status_code,
+                        200 if user.is_staff else 404
+                    )
 
 
 @override_settings(ROOT_URLCONF=urls0)
