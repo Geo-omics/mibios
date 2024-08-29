@@ -1283,6 +1283,8 @@ class RecordView(BaseMixin, DetailView):
 
         data = []
         for i in fields:
+            if i.name in self.exclude:
+                continue
             if i.related_model is models.Searchable:
                 continue
             model_name = i.related_model._meta.model_name
