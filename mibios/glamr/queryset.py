@@ -6,7 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.search import \
     SearchQuery, SearchRank, TrigramDistance
 from django.db import connections
-from django.db.models import Count, F, Func, TextField, Value, Window
+from django.db.models import Count, F, Func, Q, TextField, Value, Window
 from django.db.models.functions import FirstValue, Length, RowNumber
 
 import pandas
@@ -22,6 +22,16 @@ log = getLogger(__name__)
 
 
 class DatasetQuerySet(QuerySet):
+    def exclude_private(self, user):
+        """
+        Exclude private datasets for which user is not member of allowed group.
+        """
+        q = Q(restricted_to=None)  # no restrictions
+        if user.is_authenticated:
+            # or restriction to a user's group
+            q = q | Q(restricted_to__user=user)
+        return self.filter(q)
+
     def summary(
             self,
             column_field='sample_type',
@@ -82,6 +92,17 @@ class DatasetQuerySet(QuerySet):
 
 
 class SampleQuerySet(OmicsSampleQuerySet):
+    def exclude_private(self, user):
+        """
+        Exclude samples of private datasets unless user is member of allowed
+        group.
+        """
+        q = Q(dataset__restricted_to=None)  # no restrictions
+        if user.is_authenticated:
+            # or restriction to a user's group
+            q = q | Q(dataset__restricted_to__user=user)
+        return self.filter(q)
+
     def basic_counts(self, *fields, exclude_blank_fields=[]):
         """
         Count samples by given combination of categories

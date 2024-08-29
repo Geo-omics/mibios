@@ -650,19 +650,3 @@ class UniqueWordManager(Loader):
                 f"ts_stat('SELECT to_tsvector(''simple'', regexp_replace(text, ''[-~\\./\\+0-9]+'', '' '', 1, 0)) FROM "  # noqa: E501
                 f"{searchable_table}')"
             )
-
-
-class DatasetManager(Manager):
-    def get_queryset(self):
-        return super().get_queryset().filter(private=False)
-
-    def with_privates(self):
-        return super().get_queryset()
-
-
-class SampleManager(Manager):
-    def get_queryset(self):
-        return super().get_queryset().filter(dataset__private=False)
-
-    def with_privates(self):
-        return super().get_queryset()

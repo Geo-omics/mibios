@@ -574,8 +574,10 @@ class ModelTableMixin(ExportMixin):
         this method in get_queryset().
         """
         qs = super().get_queryset()
-        if self.model is Dataset:
-            qs = qs.annotate(sample_count=Count('sample', distinct=True))
+        if self.model is Dataset or self.model is Sample:
+            qs = qs.exclude_private(self.request.user)
+            if self.model is Dataset:
+                qs = qs.annotate(sample_count=Count('sample', distinct=True))
         return qs
 
     def _get_improved_columns(self):
@@ -632,7 +634,10 @@ class MapMixin():
         Return a Sample queryset of the samples to be displayed on the map.
         """
         if self.model is Sample:
-            return self.get_queryset()
+            # Assumes we are doing the usual ListView.get() call order.
+            # Re-using the object_list will save a few calls but result in a
+            # separate DB query regardless.
+            return self.object_list
         elif self.model is Dataset:
             if hasattr(self, 'conf') and self.conf is not None:
                 return self.conf.shift('sample', reverse=True).get_queryset()
@@ -1197,9 +1202,13 @@ class RecordView(BaseMixin, DetailView):
         if queryset is None:
             queryset = self.get_queryset()
 
+        if self.model is Dataset or self.model is Sample:
+            queryset = queryset.exclude_private(self.request.user)
+
         lookups = self.get_object_lookups()
+        queryset = queryset.filter(**lookups)
         try:
-            obj = queryset.filter(**lookups).get()
+            obj = queryset.get()
         except self.model.DoesNotExist:
             raise Http404(f'no {self.model} matching query {lookups=}')
 
@@ -1418,6 +1427,7 @@ class DatasetView(MapMixin, RecordView):
         'sequencing_platform',
         'size_fraction',
     ]
+    exclude = ['restricted_to']
 
     def get_object_lookups(self):
         key = self.kwargs['key']
@@ -1779,7 +1789,7 @@ class SampleView(RecordView):
     related = []
 
     def get_queryset(self):
-        qs = self.model.objects.with_privates()
+        qs = super().get_queryset()
         qs = qs.select_related('dataset', 'dataset__primary_ref')
         return qs
 
@@ -1960,7 +1970,7 @@ class ToManyListView(FilterMixin, ModelTableMixin, BaseMixin, SingleTableView):
 
     def setup(self, request, *args, **kwargs):
         """
-        Set up obj_model, object, field etc. from the kwargs.  Some of
+        Set up obj_model, field etc. from the kwargs.  Some of
         these may be provided by an inheriting class and thus get skipped.
         """
         if self.obj_model is None:
@@ -1969,12 +1979,6 @@ class ToManyListView(FilterMixin, ModelTableMixin, BaseMixin, SingleTableView):
                 self.obj_model = get_registry().models[obj_model]
             except KeyError as e:
                 raise Http404(f'no such model: {e}') from e
-
-        if self.object is None:
-            try:
-                self.object = self.obj_model.objects.get(pk=kwargs['pk'])
-            except self.obj_model.DoesNotExist as e:
-                raise Http404('no such record') from e
 
         try:
             field = self.obj_model._meta.get_field(kwargs['field'])
@@ -2003,7 +2007,25 @@ class ToManyListView(FilterMixin, ModelTableMixin, BaseMixin, SingleTableView):
         kwargs['model'] = self.model._meta.model_name
         super().setup(request, *args, **kwargs)
 
+    def get_object_lookups(self):
+        return {'pk': self.kwargs['pk']}
+
+    def get_object(self, queryset=None):
+        """ This is similar to DetailView.get_object() """
+        if queryset is None:
+            queryset = self.obj_model.objects.all()
+        queryset = queryset.filter(**self.get_object_lookups())
+
+        if self.obj_model is Dataset or self.obj_model is Sample:
+            queryset = queryset.exclude_private(self.request.user)
+
+        try:
+            return queryset.get()
+        except self.obj_model.DoesNotExist:
+            raise Http404(f'no such {self.obj_model} record')
+
     def get_queryset(self):
+        self.object = self.get_object()
         qs = super().get_queryset()
         qs = qs.filter(**{self.field.remote_field.name: self.object})
         return qs
@@ -2027,13 +2049,11 @@ class SampleListView(MapMixin, ToManyListView):
 
     def setup(self, request, *args, **kwargs):
         """ adapt setup call to ToManyListView's expectations """
-        set_no = kwargs.pop('set_no')
-        dataset_id = f'set_{set_no}'
-        try:
-            self.object = models.Dataset.objects.get(dataset_id=dataset_id)
-        except models.Dataset.DoesNotExist:
-            raise Http404(f'no dataset {dataset_id=}')
         super().setup(request, *args, field='sample', **kwargs)
+
+    def get_object_lookups(self):
+        set_no = self.kwargs['set_no']
+        return {'dataset_id': f'set_{set_no}'}
 
 
 class SearchResultMixin(MapMixin):

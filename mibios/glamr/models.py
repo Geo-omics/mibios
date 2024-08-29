@@ -2,6 +2,7 @@
 GLAMR-specific modeling
 """
 from django.conf import settings
+from django.contrib.auth.models import Group
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.indexes import GinIndex, GistIndex
@@ -17,6 +18,7 @@ from django.utils.functional import cached_property
 from mibios import __version__ as mibios_version
 from mibios.omics.models import AbstractDataset, AbstractSample
 from mibios.umrad.fields import AccessionField
+from mibios.umrad.manager import Manager
 from mibios.umrad.models import Model
 from mibios.umrad.model_utils import ch_opt, fk_opt, fk_req, uniq_opt, opt
 from mibios.umrad.utils import atomic_dry
@@ -25,8 +27,8 @@ from . import HORIZONTAL_ELLIPSIS
 from .fields import FreeDecimalField, OptionalURLField
 from .load import (
     AboutInfoManager,
-    DatasetLoader, DatasetManager, ReferenceLoader, SampleLoader,
-    SampleManager, SearchableManager, UniqueWordManager,
+    DatasetLoader, ReferenceLoader, SampleLoader,
+    SearchableManager, UniqueWordManager,
 )
 from .managers import dbstatManager
 from .queryset import (
@@ -295,6 +297,7 @@ class Dataset(IDMixin, AbstractDataset):
         default=False,
         help_text='hide this record and related samples from public view',
     )
+    restricted_to = models.ManyToManyField(Group)
     references = models.ManyToManyField('Reference')
     primary_ref = models.ForeignKey(
         'Reference', **fk_opt,
@@ -352,7 +355,7 @@ class Dataset(IDMixin, AbstractDataset):
 
     accession_fields = ('dataset_id', )
 
-    objects = DatasetManager.from_queryset(DatasetQuerySet)()
+    objects = Manager.from_queryset(DatasetQuerySet)()
     loader = DatasetLoader()
 
     class Meta:
@@ -368,7 +371,8 @@ class Dataset(IDMixin, AbstractDataset):
         """
         Return list of fields with non-public usage
         """
-        return super().get_internal_fields() + ['private', 'note']
+        fields = ['private', 'note', 'restricted_to']
+        return super().get_internal_fields() + fields
 
     def __str__(self):
         if self.primary_ref_id is None:
@@ -606,7 +610,7 @@ class Sample(IDMixin, AbstractSample):
 
     notes = models.TextField(**ch_opt)
 
-    objects = SampleManager.from_queryset(SampleQuerySet)()
+    objects = Manager.from_queryset(SampleQuerySet)()
     loader = SampleLoader.from_queryset(SampleQuerySet)()
 
     ID_PREFIX = 'samp_'
