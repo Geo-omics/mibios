@@ -5,12 +5,12 @@
 <nav aria-label="breadcrumb">
   <ol class="breadcrumb">
       <li class="breadcrumb-item"><a href="{% url 'frontpage' %}">Home</a></li>
-      <li class="breadcrumb-item"><a href="{% record_url dataset %}">{{dataset|meta:"verbose_name"|capfirst}}</a></li>
+      <li class="breadcrumb-item"><a href="{% record_url object %}">{{object|meta:"verbose_name"|capfirst}}</a></li>
     <li class="breadcrumb-item active" aria-current="page">Samples</li>
   </ol>
 </nav>
 {% include "glamr/map.html"%}
-<h3>Samples for {{ dataset }}:</h3>
+<h3>Samples for {{ object }}:</h3>
 {% include "glamr/download_links.html" %}
 {% render_table table %}
 {% endblock %}

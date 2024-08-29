@@ -1764,26 +1764,6 @@ class OverViewSamplesView(BaseMixin, SingleTableView):
         return ctx
 
 
-class SampleListView(MapMixin, ModelTableMixin, BaseMixin, SingleTableView):
-    """ List of samples belonging to a given dataset  """
-    model = get_sample_model()
-    template_name = 'glamr/sample_list.html'
-    table_class = tables.SampleTable
-
-    def get_queryset(self):
-        f = dict(dataset_id=f'set_{self.kwargs["set_no"]}')
-        try:
-            self.dataset = models.Dataset.objects.get(**f)
-        except models.Dataset.DoesNotExist:
-            raise Http404(f'no such dataset: {f=}')
-        return self.dataset.samples()
-
-    def get_context_data(self, **ctx):
-        ctx = super().get_context_data(**ctx)
-        ctx['dataset'] = self.dataset
-        return ctx
-
-
 class SampleView(RecordView):
     model = get_sample_model()
     template_name = 'glamr/sample_detail.html'
@@ -1975,18 +1955,26 @@ class TableView(FilterMixin, MapMixin, ModelTableMixin, BaseMixin,
 class ToManyListView(FilterMixin, ModelTableMixin, BaseMixin, SingleTableView):
     """ List records related to other record """
     template_name = 'glamr/relations_list.html'
+    obj_model = None
+    object = None
 
     def setup(self, request, *args, **kwargs):
-        obj_model = kwargs['obj_model']
-        try:
-            self.obj_model = get_registry().models[obj_model]
-        except KeyError as e:
-            raise Http404(f'no such model: {e}') from e
+        """
+        Set up obj_model, object, field etc. from the kwargs.  Some of
+        these may be provided by an inheriting class and thus get skipped.
+        """
+        if self.obj_model is None:
+            obj_model = kwargs['obj_model']
+            try:
+                self.obj_model = get_registry().models[obj_model]
+            except KeyError as e:
+                raise Http404(f'no such model: {e}') from e
 
-        try:
-            self.object = self.obj_model.objects.get(pk=kwargs['pk'])
-        except self.obj_model.DoesNotExist as e:
-            raise Http404('no such record') from e
+        if self.object is None:
+            try:
+                self.object = self.obj_model.objects.get(pk=kwargs['pk'])
+            except self.obj_model.DoesNotExist as e:
+                raise Http404('no such record') from e
 
         try:
             field = self.obj_model._meta.get_field(kwargs['field'])
@@ -1997,7 +1985,12 @@ class ToManyListView(FilterMixin, ModelTableMixin, BaseMixin, SingleTableView):
             raise Http404('field is not *-to_many')
 
         self.field = field
-        self.model = field.related_model
+        if self.model is None:
+            self.model = field.related_model
+        else:
+            if self.model is not field.related_model:
+                raise RuntimeError(f'{field=} {field.related_model=} does not '
+                                   f'match {self.model=}')
         # hide the column for the object:
         self.exclude.append(self.field.remote_field.name)
 
@@ -2023,6 +2016,24 @@ class ToManyListView(FilterMixin, ModelTableMixin, BaseMixin, SingleTableView):
         ctx['field'] = self.field
         ctx['verbose_name_plural'] = self.model._meta.verbose_name_plural
         return ctx
+
+
+class SampleListView(MapMixin, ToManyListView):
+    """ List of samples belonging to a given dataset  """
+    template_name = 'glamr/sample_list.html'
+    table_class = tables.SampleTable
+    model = models.Sample
+    obj_model = models.Dataset
+
+    def setup(self, request, *args, **kwargs):
+        """ adapt setup call to ToManyListView's expectations """
+        set_no = kwargs.pop('set_no')
+        dataset_id = f'set_{set_no}'
+        try:
+            self.object = models.Dataset.objects.get(dataset_id=dataset_id)
+        except models.Dataset.DoesNotExist:
+            raise Http404(f'no dataset {dataset_id=}')
+        super().setup(request, *args, field='sample', **kwargs)
 
 
 class SearchResultMixin(MapMixin):
