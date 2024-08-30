@@ -1490,7 +1490,7 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
         return self.filter.qs.order_by("-sample_count")
 
     def get_queryset(self):
-        # use caching as this gets called multiple times (maps etc.)
+        # use caching as this gets called multiple times (1ms each) (maps etc.)
         return self._queryset
 
     def get_context_data(self, **ctx):
@@ -1529,11 +1529,7 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
             .select_related('sample')[:5]
 
         ctx[self.context_filter_name] = self.filter
-
         ctx['dataset_totalcount'] = Dataset.objects.count()
-        ctx['filtered_dataset_totalcount'] = self.filter.qs.distinct().count()
-        ctx['sample_totalcount'] = Sample.objects.count()
-
         ctx['fit_map_to_points'] = False  # showing the Great Lakes
 
         # Compile data for dataset summary: A list of the rows of the table,
@@ -1590,6 +1586,7 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
                 row.append((q_str, count))
             sample_counts_data.append(row)
         ctx['sample_counts'] = sample_counts_data
+        ctx['sample_totalcount'] = df.sum().sum()
 
         return ctx
 
