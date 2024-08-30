@@ -104,13 +104,18 @@ def record_url(*args, **kwargs):
 
 
 @register.simple_tag(takes_context=True)
-def nav_linker(context, url_name, url_text, html_class=''):
+def nav_linker(context, url_name, url_text, html_class='', dropdown=False):
     """
     Helper for nav bar links
 
     Returns the whole href anchor tag <a class="..." href="...">...</a>
     """
-    html_class = ' '.join(['nav-link', html_class])
+    if dropdown:
+        # dropdown menu style
+        html_class = ' '.join(['dropdown-item', html_class])
+    else:
+        # regular navbar style
+        html_class = ' '.join(['nav-link', html_class])
     try:
         if url_name == resolve(context['request'].path).url_name:
             html_class += ' active'

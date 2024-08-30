@@ -60,7 +60,6 @@ class BaseMixin(VersionInfoMixin):
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['show_internal_nav'] = settings.INTERNAL_DEPLOYMENT
         try:
             # pick up django_table2 table name
             ctx['version_info']['table'] = ctx['table'].__class__.__name__
@@ -1525,7 +1524,6 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
 
     def _get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['show_internal_nav'] = settings.INTERNAL_DEPLOYMENT
         ctx['mc_abund'] = TaxonAbundance.objects \
             .filter(taxon__taxname__name='Microcystis') \
             .select_related('sample')[:5]

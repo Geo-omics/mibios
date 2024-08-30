@@ -18,24 +18,27 @@
 {% endblock %}
 
 {% block right_nav_section %}
-    {% if show_internal_nav %}
-        <ul class="navbar-nav ms-auto">
-            <li class="navbar-text">Internal:</li>
-            <li class="nav-item">{% nav_linker 'schemata_top' 'DB schemata' %}</li>
-            <li class="nav-item">{% nav_linker 'sample_tracking' 'sample status' %}</li>
-            <li class="nav-item">{% nav_linker 'dbinfo' 'DB info' %}</li>
-            {% if user.is_authenticated and user.is_staff %}
-                <li class="nav-item">{% nav_linker 'glamr_admin:index' 'admin' %}</li>
-            {% endif %}
-        </ul>
-    {% endif %}
     <ul class="navbar-nav ms-auto">
-        {% if user.is_authenticated %}
-            <li class="nav-item">{% nav_linker 'user_profile' user.username %}</li>
-            <li class="nav-item">{% nav_linker 'logout' 'Log out' %}</li>
-        {% else %}
-            <li class="nav-item">{% nav_linker 'login' 'Log in' %}</li>
-        {% endif %}
+    {% if user.is_authenticated %}
+        <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                Logged in: {{ user.username }}
+            </a>
+            <ul class="dropdown-menu">
+                <li>{% nav_linker 'logout' 'Log out' dropdown=True %}</li>
+                <li>{% nav_linker 'user_profile' 'Account' dropdown=True %}</li>
+                {% if user.is_staff %}
+                <li><hr class="dropdown-divider"></li>
+                <li><span class="dropdown-item-text disabled">Internal pages:</span></li>
+                <li>{% nav_linker 'schemata_top' 'DB schemata' dropdown=True %}</li>
+                <li>{% nav_linker 'sample_tracking' 'Sample status' dropdown=True %}</li>
+                <li>{% nav_linker 'dbinfo' 'DB stats' dropdown=True %}</li>
+                {% endif %}
+            </ul>
+        </li>
+    {% else %}
+        <li class="nav-item">{% nav_linker 'login' 'Log in' %}</li>
+    {% endif %}
     </ul>
 {% endblock %}
 
