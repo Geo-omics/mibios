@@ -1473,7 +1473,7 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
     @cached_property
     def _queryset(self):
         qs = super().get_queryset()
-        qs = qs.filter(private=False)
+        qs = qs.exclude_private(self.request.user)
         qs = qs.select_related('primary_ref')
 
         # to get sample type in table
@@ -1529,13 +1529,12 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
             .select_related('sample')[:5]
 
         ctx[self.context_filter_name] = self.filter
-        ctx['dataset_totalcount'] = Dataset.objects.count()
         ctx['fit_map_to_points'] = False  # showing the Great Lakes
 
         # Compile data for dataset summary: A list of the rows of the table,
         # for each cell it's a tuple of URL query string and value (text or
         # count.)
-        df = Dataset.objects.summary(
+        df = Dataset.objects.exclude_private(self.request.user).summary(
             column_field='sample_type',
             row_field='geo_loc_name',
         )
@@ -1561,9 +1560,12 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
                 row.append((q_str, count))
             dataset_counts_data.append(row)
         ctx['dataset_counts'] = dataset_counts_data
+        ctx['dataset_totalcount'] = \
+            Dataset.objects.exclude_private(self.request.user).count()
 
         # Compile data for sample summary: Similar to above for datasets
-        df = Sample.objects.summary('sample_type', 'geo_loc_name')
+        df = Sample.objects.exclude_private(self.request.user) \
+                           .summary('sample_type', 'geo_loc_name')
         conf = DataConfig(Sample)
         head = []
         for i in df.columns:
