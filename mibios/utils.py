@@ -300,7 +300,7 @@ class StatsMiddleWare:
     def __init__(self, get_response):
         self.get_response = get_response
         self.count = 0
-        self.log = getLogger(__name__)
+        self.log = getLogger('mibios.stats')
 
     def __call__(self, request):
         self.count += 1
@@ -309,14 +309,8 @@ class StatsMiddleWare:
         response = self.get_response(request)
         clock = (datetime.now() - t0).total_seconds()
         proc = time.process_time() - pt0
-        msg = (
-            f'stats: {self.count}'
-            f' clock: {clock:.3f}'
-        )
-        if not (0.9 <= clock / proc <= 1.1):
-            # show process time if it differes a lot from clock
-            msg += f' proc: {proc:.3f}'
-        self.log.debug(msg)
+        msg = f'request: {self.count} clock: {clock:.3f} proc: {proc:.3f}'
+        self.log.info(msg)
         return response
 
 
