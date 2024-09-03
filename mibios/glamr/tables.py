@@ -13,8 +13,8 @@ from .utils import get_record_url
 class Table(Table0):
     html_fields = None
     """ Field selection for HTML tables, for model-based tables, if exported
-    tables have all (modulo exclusions) fields.  Do not use this together with
-    Meta.fields. """
+    tables have all (modulo exclusions + internal) fields.  Do not use this
+    together with Meta.fields. """
 
     def __init__(self, data=None, view=None, exclude=None, **kwargs):
         self.view = view
@@ -36,6 +36,8 @@ class Table(Table0):
 
         exclude = list(exclude)
         exclude += ((i for i in self.get_extra_excludes() if i not in exclude))
+        exclude += ((i for i in self._meta.model.get_internal_fields()
+                     if i not in exclude))
         data = self.customize_queryset(data)
         super().__init__(data=data, exclude=exclude, **kwargs)
 
