@@ -4,6 +4,7 @@ from django.conf import settings
 from django.db import migrations, models
 import django.db.models.deletion
 import mibios.models
+import mibios.omics.models
 import mibios.umrad.fields
 
 
@@ -19,8 +20,8 @@ class Migration(migrations.Migration):
             name='File',
             fields=[
                 ('id', mibios.models.AutoField(primary_key=True, serialize=False)),
-                ('path', mibios.umrad.fields.PathField(max_length=200, root='/nfs/turbo/lsa-gdick2/geomicro/data2/kiledal/GLAMR/data/omics', unique=True)),
-                ('public', mibios.umrad.fields.PathField(blank=True, max_length=200, null=True, root='/geomicro/data7/GLAMR-Website/public')),
+                ('path', mibios.umrad.fields.PathField(max_length=200, root=mibios.omics.models.File.get_path_prefix, unique=True)),
+                ('public', mibios.umrad.fields.PathField(blank=True, max_length=200, null=True, root=mibios.omics.models.File.get_public_prefix)),
                 ('filetype', models.PositiveSmallIntegerField(choices=[(1, 'metagenomic assembly, fasta format'), (2, 'metatranscriptome assembly, fasta format'), (3, 'functional abundance, csv format'), (4, 'taxonomic abundance, csv format'), (5, 'functional abundance (TPM) [csv]')], verbose_name='file type')),
                 ('size', models.PositiveBigIntegerField()),
                 ('md5sum', models.CharField(blank=True, max_length=32, verbose_name='MD5 sum')),
