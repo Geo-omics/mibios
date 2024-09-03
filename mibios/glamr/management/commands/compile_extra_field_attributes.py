@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 from django.apps import apps
 from django.conf import settings
@@ -16,7 +17,8 @@ UNITS_SHEET = 'Great_Lakes_Omics_Datasets.xlsx - metadata_units_and_notes.tsv'
 
 # Required columns in input file:
 FIELD_COL = 'django_field_name'
-VERBOSE_COL = 'verbose_name'
+VERBOSE_COL = 'display_name'
+INFOTXT_COL = 'info_text'
 UNIT_COL = 'Units'
 
 
@@ -37,7 +39,7 @@ class Command(BaseCommand):
             header = ifile.readline().rstrip('\n').split('\t')
             colindex = {}
             err_msg = []
-            for i in [FIELD_COL, VERBOSE_COL, UNIT_COL]:
+            for i in [FIELD_COL, VERBOSE_COL, INFOTXT_COL, UNIT_COL]:
                 try:
                     colindex[i] = header.index(i)
                 except ValueError:
@@ -51,17 +53,47 @@ class Command(BaseCommand):
 
             for lineno, line in enumerate(ifile, start=2):
                 row = line.rstrip('\n').split('\t')
-                field_name = row[colindex[FIELD_COL]]
+                row = [i.strip() for i in row]
 
+                field_name = row[colindex[FIELD_COL]]
                 attrs = {}
-                if row[colindex[VERBOSE_COL]]:
-                    attrs['verbose_name'] = row[colindex[VERBOSE_COL]]
-                unit = row[colindex[UNIT_COL]]
-                if unit:
-                    if unit.startswith('"') and unit.endswith('"'):
-                        attrs['pseudo_unit'] = unit.strip('"')
+
+                if verbose_name := row[colindex[VERBOSE_COL]].strip():
+                    attrs['verbose_name'] = verbose_name
+
+                if info := row[colindex[INFOTXT_COL]].strip():
+                    attrs['info_text'] = info
+
+                if unit := row[colindex[UNIT_COL]]:
+                    """
+                    Can be either/or a real unit or some "-quoted text in
+                    either order, e.g.:
+                        fb
+                        "foo bar"
+                        "foo bar" fb
+                        fb "foo bar"
+                    """
+                    if unit.startswith('"'):
+                        if m := re.match(r'^"([^"]*)"(.*)$', unit):
+                            pseudo_unit, proper_unit = m.groups()
+                        else:
+                            raise CommandError(
+                                f'failed parsing unit at line {lineno}: {unit}'
+                            )
+                    elif unit.endswith('"'):
+                        if m := re.match(r'^([^"]*)"([^"]*)"$', unit):
+                            proper_unit, pseudo_unit = m.groups()
+                        else:
+                            raise CommandError(
+                                f'failed parsing unit at line {lineno}: {unit}'
+                            )
                     else:
-                        attrs['unit'] = unit
+                        proper_unit = unit
+                        pseudo_unit = ''
+                    if proper_unit := proper_unit.strip():
+                        attrs['unit'] = proper_unit
+                    if pseudo_unit := pseudo_unit.strip('"').strip():
+                        attrs['pseudo_unit'] = pseudo_unit
 
                 if not field_name:
                     print(f'[WARNING] django fieldname missing: line:{lineno} '
