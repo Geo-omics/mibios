@@ -128,10 +128,10 @@ def accounts_check(app_configs, **kwargs):
     else:
         errors.append(
             checks.Warning(
-                'The {name} group has no permissions at all.',
-                hint='Add these permissions via admin '
-                '(check mibios.glamr.admin module if permissions are not '
-                'excluded from interface): {sorted(GLAMR_STAFF_PERMISSIONS)}',
+                f'The {name} group has no permissions at all.',
+                hint='Add permissions (see GLAMR_STAFF_PERMISSIONS in '
+                'mibios.glamr.accounts) via admin or run '
+                'create_staff_group() also in the accounts module.',
                 id='glamr.W004',
             )
         )
