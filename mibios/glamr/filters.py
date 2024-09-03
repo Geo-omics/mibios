@@ -312,7 +312,7 @@ class ReadAbundanceFilter(FilterSet):
 
 class ReferenceFilter(FilterSet):
     last_author = ChoiceFiFi()
-    year = ChoiceFiFi(label='Year of publication')
+    year = ChoiceFiFi(label='Year of publication', sort_key=lambda x: -x)
     key_words = ChoiceFiFi(sep=',', label='Keywords')
     publication = ChoiceFiFi(label='Journal')
 

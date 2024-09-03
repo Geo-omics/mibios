@@ -477,6 +477,8 @@ class Reference(IDMixin, Model):
     class Meta:
         verbose_name = 'publication'
 
+    default_internal_fields = ('id', 'reference_id', 'short_reference',
+                               'last_author')
     ID_PREFIX = 'paper_'
 
     def __str__(self):

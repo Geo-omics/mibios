@@ -511,6 +511,7 @@ class ModelTableMixin(ExportMixin):
         Sample: tables.SampleTable,
         TaxonAbundance: tables.TaxonAbundanceTable,
         ReadAbundance: tables.ReadAbundanceTable,
+        models.Reference: tables.ReferenceTable,
         TaxNode: tables.TaxNodeTable,
         File: tables.FileTable,
     }

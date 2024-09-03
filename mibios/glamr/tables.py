@@ -329,6 +329,13 @@ class ReadAbundanceTable(Table):
             yield tuple(row)
 
 
+class ReferenceTable(Table):
+    class Meta:
+        model = glamr_models.Reference
+        exclude = ('abstract',)
+        order_by = '-year'
+
+
 class TaxNodeTable(Table):
     taxid = Column(linkify=linkify_record)
     parent = Column(linkify=linkify_value)
