@@ -111,6 +111,21 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
 
         return value
 
+    def check_status(self, value, obj):
+        match value:
+            case 'Completed' | 'In Progress' | 'Issues':
+                return self.spec.IGNORE_COLUMN
+            case _:
+                self.skipped.append(obj)
+                raise SkipRow('study status: not ready yet')
+
+    def check_is_glamr(self, value, obj):
+        if self.parse_bool(value, obj):
+            return self.spec.IGNORE_COLUMN
+        else:
+            self.skipped.append(obj)
+            raise SkipRow('not a GLAMR dataset')
+
     def split_by_comma(self, value, obj):
         return [(i, ) for i in self.split_m2m_value(value, sep=',')]
 
@@ -131,13 +146,23 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
         ('Sequencing targets', 'sequencing_target'),  # O
         ('Sequencing Platform', 'sequencing_platform'),  # P
         ('Size Fraction(s)', 'size_fraction'),  # Q
-        # study_status  # R ignore
+        ('study_status', None, check_status),  # R
         # sample_added_by  # S ignore
         ('private', 'private', 'parse_bool'),  # T
-        # is_GLAMR  # U ignore
+        ('is_GLAMR', None, check_is_glamr),  # U
         ('Notes', 'note'),  # V
         # ignoring counts columns
     )
+
+    def load(self, *args, **kwargs):
+        self.skipped = []
+        super().load(*args, **kwargs)
+        skipped_ids = [getattr(i, 'dataset_id', None) for i in self.skipped]
+        qs = self.filter(dataset_id__in=skipped_ids)
+        if qs.exists():
+            print('WARNING: These datasets exist in the DB but got skipped:')
+            for i in qs:
+                print('    ', i.dataset_id)
 
 
 class ReferenceLoader(MetaDataLoader):
