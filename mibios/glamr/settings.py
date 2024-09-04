@@ -22,6 +22,7 @@ CRISPY_TEMPLATE_PACK = 'bootstrap4'
 
 # find bootstrap icons as template
 TEMPLATES[0]['DIRS'].append('/usr/share/bootstrap-icons/svg/')  # noqa:F405
+BASE_TEMPLATE_NAME = 'glamr/base.html'
 
 # override mibios' urls since glamr has it's own
 ROOT_URLCONF = 'mibios.glamr.urls0'

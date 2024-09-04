@@ -82,6 +82,9 @@ TEMPLATES = [
         },
     },
 ]
+# The base template to use with the extends template tag in other apps when
+# embedding their views into the main site.
+BASE_TEMPLATE_NAME = 'mibios/base.html'
 
 WSGI_APPLICATION = 'mibios.ops.wsgi.application'
 
