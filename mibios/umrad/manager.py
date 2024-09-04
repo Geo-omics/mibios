@@ -479,7 +479,7 @@ class BaseLoader(MibiosBaseManager):
 
         Returns a tuple (diffs dict, skip log list).
         """
-        fields = self.spec.fields
+        fields = [i for i in self.spec.fields if i is not None]
         model_name = self.model._meta.model_name
 
         if update:
@@ -538,7 +538,7 @@ class BaseLoader(MibiosBaseManager):
                                   f'value was "{value}" -- {e}')
                             raise
 
-                if value is self.spec.IGNORE_COLUMN:
+                if value is self.spec.IGNORE_COLUMN or field is None:
                     continue  # next column
 
                 # obj is always None for first field

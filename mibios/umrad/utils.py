@@ -448,16 +448,13 @@ class InputFileSpec:
             if not self.has_header:
                 spec_line = (self.NO_HEADER, *spec_line)
 
-            colname, key, *prepfunc = spec_line
+            colname, item2, *rest = spec_line
+            specline_fmt = '(' + ', '.join((str(i) for i in spec_line)) + ')'
 
             if colname is self.CALC_VALUE:
-                if key is None:
-                    raise SpecError('require key (field name) for for which'
-                                    'to calculate a value')
-
                 if not self.has_header:
                     col_index.append(self.CALC_VALUE)
-            else:
+            elif isinstance(colname, str):
                 # current spec item is for a column in input
                 if not self.has_header:
                     # add 0-based numerical index for column name
@@ -467,65 +464,83 @@ class InputFileSpec:
                     else:
                         cur_col_index += 1
 
-                if key in (None, self.IGNORE_COLUMN):
-                    # ignore this column
-                    continue
-
                 if not self.has_header:
                     col_index.append(cur_col_index)
 
-            if not isinstance(key, str):
-                raise SpecError(f'expecting a str: {key=} in {spec_line=}')
+            get_field_err = None
 
-            if '.' in key:
-                field_name, _, attr = key.partition('.')
-                self.fk_attrs[field_name] = attr
-            else:
-                field_name = key
-
-            col_names.append(colname)
-            keys.append(key)
-
-            try:
-                field = self.model._meta.get_field(field_name)
-            except FieldDoesNotExist as e:
-                msg = f'bad spec line: {spec_line}: {e} / {self.has_header=}'
-                raise SpecError(msg) from e
-
-            fields.append(field)
-            field_names.append(field_name)
-
-            if len(prepfunc) == 0:
-                # no pre-proc method set, add auto-magic stuff as-needed here
-                if field.choices:
-                    # automatically attach prep method for choice fields
-                    prepfunc = self.loader.get_choice_value_prep_method(field)
-            elif len(prepfunc) > 1:
-                raise SpecError(f'too many items in spec for {colname}/{key}')
-            elif len(prepfunc) == 1 and prepfunc[0] is None:
-                # pre-proc method explicitly set to None
+            if item2 is self.IGNORE_COLUMN:
+                continue
+            elif isinstance(item2, str):
+                field_name, _, fkattr = item2.partition('.')
+                try:
+                    field = self.model._meta.get_field(field_name)
+                except FieldDoesNotExist as e:
+                    # for now, assume it's supposed to be a prepfunc and not a
+                    # field (but we keep the error to maybe show later)
+                    get_field_err = e
+                    prepfunc = field_name
+                    key = field = field_name = None
+                else:
+                    prepfunc = None
+                    key = item2  # TODO: the key is not needed anymore, right?
+                    if fkattr:
+                        self.fk_attrs[field_name] = fkattr
+            elif callable(item2):
+                # prepfunc given but no field
+                key = field = field_name = None
+                prepfunc = item2
+            elif item2 is None:
+                # explicit None key
+                key = field = field_name = None
                 prepfunc = None
             else:
-                # a non-None pre-proc method is given
-                prepfunc = prepfunc[0]
-                if isinstance(prepfunc, str):
+                raise SpecError(f'Expected str or callable: {item2} in line '
+                                f'{specline_fmt}')
+
+            if rest:
+                if prepfunc is not None:
+                    raise SpecError(
+                        f'unexpected third item {rest=} or second item '
+                        f'({item2}) should have been key to a field: '
+                        f'{get_field_err or "..."} | {specline_fmt}'
+                    )
+                if len(rest) > 1:
+                    raise SpecError('too many items: {specline_fmt}')
+                prepfunc = rest[0]
+                if prepfunc is None:
+                    pass
+                elif isinstance(prepfunc, str):
                     prepfunc_name = prepfunc
                     # getattr gives us a bound method:
                     prepfunc = getattr(loader, prepfunc_name)
                     if not callable(prepfunc):
                         raise SpecError(
                             f'not the name of a {self.loader} method: '
-                            f'{prepfunc_name}'
+                            f'{prepfunc_name} in spec {specline_fmt}'
                         )
                 elif callable(prepfunc):
                     # Assume it's a function that takes the loader as
-                    # 1st arg.  We get this when the previoudsly
-                    # delclared method's identifier is passed directly
+                    # 1st arg.  We get this when the previously
+                    # declared method's identifier is passed directly
                     # in the spec's declaration.
                     prepfunc = partial(prepfunc, self.loader)
                 else:
-                    raise SpecError(f'not a callable: {prepfunc}')
+                    raise SpecError(f'expected a callable or manager method '
+                                    f'name: {prepfunc}: {specline_fmt}')
 
+            if key is None and colname is self.CALC_VALUE:
+                raise SpecError('require key (field name) for for which'
+                                'to calculate a value: {specline_fmt}')
+
+            if key is None and prepfunc is None:
+                # skip as there would be nothing to do
+                continue
+
+            col_names.append(colname)
+            keys.append(key)
+            fields.append(field)
+            field_names.append(field_name)
             prepfuncs.append(prepfunc)
 
         self.col_names = col_names
@@ -586,8 +601,11 @@ class InputFileSpec:
                         f'row too short: no element with index {col_i} for '
                         f'field {field} / column {col_name} {row=}'
                     ) from e
-                if value in self.empty_values or value in field.empty_values:
+                if value in self.empty_values:
                     value = None
+                elif field is not None and value in field.empty_values:
+                    value = None
+
             yield (field, fn, value)
 
     def row2dict(self, row_data):
@@ -1065,7 +1083,7 @@ class FKMap(dict):
         """
         self.to_pythons = {}  # any needed Field.to_python() functions
         for i in spec.fields:
-            if not i.many_to_one:
+            if i is None or not i.many_to_one:
                 continue
 
             if i.name in spec.fk_attrs:
