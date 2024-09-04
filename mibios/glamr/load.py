@@ -115,24 +115,27 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
         return [(i, ) for i in self.split_m2m_value(value, sep=',')]
 
     spec = CSV_Spec(
-        ('dataset', 'dataset_id', ensure_id),
-        ('Associated_papers', 'references', split_by_comma),
-        ('Primary_pub', 'primary_ref.reference_id'),
-        ('primary_pub_title', None),
-        ('NCBI_BioProject', 'bioproject'),
-        ('JGI_Project_ID', 'jgi_project'),
-        ('GOLD_ID', 'gold_id'),
-        ('MG-RAST_study', 'mgrast_study'),
-        ('Location and Sampling Scheme', 'scheme'),
-        ('Material Type', 'material_type'),
-        ('Water Bodies', 'water_bodies'),
-        ('Primers', 'primers'),
-        ('Sequencing targets', 'sequencing_target'),
-        ('Sequencing Platform', 'sequencing_platform'),
-        ('Size Fraction(s)', 'size_fraction'),
-        # ignore study_status, sample_added_by
-        ('private', 'private', 'parse_bool'),
-        ('Notes', 'note'),
+        ('dataset', 'dataset_id', ensure_id),  # A
+        ('Associated_papers', 'references', split_by_comma),  # B
+        ('Primary_pub', 'primary_ref.reference_id'),  # C
+        ('primary_pub_title', None),  # D ignore
+        ('NCBI_BioProject', 'bioproject'),  # E
+        # other_ncbi_ids  # F  TODO: add this?
+        ('JGI_Project_ID', 'jgi_project'),  # G
+        ('GOLD_ID', 'gold_id'),  # H
+        ('MG-RAST_study', 'mgrast_study'),  # I
+        ('Location and Sampling Scheme', 'scheme'),  # J
+        ('Material Type', 'material_type'),  # L
+        ('Water Bodies', 'water_bodies'),  # M
+        ('Primers', 'primers'),  # N
+        ('Sequencing targets', 'sequencing_target'),  # O
+        ('Sequencing Platform', 'sequencing_platform'),  # P
+        ('Size Fraction(s)', 'size_fraction'),  # Q
+        # study_status  # R ignore
+        # sample_added_by  # S ignore
+        ('private', 'private', 'parse_bool'),  # T
+        # is_GLAMR  # U ignore
+        ('Notes', 'note'),  # V
         # ignoring counts columns
     )
 
