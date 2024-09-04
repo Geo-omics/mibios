@@ -1,3 +1,4 @@
+from enum import Enum
 from datetime import datetime
 from functools import partial, wraps
 from inspect import signature
@@ -364,10 +365,18 @@ class SpecError(Exception):
     pass
 
 
+class PrettyEnum(Enum):
+    """ enum that prints just to its name  """
+    def __str__(self):
+        return self.name
+
+
 class InputFileSpec:
-    IGNORE_COLUMN = object()
-    CALC_VALUE = object()
-    NO_HEADER = object()
+    special_values = PrettyEnum('special_values',
+                                ['IGNORE_COLUMN', 'CALC_VALUE', 'NO_HEADER'])
+    IGNORE_COLUMN = special_values.IGNORE_COLUMN
+    CALC_VALUE = special_values.CALC_VALUE
+    NO_HEADER = special_values.NO_HEADER
 
     empty_values = []
     """
