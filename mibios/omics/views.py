@@ -6,6 +6,7 @@ from django.http import Http404, HttpResponse
 
 from django_tables2 import SingleTableView
 
+from mibios.views import StaffLoginRequiredMixin
 from . import get_dataset_model, get_sample_model
 from .models import SampleTracking, TaxonAbundance
 from .tables import SampleTrackingTable
@@ -59,8 +60,7 @@ def krona(request, samp_no):
     return HttpResponse(html)
 
 
-class SampleTrackingView(RequiredSettingsMixin, SingleTableView):
-    required_settings = 'INTERNAL_DEPLOYMENT'
+class SampleTrackingView(StaffLoginRequiredMixin, SingleTableView):
     template_name = 'omics/sample_tracking.html'
     table_class = SampleTrackingTable
     table_pagination = False

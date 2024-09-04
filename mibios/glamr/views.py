@@ -30,7 +30,10 @@ from mibios.glamr.filters import (
 from mibios.glamr.forms import DatasetFilterFormHelper
 from mibios.glamr.models import Sample, Dataset, pg_class, dbstat
 from mibios.models import Q
-from mibios.views import ExportBaseMixin, TextRendererZipped, VersionInfoMixin
+from mibios.views import (
+    ExportBaseMixin, StaffLoginRequiredMixin, TextRendererZipped,
+    VersionInfoMixin,
+)
 from mibios.omics import get_sample_model
 from mibios.omics.models import (
     CompoundAbundance, FuncAbundance, ReadAbundance, TaxonAbundance,
@@ -1121,8 +1124,7 @@ class ContactView(BaseMixin, TemplateView):
     template_name = 'glamr/contact.html'
 
 
-class DBInfoView(RequiredSettingsMixin, BaseMixin, SingleTableView):
-    required_settings = 'INTERNAL_DEPLOYMENT'
+class DBInfoView(StaffLoginRequiredMixin, BaseMixin, SingleTableView):
     template_name = 'glamr/dbinfo.html'
     model = None  # set by setup()
     table_class = tables.DBInfoTable

@@ -73,6 +73,14 @@ class CuratorRequiredMixin(CuratorMixin, UserRequiredMixin,
         return self.user_is_curator
 
 
+class StaffLoginRequiredMixin(UserPassesTestMixin):
+    raise_exception = True
+    permission_denied_message = 'Login via staff account is required.'
+
+    def test_func(self):
+        return self.request.user.is_staff
+
+
 class VersionInfoMixin:
     """
     inject some debug info into template context
