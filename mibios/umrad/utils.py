@@ -601,6 +601,8 @@ class InputFileSpec:
                         f'row too short: no element with index {col_i} for '
                         f'field {field} / column {col_name} {row=}'
                     ) from e
+
+                value = value.strip()
                 if value in self.empty_values:
                     value = None
                 elif field is not None and value in field.empty_values:
