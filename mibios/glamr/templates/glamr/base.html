@@ -26,7 +26,7 @@
             </a>
             <ul class="dropdown-menu">
                 <li>{% nav_linker 'logout' 'Log out' dropdown=True %}</li>
-                <li>{% nav_linker 'user_profile' 'Account' dropdown=True %}</li>
+                <li>{% nav_linker 'user_profile' 'Your account' dropdown=True %}</li>
                 {% if user.is_staff %}
                 <li><hr class="dropdown-divider"></li>
                 <li><span class="dropdown-item-text disabled">Internal pages:</span></li>

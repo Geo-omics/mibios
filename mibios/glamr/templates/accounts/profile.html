@@ -1,9 +1,20 @@
 {% extends "glamr/base.html" %}
+{% load glamr_extras %}
 {% block content %}
 <h3>Your GLAMR account</h3>
 <p>{% if password_change_done %}Password change was successful.{% endif %}</p>
 <dl class="row">
-    <dt class="col-sm-1">Username</dt><dd class="col-sm-11">{{object.username}}</dd>
+    <dt class="col-md-3">Username</dt><dd class="col-md-9">{{object.username}}</dd>
+    {% if datasets|length > 1 %}
+    <dt class="col-md-3">You have additional access to these datasets</dt>
+    <dd class="col-md-9">
+        <ul class="list-group">
+            {% for i in datasets %}
+            <li class="list-group-item"><a href="{% record_url i %}">{{ i }}</a></li>
+            {% endfor %}
+        </ul>
+    </dd>
+    {% endif %}
 </dl>
 <a class="link-secondary" href="{% url 'password_change' %}">change password</a>
 {% endblock %}

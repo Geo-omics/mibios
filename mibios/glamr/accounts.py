@@ -5,6 +5,8 @@ from django.core import checks
 from django.db import Error as DB_Error
 from django.views.generic import DetailView
 
+from .models import Dataset
+
 
 class LoginView(auth_views.LoginView):
     template_name = 'accounts/login.html'
@@ -20,6 +22,17 @@ class UserProfileView(LoginRequiredMixin, DetailView):
 
     def get_object(self, queryset=None):
         return self.request.user
+
+    def get_my_datasets(self):
+        """
+        Get restricted dataset the current user can access
+        """
+        return Dataset.objects.filter(restricted_to__user=self.request.user)
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['datasets'] = self.get_my_datasets()
+        return ctx
 
 
 class PasswordChangeDoneView(UserProfileView):
