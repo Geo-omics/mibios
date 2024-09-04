@@ -36,8 +36,9 @@ class Table(Table0):
 
         exclude = list(exclude)
         exclude += ((i for i in self.get_extra_excludes() if i not in exclude))
-        exclude += ((i for i in self._meta.model.get_internal_fields()
-                     if i not in exclude))
+        if hasattr(self._meta.model, 'get_internal_fields'):
+            exclude += ((i for i in self._meta.model.get_internal_fields()
+                         if i not in exclude))
         data = self.customize_queryset(data)
         super().__init__(data=data, exclude=exclude, **kwargs)
 
