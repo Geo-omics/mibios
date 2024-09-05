@@ -7,7 +7,7 @@ from django.http import Http404, HttpResponse
 from django_tables2 import SingleTableView
 
 from mibios.views import StaffLoginRequiredMixin
-from . import get_dataset_model, get_sample_model
+from . import get_sample_model
 from .models import SampleTracking, TaxonAbundance
 from .tables import SampleTrackingTable
 
@@ -70,21 +70,28 @@ class SampleTrackingView(StaffLoginRequiredMixin, SingleTableView):
         returns a list of dict
         """
         Samples = get_sample_model()
-        Dataset = get_dataset_model()
-        samples = Samples._meta.base_manager.all().in_bulk()
-        self.total_sample_count = len(samples)
-        private = dict(
-            Dataset._meta.base_manager.all().values_list('pk', 'private')
+
+        sample_fields = (
+            'sample_id', 'sample_name', 'analysis_dir', 'read_count',
+            'reads_mapped_contigs', 'reads_mapped_genes',
+            'biosample',
         )
-        tracks = SampleTracking.objects.order_by('sample__pk')
-        for i in tracks:
-            i.sample = samples[i.sample_id]
+
+        samples = (
+            Samples._meta.base_manager.all()
+            .only(*sample_fields, 'dataset__dataset_id', 'dataset__private')
+            .select_related('dataset')
+            .in_bulk()
+        )
+
+        self.total_sample_count = len(samples)
+        tracks = SampleTracking.objects.order_by('sample_id')
         data = []
-        for sample, grp in groupby(tracks, lambda x: x.sample):
+        for sample_pk, grp in groupby(tracks, lambda x: x.sample_id):
+            sample = samples[sample_pk]
             row = defaultdict(None)
             row['sample'] = sample
-            row['sample_id_num'] = int(sample.sample_id.removeprefix('samp_'))
-            row['private'] = private[sample.dataset_id]
+            row['sample_id_num'] = sample.get_record_id_no()
             for i in grp:
                 row[i.get_flag_display()] = True
             data.append(row)
