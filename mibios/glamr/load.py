@@ -5,6 +5,7 @@ import re
 
 from django.apps import apps
 from django.conf import settings
+from django.contrib.auth.models import Group
 from django.contrib.postgres.search import SearchQuery
 from django.core.exceptions import FieldDoesNotExist
 from django.db import connections, transaction, NotSupportedError
@@ -126,6 +127,27 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
             self.skipped.append(obj)
             raise SkipRow('not a GLAMR dataset')
 
+    def sub_user_groups(self, value, obj):
+        """
+        Parse special values in the 'private' column
+
+        Substitute the staff group name if appropriate.  Public access datasets
+        must be marked as such, we return an empty list (blank) then.  An
+        incoming blank however is interpreted as staff-only, just to be safe.
+        Otherwise we expect a list of group names, though usually just a single
+        name.
+        """
+        if value is not None:
+            value = value.casefold()
+        if value in ['false', 'public']:
+            # public access
+            return None
+        elif not value or value in ['true', 'private', 'glamr-staff', 'staff']:
+            # private data
+            return ((self.staff_group_name,),)
+        else:
+            return value
+
     def split_by_comma(self, value, obj):
         return [(i, ) for i in self.split_m2m_value(value, sep=',')]
 
@@ -148,13 +170,19 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
         ('Size Fraction(s)', 'size_fraction'),  # Q
         ('study_status', None, check_status),  # R
         # sample_added_by  # S ignore
-        ('private', 'private', 'parse_bool'),  # T
+        ('private', 'restricted_to', sub_user_groups),  # T
         ('is_GLAMR', None, check_is_glamr),  # U
         ('Notes', 'note'),  # V
         # ignoring counts columns
+        extra={'restricted_to': {
+            'acc_field': Group._meta.get_field('name'),
+            'acc_lookup': 'name',
+        }},
     )
 
     def load(self, *args, **kwargs):
+        # avoid circular import:
+        self.staff_group_name = import_string('mibios.glamr.accounts.STAFF_GROUP_NAME')  # noqa:E501
         self.skipped = []
         super().load(*args, **kwargs)
         skipped_ids = [getattr(i, 'dataset_id', None) for i in self.skipped]

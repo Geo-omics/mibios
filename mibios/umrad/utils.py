@@ -384,7 +384,7 @@ class InputFileSpec:
     the data these are used in addition to each field's empty_values attribute.
     """
 
-    def __init__(self, *column_specs, has_header=None):
+    def __init__(self, *column_specs, has_header=None, extra=None):
         self._spec = column_specs or None
 
         # set by setup():
@@ -392,6 +392,7 @@ class InputFileSpec:
         self.loader = None
         self.file = None
         self.has_header = has_header
+        self.extra = extra or {}
         self.fk_attrs = {}
         self.fkmap_filters = {}
         self.pre_load_hook = []

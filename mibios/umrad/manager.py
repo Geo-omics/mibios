@@ -831,7 +831,10 @@ class BaseLoader(MibiosBaseManager):
             i[0] for objdat in m2m_data.values()
             for i in objdat.get(field_name, [])
         )
-        acc_field = model.get_accession_field_single()
+        try:
+            acc_field = model.get_accession_field_single()
+        except AttributeError:
+            acc_field = self.spec.extra[field_name]['acc_field']
         if acc_field.get_internal_type().endswith('IntegerField'):
             # cast to right type as needed (integers only?)
             accs = (int(i) for i in accs)
@@ -843,7 +846,11 @@ class BaseLoader(MibiosBaseManager):
 
         # get existing
         qs = model._base_manager.all()
-        qs = qs.values_list(model.get_accession_lookup_single(), 'pk')
+        try:
+            acc_lookup = model.get_accession_lookup_single()
+        except AttributeError:
+            acc_lookup = self.spec.extra[field_name]['acc_lookup']
+        qs = qs.values_list(acc_lookup, 'pk')
         a2pk = dict(qs.iterator())
         print(f' / known: {len(a2pk)}', end='', flush=True)
 
