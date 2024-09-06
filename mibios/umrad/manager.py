@@ -589,7 +589,7 @@ class BaseLoader(MibiosBaseManager):
 
                 if field.many_to_many:
                     # the "value" here is a list of tuples of through model
-                    # contructor parameters without the local object or objects
+                    # constructor parameters without the local object(s)
                     # pk/id.  For normal, automatically generated, through
                     # models this is just the remote object's accession (which
                     # will later be replaced by the pk/id.)  If value comes in
@@ -804,23 +804,20 @@ class BaseLoader(MibiosBaseManager):
 
             # collecting all m2m entries
             for field in (i for i in fields if i.many_to_many):
-                self._update_m2m(field.name, m2m_data, update=update)
+                self._update_m2m(field.name, m2m_data)
 
         sleep(1)  # let progress meter finish before returning
 
         return diff, skipped_rows
 
-    def _update_m2m(self, field_name, m2m_data, update=False):
+    def _update_m2m(self, field_name, m2m_data):
         """
-        Update M2M data for one field -- helper for _load_lines()
+        Update M2M data for one field -- helper for _load()
 
         :param str field_name: Name of m2m field
         :param dict m2m_data:
-            A dict with all fields' m2m data as produced in the load_lines
+            A dict with all fields' m2m data as produced in the _load()
             method.
-        :param bool update:
-            If True, then replace existing m2m relation, if False, then it is
-            assumed that no previous relations exist.
         """
         print(f'm2m {field_name}: ', end='', flush=True)
         field = self.model._meta.get_field(field_name)
