@@ -3,7 +3,8 @@ GLAMR-specific modeling
 """
 from django.conf import settings
 from django.contrib.auth.models import Group
-from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.fields import GenericForeignKey, \
+        GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.indexes import GinIndex, GistIndex
 from django.contrib.postgres.search import SearchVectorField
@@ -352,6 +353,10 @@ class Dataset(IDMixin, AbstractDataset):
         help_text='e.g.: >0.22µm or 0.22-1.6µm',
     )
     note = models.TextField(**ch_opt)
+    search_idx_entry = GenericRelation(
+        'Searchable',
+        related_query_name='dataset',
+    )
 
     accession_fields = ('dataset_id', )
 
@@ -611,6 +616,10 @@ class Sample(IDMixin, AbstractSample):
     station_description = models.TextField(max_length=32, **ch_opt)
 
     notes = models.TextField(**ch_opt)
+    search_idx_entry = GenericRelation(
+        'Searchable',
+        related_query_name='sample',
+    )
 
     objects = Manager.from_queryset(SampleQuerySet)()
     loader = SampleLoader.from_queryset(SampleQuerySet)()

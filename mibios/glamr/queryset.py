@@ -171,7 +171,7 @@ class ts_headline(Func):
     """
     Postgresql's ts_headline function for search result highlighting
 
-    This functions recevies three arguments:
+    This functions receives three arguments:
         * the document/text which was hit by the query
         * the tsquery which we can provide with a SearchQuery(query,
           search_type)
@@ -221,6 +221,7 @@ class SearchableQuerySet(QuerySet):
         lookup=None,
         search_type='websearch',
         highlight=None,
+        user=None,
     ):
         """
         Helper for search().  Returns the queryset.
@@ -269,6 +270,21 @@ class SearchableQuerySet(QuerySet):
             f[f'text__{lookup}'] = query
 
         qs = self.filter(**f)
+
+        if user:
+            if not models or 'dataset' in models:
+                is_dataset = Q(content_type_id=self.get_content_type_ids('dataset')[0])  # noqa:E501
+                dataset_allowed = Q(dataset__restricted_to=None)
+                if user.is_authenticated:
+                    dataset_allowed |= Q(dataset__restricted_to__user=user)
+                qs = qs.filter(~is_dataset | dataset_allowed)
+
+            if not models or 'sample' in models:
+                is_sample = Q(content_type_id=self.get_content_type_ids('sample')[0])  # noqa:E501
+                sample_allowed = Q(sample__dataset__restricted_to=None)
+                if user.is_authenticated:
+                    sample_allowed |= Q(sample__dataset__restricted_to__user=user)  # noqa:E501
+                qs = qs.filter(~is_sample | sample_allowed)
 
         if pg_textsearch and highlight:
             qs = qs.annotate(snippet=ts_headline(

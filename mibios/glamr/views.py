@@ -855,6 +855,7 @@ class SearchMixin(SearchFormMixin):
             'models': [self.model._meta.model_name] if self.model else [],
             'abundance': self.check_abundance,
             'soft_limit': max(self.soft_limit, self.DEFAULT_LIMIT),
+            'user': self.request.user,
         }
 
         # first search
