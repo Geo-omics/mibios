@@ -39,7 +39,7 @@ class PasswordChangeDoneView(UserProfileView):
     extra_context = dict(password_change_done=True)
 
 
-GLAMR_STAFF_PERMISSIONS = set([
+STAFF_PERMISSIONS = set([
     'add_logentry',
     'change_logentry',
     'delete_logentry',
@@ -63,7 +63,7 @@ GLAMR_STAFF_PERMISSIONS = set([
 ])
 """ permissions the staff group should have """
 
-GLAMR_STAFF_GROUP = 'glamr-staff'
+STAFF_GROUP_NAME = 'glamr-staff'
 """ name of the glamr staff group """
 
 
@@ -73,8 +73,8 @@ def create_staff_group():
 
     But users need to be added manually.
     """
-    grp, _ = Group.objects.get_or_create(name=GLAMR_STAFF_GROUP)
-    perms = Permission.objects.filter(codename__in=GLAMR_STAFF_PERMISSIONS)
+    grp, _ = Group.objects.get_or_create(name=STAFF_GROUP_NAME)
+    perms = Permission.objects.filter(codename__in=STAFF_PERMISSIONS)
     grp.permissions.set(perms)
     return grp
 
@@ -89,7 +89,7 @@ def accounts_check(app_configs, **kwargs):
 
     To be run as part of the system checks.
     """
-    name = GLAMR_STAFF_GROUP
+    name = STAFF_GROUP_NAME
     errors = []
 
     try:
@@ -117,7 +117,7 @@ def accounts_check(app_configs, **kwargs):
 
     perms = set(staff_grp.permissions.values_list('codename', flat=True))
     if perms:
-        if missing := GLAMR_STAFF_PERMISSIONS - perms:
+        if missing := STAFF_PERMISSIONS - perms:
             errors.append(
                 checks.Warning(
                     f'The {name} group is missing some permissions: '
@@ -127,7 +127,7 @@ def accounts_check(app_configs, **kwargs):
                     id='glamr.W002',
                 )
             )
-        if extra := perms - GLAMR_STAFF_PERMISSIONS:
+        if extra := perms - STAFF_PERMISSIONS:
             errors.append(
                 checks.Warning(
                     f'The {name} group has extra permissions: '
@@ -142,7 +142,7 @@ def accounts_check(app_configs, **kwargs):
         errors.append(
             checks.Warning(
                 f'The {name} group has no permissions at all.',
-                hint='Add permissions (see GLAMR_STAFF_PERMISSIONS in '
+                hint='Add permissions (see STAFF_PERMISSIONS in '
                 'mibios.glamr.accounts) via admin or run '
                 'create_staff_group() also in the accounts module.',
                 id='glamr.W004',

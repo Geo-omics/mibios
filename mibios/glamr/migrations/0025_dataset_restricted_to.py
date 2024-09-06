@@ -3,7 +3,7 @@
 
 from django.db import migrations, models
 
-from mibios.glamr.accounts import GLAMR_STAFF_PERMISSIONS, GLAMR_STAFF_GROUP
+from mibios.glamr.accounts import STAFF_PERMISSIONS, STAFF_GROUP_NAME
 
 
 def fwd(app, schema_editor):
@@ -12,8 +12,8 @@ def fwd(app, schema_editor):
     Group = app.get_model('auth.Group')
     Permission = app.get_model('auth.Permission')
 
-    grp, _ = Group.objects.get_or_create(name=GLAMR_STAFF_GROUP)
-    perms = Permission.objects.filter(codename__in=GLAMR_STAFF_PERMISSIONS)
+    grp, _ = Group.objects.get_or_create(name=STAFF_GROUP_NAME)
+    perms = Permission.objects.filter(codename__in=STAFF_PERMISSIONS)
     grp.permissions.set(perms)
     for i in Dataset.objects.filter(private=True):
         i.restricted_to.add(grp)
