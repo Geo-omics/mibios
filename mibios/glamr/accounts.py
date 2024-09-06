@@ -152,11 +152,11 @@ def accounts_check(app_configs, **kwargs):
     if missing := User.objects.filter(is_staff=True).exclude(groups=staff_grp):
         missing = ', '.join((i.username for i in missing))
         errors.append(
-            checks.Error(
+            checks.Warning(
                 f'Staff users are not member of the {staff_grp.name} group',
                 hint=f'Add users: {missing} to the {staff_grp.name} group or'
                 ' set is_staff to False',
-                id='glamr.E005',
+                id='glamr.W005',
             )
         )
 
