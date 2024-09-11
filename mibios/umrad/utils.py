@@ -535,6 +535,9 @@ class InputFileSpec:
                 # skip as there would be nothing to do
                 continue
 
+            if prepfunc is None and field and field.choices:
+                prepfunc = self.loader.get_choice_value_prep_method(field)
+
             col_names.append(colname)
             keys.append(key)
             fields.append(field)
