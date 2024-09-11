@@ -370,6 +370,9 @@ class PrettyEnum(Enum):
     def __str__(self):
         return self.name
 
+    def __repr__(self):
+        return self.name
+
 
 class InputFileSpec:
     special_values = PrettyEnum('special_values',
@@ -428,29 +431,28 @@ class InputFileSpec:
         prepfuncs = []
 
         cur_col_index = None  # for non-header input, defined by order in spec
-        for spec_line in column_specs:
+        for specline in column_specs:
             # TODO: re-write as match statement?
             # NOTE: two-str-items format can be <col> <field> OR <field> <fun>
             # with no super easy way to distinguish them.  Use has_header init
             # arg to make it explicit if needed.
-            if not isinstance(spec_line, tuple):
+            if not isinstance(specline, tuple):
                 # no-header-simple-format
-                spec_line = (spec_line, )
+                specline = (specline, )
 
             if self.has_header is None:
                 # auto-detect header presence from first spec piece
-                if len(spec_line) == 1:
+                if len(specline) == 1:
                     self.has_header = False
-                elif len(spec_line) == 2 and callable(spec_line[1]):
+                elif len(specline) == 2 and callable(specline[1]):
                     self.has_header = False
                 else:
                     self.has_header = True
 
             if not self.has_header:
-                spec_line = (self.NO_HEADER, *spec_line)
+                specline = (self.NO_HEADER, *specline)
 
-            colname, item2, *rest = spec_line
-            specline_fmt = '(' + ', '.join((str(i) for i in spec_line)) + ')'
+            colname, item2, *rest = specline
 
             if colname is self.CALC_VALUE:
                 if not self.has_header:
@@ -494,17 +496,17 @@ class InputFileSpec:
                 prepfunc = None
             else:
                 raise SpecError(f'Expected str or callable: {item2} in line '
-                                f'{specline_fmt}')
+                                f'{specline}')
 
             if rest:
                 if prepfunc is not None:
                     raise SpecError(
                         f'unexpected third item {rest=} or second item '
                         f'({item2}) should have been key to a field: '
-                        f'{get_field_err or "..."} | {specline_fmt}'
+                        f'{get_field_err or "..."} | {specline}'
                     )
                 if len(rest) > 1:
-                    raise SpecError('too many items: {specline_fmt}')
+                    raise SpecError('too many items: {specline}')
                 prepfunc = rest[0]
                 if prepfunc is None:
                     pass
@@ -515,7 +517,7 @@ class InputFileSpec:
                     if not callable(prepfunc):
                         raise SpecError(
                             f'not the name of a {self.loader} method: '
-                            f'{prepfunc_name} in spec {specline_fmt}'
+                            f'{prepfunc_name} in spec {specline}'
                         )
                 elif callable(prepfunc):
                     # Assume it's a function that takes the loader as
@@ -525,11 +527,11 @@ class InputFileSpec:
                     prepfunc = partial(prepfunc, self.loader)
                 else:
                     raise SpecError(f'expected a callable or manager method '
-                                    f'name: {prepfunc}: {specline_fmt}')
+                                    f'name: {prepfunc}: {specline}')
 
             if key is None and colname is self.CALC_VALUE:
                 raise SpecError('require key (field name) for for which'
-                                'to calculate a value: {specline_fmt}')
+                                'to calculate a value: {specline}')
 
             if key is None and prepfunc is None:
                 # skip as there would be nothing to do
