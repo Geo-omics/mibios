@@ -454,19 +454,16 @@ class InputFileSpec:
 
             if colname is self.CALC_VALUE:
                 if not self.has_header:
+                    # FIXME: this is unreachable, right?
                     col_index.append(self.CALC_VALUE)
-            elif isinstance(colname, str):
-                # current spec item is for a column in input
-                if not self.has_header:
-                    # add 0-based numerical index for column name
-                    # these have to be counted here
-                    if cur_col_index is None:
-                        cur_col_index = 0
-                    else:
-                        cur_col_index += 1
-
-                if not self.has_header:
-                    col_index.append(cur_col_index)
+            elif colname is self.NO_HEADER:
+                # add 0-based numerical index for column name
+                # these have to be counted here
+                if cur_col_index is None:
+                    cur_col_index = 0
+                else:
+                    cur_col_index += 1
+                col_index.append(cur_col_index)
 
             get_field_err = None
 
