@@ -118,14 +118,14 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
                 return self.spec.IGNORE_COLUMN
             case _:
                 self.skipped.append(obj)
-                raise SkipRow('study status: not ready yet')
+                raise SkipRow(f'study status: {obj.dataset_id} not ready yet')
 
     def check_is_glamr(self, value, obj):
         if self.parse_bool(value, obj):
             return self.spec.IGNORE_COLUMN
         else:
             self.skipped.append(obj)
-            raise SkipRow('not a GLAMR dataset')
+            raise SkipRow(f'{obj.dataset_id} is not a GLAMR dataset')
 
     def sub_user_groups(self, value, obj):
         """
