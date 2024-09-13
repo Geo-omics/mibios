@@ -44,14 +44,18 @@
     </ul>
 {% endblock %}
 
-{% block notifications %}{% if messages %}                                                       
-    <ul class="messages">                                                                            
-        {% for message in messages %}                                                                
-        <li{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message|linebreaks }}</li>
-        {% endfor %}                                                                                 
-    </ul>                                                                                            
-    <hr>                                                                                             
-{% endif %}{% endblock %}                                                                        
+{% block notifications %}{% if messages %}
+    {% for message in messages %}
+    <div class="alert {{ message.tags }} d-flex align-items-center" role="alert">
+        {% if message.level == 20 %}{%include "info-circle.svg"%}{# info #}
+        {% elif message.level == 25 %}{%include "check-circle-fill.svg"%}{# success #}
+        {% elif message.level >= 30 %}{%include "exclamation-triangle-fill.svg"%}{# warning / error#}
+        {% endif %}
+        <div class="ms-2">{{ message|linebreaksbr }}</div>
+    </div>
+    {% endfor %}
+    <hr>
+{% endif %}{% endblock %}
 
 {% block bottom_of_body %}
 {% if map_points is not None %}
