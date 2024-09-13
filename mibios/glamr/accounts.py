@@ -1,4 +1,5 @@
 from django import forms
+from django.contrib import messages
 from django.contrib.auth import views as auth_views
 from django.contrib.auth.models import Group, Permission, User
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -12,6 +13,7 @@ from django.db.transaction import atomic
 from django.db.utils import DatabaseError
 from django.http.response import Http404
 from django.template.loader import render_to_string
+from django.urls import reverse_lazy
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 from django.views.generic import DetailView, FormView, TemplateView
@@ -50,6 +52,10 @@ class AddUserForm(forms.Form):
             raise ValidationError(errors)
 
         return data
+
+
+class DeleteAccountForm(forms.Form):
+    username = forms.CharField(widget=forms.HiddenInput)
 
 
 class AddUserView(StaffLoginRequiredMixin, BaseMixin, FormView):
@@ -134,6 +140,49 @@ class AddUserEmailView(StaffLoginRequiredMixin, BaseMixin, TemplateView):
     def get_context_data(self, **ctx):
         ctx['address'], ctx['subject'], ctx['body'] = self.get_email()
         return ctx
+
+
+class DeleteView(LoginRequiredMixin, FormView):
+    template_name = 'accounts/delete.html'
+    success_url = reverse_lazy('logout')
+    form_class = DeleteAccountForm
+
+    def get_initial(self):
+        ini = super().get_initial()
+        ini['username'] = self.request.user.username
+        return ini
+
+    def form_valid(self, form):
+        user = self.request.user
+        if form.cleaned_data['username'] != user.username:
+            raise Http404('bad account delete form submission')
+
+        if user.is_staff:
+            messages.add_message(
+                self.request,
+                messages.ERROR,
+                'Staff user accounts can not be deleted this way.',
+            )
+            self.success_url = reverse_lazy('user_profile')
+
+        else:
+            user.is_active = False
+            try:
+                user.save()
+            except DatabaseError:
+                messages.add_message(
+                    self.request,
+                    messages.ERROR,
+                    'Account deletion failed.  You may try again.',
+                )
+                self.success_url = reverse_lazy('user_profile')
+            else:
+                messages.add_message(
+                    self.request,
+                    messages.SUCCESS,
+                    f'The account for {user.username} is deleted',
+                )
+        return super().form_valid(form)
 
 
 class LoginView(auth_views.LoginView):

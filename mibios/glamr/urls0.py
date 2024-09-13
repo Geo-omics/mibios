@@ -70,6 +70,7 @@ urlpatterns = [
     # accounts URLs: the mirror most of the contrib.auth.urls
     path('accounts/add/', accounts.AddUserView.as_view(), name='add_user'),
     path('accounts/add/email/<int:user_pk>/', accounts.AddUserEmailView.as_view(), name='add_user_email'),  # noqa:E501
+    path('accounts/add/delete/', accounts.DeleteView.as_view(), name='delete_account'),  # noqa:E501
     path('accounts/login/', accounts.LoginView.as_view(), name='login'),
     path('accounts/logout/', auth_views.LogoutView.as_view(), name='logout'),
     path('accounts/password_change/', accounts.PasswordChangeView.as_view(), name='password_change'),  # noqa:E501

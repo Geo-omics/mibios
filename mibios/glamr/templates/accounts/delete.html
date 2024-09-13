@@ -1,0 +1,19 @@
+{% extends "glamr/basic_base.html" %}
+{% load crispy_forms_tags %}
+{% block content %}
+<div class="container" style="max-width:50rem;">
+<h3>Delete account</h3>
+<p>Please push the confirmation button to delete your account.</p>
+<form method="post" class="row row-cols-lg-auto">
+<div class="col-12">
+<a class="btn btn-secondary px-4" href="{% url 'user_profile' %}">Back</a>
+</div>
+<div class="col-12">
+{% csrf_token %}
+{{ form|crispy }}
+<button type="submit" class="btn btn-danger mx-4">Yes, delete account for {{ user.username }}</button>
+</div>
+</form>
+</div>
+{% endblock %}
+
