@@ -20,8 +20,10 @@ from mibios import urls as mibios_urls
 from mibios.omics import urls as omics_urls
 from mibios.omics.views import krona
 from . import views
-from .accounts import (LoginView, PasswordChangeView, PasswordChangeDoneView,
-                       UserProfileView)
+from .accounts import (
+    AddUserView, AddUserEmailView, LoginView, PasswordChangeView,
+    PasswordChangeDoneView, UserProfileView
+)
 from .admin import admin_site
 
 
@@ -70,10 +72,11 @@ urlpatterns = [
     path('accounts/login/', LoginView.as_view(), name='login'),
     # password resetting is disabled for now as it requires email to work
     re_path('accounts/password_reset/', disable_url),
-    re_path('accounts/reset/', disable_url),
     path('accounts/password_change/', PasswordChangeView.as_view(), name='password_change'),  # noqa:E501
     path('accounts/password_change/done/', PasswordChangeDoneView.as_view(), name='password_change_done'),  # noqa:E501
     path('accounts/profile/', UserProfileView.as_view(), name='user_profile'),
+    path('accounts/add/', AddUserView.as_view(), name='add_user'),
+    path('accounts/add/email/<int:user_pk>/', AddUserEmailView.as_view(), name='add_user_email'),  # noqa:E501
     path('accounts/', include('django.contrib.auth.urls')),
     path('errortest/', never_cache(views.test_server_error)),
     path('minitest/', never_cache(views.MiniTestView.as_view())),

@@ -1,0 +1,19 @@
+{% autoescape off %}
+You're receiving this email because you or someone on behalf of you requested an account at {{ domain }}.
+Please go to the following page and choose a password:
+{% block reset_link %}
+    {{ protocol }}://{{ domain }}{% url 'password_reset_confirm' uidb64=uid token=token %}
+{% endblock %}
+{% if user.get_username == user.email %}To log into the site use your email address {{ user.email }} as your username and your chosen password.
+{% else %}To log into the site use your username {{ user.get_username }} and your chosen password.
+{% endif %}
+After logging in you'll be able to access data for these additional datasets/studies:
+
+{% for i in datasets %}    {{ i }}
+{% endfor %}
+
+Thank you
+
+The GLAMR team
+{% endautoescape %}
+

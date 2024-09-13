@@ -1,0 +1,15 @@
+{% extends "glamr/basic_base.html" %}
+{% load crispy_forms_tags %}
+{% block content %}
+<h3>Send this to {{ address }}</h3>
+
+<p>
+<dl class="row">
+    <dt class="col-sm-2">To:</dt><dd class="col-sm-9">{{ address }}</dd>
+    <dt class="col-sm-2">Subject:</dt><dd class="col-sm-9">{{ subject }}</dd>
+    <dt class="col-sm-2">Body:</dt><dd class="col-sm-9"><pre>{{ body }}</pre></dd>
+</dl>
+</p>
+
+{% endblock %}
+

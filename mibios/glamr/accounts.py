@@ -1,11 +1,139 @@
+from django import forms
+from django.contrib.auth import views as auth_views
 from django.contrib.auth.models import Group, Permission, User
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.contrib.auth import views as auth_views
+from django.contrib.auth.tokens import default_token_generator
+from django.contrib.sites.shortcuts import get_current_site
 from django.core import checks
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.db import Error as DB_Error
-from django.views.generic import DetailView
+from django.db.transaction import atomic
+from django.db.utils import DatabaseError
+from django.http.response import Http404
+from django.template.loader import render_to_string
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
+from django.views.generic import DetailView, FormView, TemplateView
 
+
+from mibios.views import StaffLoginRequiredMixin
 from .models import Dataset
+from .views import BaseMixin
+
+
+STAFF_GROUP_NAME = 'glamr-staff'
+""" name of the glamr staff group """
+
+
+class AddUserForm(forms.Form):
+    group = forms.ModelChoiceField(
+        queryset=Group.objects.all(),
+        empty_label=None,
+    )
+    emails = forms.CharField(widget=forms.Textarea)
+
+    def clean_emails(self):
+        data = self.cleaned_data['emails']
+        data = data.split()
+        if not data:
+            raise RuntimeError('BORK empty')
+
+        errors = []
+        for item in data:
+            try:
+                validate_email(item)
+            except ValidationError as e:
+                errors.append(e)
+        if errors:
+            errors.insert(0, 'The email field must list valid email addresses')
+            raise ValidationError(errors)
+
+        return data
+
+
+class AddUserView(StaffLoginRequiredMixin, BaseMixin, FormView):
+    template_name = 'accounts/add_user.html'
+    form_class = AddUserForm
+
+    def form_valid(self, form):
+        try:
+            users, new_count = self.create_users(**form.cleaned_data)
+        except DatabaseError as e:
+            form.add_error(
+                None,
+                f'Failed storing new user records in the DB: '
+                f'{e.__class__.__name__}: {e}',
+            )
+            return self.form_invalid(form)
+
+        ctx = self.get_context_data(
+            group=form.cleaned_data['group'],
+            users=users,
+            new_count=new_count,
+            some_last_login=any((i.last_login for i in users))
+        )
+        return self.render_to_response(ctx)
+
+    @atomic
+    def create_users(self, group=None, emails=None):
+        """ Creates the users as needed and adds them to the group """
+        users = []
+        new_count = 0
+        for i in emails:
+            user, new = User.objects.get_or_create(
+                email=i,
+                defaults={
+                    'username': i,
+                    'is_staff': group.name == STAFF_GROUP_NAME,
+                },
+            )
+            if new:
+                new_count += 1
+            users.append(user)
+
+        group.user_set.add(*users)
+        return users, new_count
+
+
+class AddUserEmailView(StaffLoginRequiredMixin, BaseMixin, TemplateView):
+    template_name = 'accounts/add_user_email.html'
+    subject_template_name = 'accounts/welcome_email_subject.html'
+    email_template_name = 'accounts/welcome_email.html'
+
+    def get_email(self):
+        """
+        generate the welcome email
+
+        This borrows a lot from PasswordResetForm from the auth app.
+        """
+        try:
+            user = User.objects.get(pk=self.kwargs['user_pk'])
+        except User.DoesNotExist:
+            raise Http404('no such user')
+
+        subject = render_to_string(
+            self.subject_template_name,
+            {
+                'domain': get_current_site(self.request),
+            },
+        )
+        body = render_to_string(
+            self.email_template_name,
+            {
+                'domain': get_current_site(self.request),
+                'uid': urlsafe_base64_encode(force_bytes(user.pk)),
+                'user': user,
+                'token': default_token_generator.make_token(user),
+                'protocol': 'https' if self.request.is_secure() else 'http',
+                'datasets': Dataset.objects.filter(restricted_to__user=user)
+            }
+        )
+        return user.email, subject, body
+
+    def get_context_data(self, **ctx):
+        ctx['address'], ctx['subject'], ctx['body'] = self.get_email()
+        return ctx
 
 
 class LoginView(auth_views.LoginView):
@@ -62,9 +190,6 @@ STAFF_PERMISSIONS = set([
     'view_credit',
 ])
 """ permissions the staff group should have """
-
-STAFF_GROUP_NAME = 'glamr-staff'
-""" name of the glamr staff group """
 
 
 def create_staff_group():

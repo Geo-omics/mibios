@@ -1,0 +1,36 @@
+{% extends "glamr/basic_base.html" %}
+{% load crispy_forms_tags %}
+{% block content %}
+<h3>Add User accounts</h3>
+
+{% if users %}
+<p>User accounts created: {{ new_count }}.  Next, you will need to send out invitation emails.
+{% if some_last_login %}Some users have already logged in at least once before so they may not need another invitation.{% endif %}
+
+<table class="table">
+    <thead><tr><th>Last login</th><th>Email address</th><th></th></tr></thead>
+    <tbody>
+    {% for i in users %}
+    <tr><td>{{ i.last_login|default_if_none:"" }}</td><td>{{ i.email }}</td><td><a href="{% url 'add_user_email' i.pk %}">show email</a></td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+</p>
+
+{% else %}
+<form method="post">
+{% csrf_token %}
+{% if form.errors %}
+<p class="errornote">Please correct the error{{ form.errors.items|length|pluralize }} below.</p>
+{% endif %}
+
+<p>Please pick a group and enter one or more email addresses for the new users.</p>
+
+{{ form|crispy }}
+<input type="hidden" name="next" value="{{ next }}">
+<button type="submit" class="btn btn-primary">Add users</button>
+</form>
+{% endif %}
+
+{% endblock %}
+
