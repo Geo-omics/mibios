@@ -144,6 +144,14 @@ class PasswordChangeView(auth_views.PasswordChangeView):
     template_name = 'accounts/password_change.html'
 
 
+class PasswordResetConfirmView(auth_views.PasswordResetConfirmView):
+    template_name = 'accounts/password_reset_confirm.html'
+
+
+class PasswordResetCompleteView(auth_views.PasswordResetCompleteView):
+    template_name = 'accounts/password_reset_complete.html'
+
+
 class UserProfileView(LoginRequiredMixin, DetailView):
     model = User
     template_name = 'accounts/profile.html'

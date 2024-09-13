@@ -10,6 +10,7 @@ url declarations for the mibios.glamr app
 from functools import partial
 
 from django.conf import settings
+from django.contrib.auth import views as auth_views
 from django.http.response import Http404
 from django.urls import include, path, re_path
 from django.views import defaults
@@ -19,11 +20,8 @@ from django.views.generic import RedirectView
 from mibios import urls as mibios_urls
 from mibios.omics import urls as omics_urls
 from mibios.omics.views import krona
-from . import views
-from .accounts import (
-    AddUserView, AddUserEmailView, LoginView, PasswordChangeView,
-    PasswordChangeDoneView, UserProfileView
-)
+
+from . import accounts, views
 from .admin import admin_site
 
 
@@ -69,15 +67,16 @@ urlpatterns = [
     path('dbinfo/', never_cache(views.DBInfoView.as_view()), name='dbinfo'),
     path('admin/login/', RedirectView.as_view(pattern_name='login', query_string=True)),  # noqa:E501
     path('admin/', admin_site.urls),
-    path('accounts/login/', LoginView.as_view(), name='login'),
-    # password resetting is disabled for now as it requires email to work
-    re_path('accounts/password_reset/', disable_url),
-    path('accounts/password_change/', PasswordChangeView.as_view(), name='password_change'),  # noqa:E501
-    path('accounts/password_change/done/', PasswordChangeDoneView.as_view(), name='password_change_done'),  # noqa:E501
-    path('accounts/profile/', UserProfileView.as_view(), name='user_profile'),
-    path('accounts/add/', AddUserView.as_view(), name='add_user'),
-    path('accounts/add/email/<int:user_pk>/', AddUserEmailView.as_view(), name='add_user_email'),  # noqa:E501
-    path('accounts/', include('django.contrib.auth.urls')),
+    # accounts URLs: the mirror most of the contrib.auth.urls
+    path('accounts/add/', accounts.AddUserView.as_view(), name='add_user'),
+    path('accounts/add/email/<int:user_pk>/', accounts.AddUserEmailView.as_view(), name='add_user_email'),  # noqa:E501
+    path('accounts/login/', accounts.LoginView.as_view(), name='login'),
+    path('accounts/logout/', auth_views.LogoutView.as_view(), name='logout'),
+    path('accounts/password_change/', accounts.PasswordChangeView.as_view(), name='password_change'),  # noqa:E501
+    path('accounts/password_change/done/', accounts.PasswordChangeDoneView.as_view(), name='password_change_done'),  # noqa:E501
+    path('accounts/profile/', accounts.UserProfileView.as_view(), name='user_profile'),  # noqa:E501
+    path('accounts/reset/<uidb64>/<token>/', accounts.PasswordResetConfirmView.as_view(), name='password_reset_confirm'),  # noqa:E501
+    path('accounts/reset/done/', accounts.PasswordResetCompleteView.as_view(), name='password_reset_complete'),  # noqa:E501
     path('errortest/', never_cache(views.test_server_error)),
     path('minitest/', never_cache(views.MiniTestView.as_view())),
     path('basetest/', never_cache(views.BaseTestView.as_view())),
