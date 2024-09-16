@@ -13,7 +13,7 @@ from django.db.transaction import atomic
 from django.db.utils import DatabaseError
 from django.http.response import Http404
 from django.template.loader import render_to_string
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 from django.views.generic import DetailView, FormView, TemplateView
@@ -118,27 +118,31 @@ class AddUserEmailView(StaffLoginRequiredMixin, BaseMixin, TemplateView):
         except User.DoesNotExist:
             raise Http404('no such user')
 
+        domain = get_current_site(self.request)
         subject = render_to_string(
             self.subject_template_name,
-            {
-                'domain': get_current_site(self.request),
-            },
+            dict(domain=domain),
         )
+        protocol = 'https' if self.request.is_secure() else 'http'
+        path = reverse("password_reset_confirm", kwargs=dict(
+            uidb64=urlsafe_base64_encode(force_bytes(user.pk)),
+            token=default_token_generator.make_token(user),
+        ))
+        reset_url = f'{protocol}://{domain}{path}'
         body = render_to_string(
             self.email_template_name,
             {
-                'domain': get_current_site(self.request),
-                'uid': urlsafe_base64_encode(force_bytes(user.pk)),
+                'domain': domain,
                 'user': user,
-                'token': default_token_generator.make_token(user),
-                'protocol': 'https' if self.request.is_secure() else 'http',
+                'reset_url': reset_url,
                 'datasets': Dataset.objects.filter(restricted_to__user=user)
             }
         )
-        return user.email, subject, body
+        return user.email, subject, body, reset_url
 
     def get_context_data(self, **ctx):
-        ctx['address'], ctx['subject'], ctx['body'] = self.get_email()
+        ctx['address'], ctx['subject'], ctx['body'], ctx['reset_url'] \
+            = self.get_email()
         return ctx
 
 

@@ -2,7 +2,7 @@
 {% load crispy_forms_tags %}
 {% block content %}
 <h3>Send this to {{ address }}</h3>
-
+<p><a href="{{ reset_url }}">direct reset link</a></p>
 <p>
 <dl class="row">
     <dt class="col-sm-2">To:</dt><dd class="col-sm-9">{{ address }}</dd>
