@@ -1,5 +1,8 @@
 from django.contrib import admin
 from django.contrib import auth
+from django.contrib import messages
+from django.http import Http404, HttpResponseRedirect
+from django.urls import reverse
 
 from .models import AboutInfo, Credit
 
@@ -14,6 +17,7 @@ class GroupAdmin(auth.admin.GroupAdmin):
 
 class UserAdmin(auth.admin.UserAdmin):
     exclude = ['user_permissions']
+    actions = ['setup_account']
 
     def get_fieldsets(self, request, obj=None):
         # just setting exclude does not work with fieldsets, it seems the form
@@ -28,6 +32,21 @@ class UserAdmin(auth.admin.UserAdmin):
             for label, data
             in super().get_fieldsets(request, obj=obj)
         ))
+
+    @admin.action(description='Account setup/password reset')
+    def setup_account(self, request, queryset):
+        try:
+            user = queryset.get()
+        except auth.models.User.DoesNotExist:
+            raise Http404('no such user')
+        except auth.models.User.MultipleObjectsReturned:
+            self.message_user(request, 'Error: you must select a single user'
+                              ' for account setup / password reset',
+                              messages.ERROR)
+            return
+
+        url = reverse('add_user_email', kwargs=dict(user_pk=user.pk))
+        return HttpResponseRedirect(url)
 
 
 admin_site = AdminSite(name='glamr_admin')
