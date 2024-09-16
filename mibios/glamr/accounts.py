@@ -140,6 +140,7 @@ class AddUserEmailView(StaffLoginRequiredMixin, BaseMixin, TemplateView):
         if not user.email:
             raise Http404('user has no email adress')
 
+        print(f'BORK {self.request.META=}')
         domain = get_current_site(self.request)
         subject = render_to_string(
             self.subject_template_name,
