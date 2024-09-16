@@ -137,6 +137,9 @@ class AddUserEmailView(StaffLoginRequiredMixin, BaseMixin, TemplateView):
         except User.DoesNotExist:
             raise Http404('no such user')
 
+        if not user.email:
+            raise Http404('user has no email adress')
+
         domain = get_current_site(self.request)
         subject = render_to_string(
             self.subject_template_name,
