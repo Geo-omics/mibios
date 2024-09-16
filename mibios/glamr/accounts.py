@@ -1,6 +1,7 @@
 from django import forms
 from django.contrib import messages
 from django.contrib.auth import views as auth_views
+from django.contrib.auth.forms import AuthenticationForm, UsernameField
 from django.contrib.auth.models import Group, Permission, User
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.tokens import default_token_generator
@@ -54,6 +55,19 @@ class AddUserForm(forms.Form):
         return data
 
 
+class AuthenticationForm2(AuthenticationForm):
+    username = UsernameField(
+        widget=forms.TextInput(attrs={'autofocus': True}),
+        label='Your email address',
+    )
+
+    def clean_username(self):
+        data = self.cleaned_data.get('username')
+        if data.endswith(('@umich.edu', '@med.umich.edu')):
+            data, _, _ = data.rpartition('@')
+        return data
+
+
 class DeleteAccountForm(forms.Form):
     username = forms.CharField(widget=forms.HiddenInput)
 
@@ -87,10 +101,15 @@ class AddUserView(StaffLoginRequiredMixin, BaseMixin, FormView):
         users = []
         new_count = 0
         for i in emails:
+            if i.endswith(('@umich.edu', '@med.umich.edu')):
+                # keep uniqenames for local folks
+                username, _, _ = i.partition('@')
+            else:
+                username = i
             user, new = User.objects.get_or_create(
                 email=i,
                 defaults={
-                    'username': i,
+                    'username': username,
                     'is_staff': group.name == STAFF_GROUP_NAME,
                 },
             )
@@ -191,6 +210,7 @@ class DeleteView(LoginRequiredMixin, FormView):
 
 class LoginView(auth_views.LoginView):
     template_name = 'accounts/login.html'
+    form_class = AuthenticationForm2
 
 
 class PasswordChangeView(auth_views.PasswordChangeView):
