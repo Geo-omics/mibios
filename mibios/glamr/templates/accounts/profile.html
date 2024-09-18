@@ -5,7 +5,7 @@
 <p>{% if password_change_done %}Password change was successful.{% endif %}</p>
 <dl class="row">
     <dt class="col-md-3">Username</dt><dd class="col-md-9">{{object.username}}</dd>
-    {% if datasets|length > 1 %}
+    {% if datasets|length > 0 %}
     <dt class="col-md-3">You have additional access to these datasets</dt>
     <dd class="col-md-9">
         <ul class="list-group">
