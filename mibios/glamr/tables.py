@@ -1,7 +1,7 @@
 from django.urls import reverse
 from django.utils.html import escape, format_html, mark_safe
 
-from django_tables2 import Column, Table as Table0, TemplateColumn
+from django_tables2 import Column, Table as Table0
 
 from mibios.glamr import models as glamr_models
 from mibios.ncbi_taxonomy.models import TaxName, TaxNode
@@ -222,44 +222,6 @@ class FunctionAbundanceTable(Table):
 
     def render_related_genes(self):
         return 'genes'
-
-
-class OverViewTable(Table):
-    num_samples = TemplateColumn(
-        """<a href="{% url 'record_overview_samples' model=table.view_object_model_name pk=table.view_object.pk %}">{{ value }}</a> out of {{ record.total_samples }}""",  # noqa: E501
-        verbose_name='Number of samples',
-    )
-    short = TemplateColumn(
-        "{{ record }}",
-        linkify=linkify_record,
-        verbose_name='Mini description',
-    )
-
-    class Meta:
-        model = glamr_models.Dataset
-        fields = [
-            'num_samples', 'short', 'water_bodies', 'year', 'Institution/PI',
-            'sequencing_data_type',
-        ]
-
-
-class OverViewSamplesTable(Table):
-    accession = Column(
-        linkify=linkify_record,
-        verbose_name='Sample',
-    )
-    sample_name = Column(verbose_name='Other names')
-    dataset = Column(
-        linkify=linkify_value,
-        verbose_name='Dataset',
-    )
-
-    class Meta:
-        model = glamr_models.Sample
-        fields = [
-            'accession', 'sample_name', 'dataset', 'dataset__water_bodies',
-            'date', 'Institution/PI', 'latitude', 'longitude',
-        ]
 
 
 class ReadAbundanceTable(Table):
@@ -498,7 +460,6 @@ class DatasetTable(Table):
         empty_text = 'No dataset / study information available'
         template_name = 'glamr/table_cards.html'
         attrs = {
-            "id": "overview-table",
             "class": "table table-hover",
         }
 
