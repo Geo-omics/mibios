@@ -19,6 +19,12 @@ class Table(Table0):
     def __init__(self, data=None, view=None, exclude=None, **kwargs):
         self.view = view
 
+        kwargs.setdefault(
+            'empty_text',
+            f'no {self._meta.model._meta.verbose_name} records for given '
+            f'parameters'
+        )
+
         if self.html_fields and not self.is_for_export():
             # for HTML display, exclude everything not in html_fields:
             if self._meta.fields:
@@ -560,7 +566,7 @@ class SampleTable(Table):
     class Meta:
         model = glamr_models.Sample
         sequence = ['sample_name', 'sample_type', '...', 'dataset']
-        empty_text = 'There are no samples associated with this dataset'
+        empty_text = 'no samples found'
         attrs = {
             "class": "table table-hover",
         }
