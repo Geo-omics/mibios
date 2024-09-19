@@ -11,11 +11,7 @@
 {% include "glamr/full_text_search_form.html" %}
 <br/>
 
-{% if object_list %}
-<div class="m-2">
-    {% include "glamr/map.html"%}
-</div>
-{% endif %}
+{% include "glamr/map.html"%}
 
 {% if object_list %}
 <h3>Showing {{object_list|length}} {%if object_list|length == 1%}{{view.model|meta:"verbose_name"}}{%else%}{{view.model|meta:"verbose_name_plural"}}{%endif%} with:</h3>
