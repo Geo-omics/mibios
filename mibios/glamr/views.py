@@ -637,10 +637,14 @@ class MapMixin():
         Return a Sample queryset of the samples to be displayed on the map.
         """
         if self.model is Sample:
-            # Assumes we are doing the usual ListView.get() call order.
-            # Re-using the object_list will save a few calls but result in a
-            # separate DB query regardless.
-            return self.object_list
+            if hasattr(self, 'object_list'):
+                # Assumes we are doing the usual ListView.get() call order.
+                # Re-using the object_list will save a few calls but result in
+                # a separate DB query regardless.
+                return self.object_list
+            elif hasattr(self, 'object'):
+                # Assume this is a DetailView
+                return self.get_queryset().filter(pk=self.object.pk)
         elif self.model is Dataset:
             if hasattr(self, 'conf') and self.conf is not None:
                 return self.conf.shift('sample', reverse=True).get_queryset()
@@ -1668,7 +1672,7 @@ class ReferenceView(RecordView):
             return None
 
 
-class SampleView(RecordView):
+class SampleView(MapMixin, RecordView):
     model = get_sample_model()
     template_name = 'glamr/sample_detail.html'
     fields = [
