@@ -13,11 +13,11 @@
 
 {% include "glamr/map.html"%}
 
-{% if object_list %}
-<h3>Showing {{object_list|length}} {%if object_list|length == 1%}{{view.model|meta:"verbose_name"}}{%else%}{{view.model|meta:"verbose_name_plural"}}{%endif%} with:</h3>
+{% if table.data|length %}
+<h3>Found {{table.data|length}} {%if table.data|length == 1%}{{view.model|meta:"verbose_name"}}{%else%}{{view.model|meta:"verbose_name_plural"}}{%endif%} with:</h3>
 {%else%}
-<h3>No results</h3>
-{% endif %}{# object_list #}
+<h3>No {{view.model|meta:"verbose_name"}} records found</h3>
+{% endif %}
 
 <ul>
 {% for k, v in filter_items %}
@@ -45,10 +45,10 @@
 </div>
 {%endif%}
 
-{% if object_list %}
+{% if table.data|length %}
 {% include "glamr/download_links.html" %}
 {% render_table table %}
-{% endif %}{# object_list #}
+{% endif %}
 
 {% endblock %}{# content #}
 
