@@ -652,6 +652,10 @@ class MapMixin():
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['map_points'] = self.get_map_points()
+        if ctx['map_points'] or self.model in (Sample, Dataset):
+            ctx['show_map'] = True
+        else:
+            ctx['show_map'] = False
         ctx['fit_map_to_points'] = True
         return ctx
 

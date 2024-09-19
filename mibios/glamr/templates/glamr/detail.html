@@ -13,7 +13,7 @@
 <h3>{{ object_model_verbose_name|capfirstsmart }}: {{ object }}</h3>
 {% endblock %}
 
-{% block map%}{%if map_points%}{%include 'glamr/map.html'%}{%endif%}{%endblock%}
+{% block map%}{%include 'glamr/map.html'%}{%endblock%}
 
 {% if has_abundance %}[<a href="{%url 'record_abundance' model=object_model_name pk=object.pk%}">abundance</a>]{%endif%}
 
