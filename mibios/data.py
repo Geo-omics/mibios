@@ -12,7 +12,8 @@ from django.urls import reverse
 from . import (get_registry, QUERY_FILTER, QUERY_EXCLUDE, QUERY_NEGATE,
                QUERY_SHOW, QUERY_COUNT, QUERY_SEARCH, QUERY_Q)
 from .dataset import Dataset
-from .models import Model, Q
+from .models import Model
+from .query import Q
 from .tables import table_factory, NONE_LOOKUP
 from .utils import getLogger, prep_url_query_value, url_query_value_to_python
 

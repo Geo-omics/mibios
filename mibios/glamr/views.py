@@ -29,7 +29,7 @@ from mibios.glamr.filters import (
 )
 from mibios.glamr.forms import DatasetFilterFormHelper
 from mibios.glamr.models import Sample, Dataset, pg_class, dbstat
-from mibios.models import Q
+from mibios.query import Q
 from mibios.views import (
     ExportBaseMixin, StaffLoginRequiredMixin, TextRendererZipped,
     VersionInfoMixin,
