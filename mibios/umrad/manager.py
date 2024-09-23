@@ -12,10 +12,8 @@ from django.core.exceptions import ValidationError
 from django.db import connection, transaction
 from django.utils.module_loading import import_string
 
-from mibios.models import (
-    BaseManager as MibiosBaseManager,
-    QuerySet as MibiosQuerySet,
-)
+from mibios.managers import BaseManager as MibiosBaseManager
+from mibios.query import QuerySet as MibiosQuerySet
 
 from .utils import (CSV_Spec, ProgressPrinter, atomic_dry, InputFileError,
                     get_last_timer, make_int_in_filter, save_import_log,
