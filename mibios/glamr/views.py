@@ -625,6 +625,11 @@ class ModelTableMixin(ExportMixin):
             ctx.update(self.object_list.extra_context())
         ctx = super().get_context_data(**ctx)
         ctx['model_name'] = self.model._meta.model_name
+        try:
+            ctx['table_length'] = ctx['table'].paginator.count
+        except NotImplementedError:
+            # LazyPaginator
+            ctx['table_length'] = None
         return ctx
 
 

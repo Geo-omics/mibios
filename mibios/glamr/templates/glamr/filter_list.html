@@ -13,8 +13,10 @@
 
 {% include "glamr/map.html"%}
 
-{% if table.data|length %}
-<h3>Found {{table.data|length}} {%if table.data|length == 1%}{{view.model|meta:"verbose_name"}}{%else%}{{view.model|meta:"verbose_name_plural"}}{%endif%} with:</h3>
+{% if table_length is None %}
+<h3>Listing {{view.model|meta:"verbose_name_plural"}}</h3>
+{% elif table_length %}
+<h3>Found {{table_length}} {%if table_length == 1%}{{view.model|meta:"verbose_name"}}{%else%}{{view.model|meta:"verbose_name_plural"}}{%endif%} with:</h3>
 {%else%}
 <h3>No {{view.model|meta:"verbose_name"}} records found</h3>
 {% endif %}
@@ -45,7 +47,7 @@
 </div>
 {%endif%}
 
-{% if table.data|length %}
+{% if table_length != 0 %}
 {% include "glamr/download_links.html" %}
 {% render_table table %}
 {% endif %}
