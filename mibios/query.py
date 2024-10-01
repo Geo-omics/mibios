@@ -659,3 +659,34 @@ class QuerySet(models.QuerySet):
                 ofile.write(sep.join(row) + '\n')
                 count += 1
         print(f'Saved {count} rows to {ofile.name}')
+
+    def iterator2(self, chunk_size=20000, pk_pos=0, cache=None):
+        """
+        Alternative iterator implementation for large table data export
+
+        pk_pos:
+            If used after values_list() this id the index of the PK value in
+            the result tuple.  This defaults to zero.
+        """
+        if chunk_size <= 0:
+            raise ValueError('chunk size must be positive')
+
+        qs = self.order_by('pk')
+        last_pk = 0
+        while True:
+            chunk = qs.filter(pk__gt=last_pk)[:chunk_size]
+
+            if cache is not None:
+                cache.update_chunk(chunk)
+
+            for record in chunk:
+                yield record
+            if len(chunk) < chunk_size:
+                # no further results
+                break
+            if isinstance(record, tuple):
+                # values_list()
+                last_pk = record[pk_pos]
+            else:
+                # model instances
+                last_pk = record.pk

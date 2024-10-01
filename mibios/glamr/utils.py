@@ -99,3 +99,39 @@ def estimate_row_totals(model):
 
     stat_model = apps.get_model('glamr', stat_model_name)
     return int(stat_model.objects.get(name=model._meta.db_table).num_rows)
+
+
+class FKCache(dict):
+    MISSING = object()
+
+    def __init__(self, model, fk_fields=None):
+        """
+        Values cache for tables
+
+        Parameters:
+        model: model of table
+        fk_fields:
+            ForeignKey fields belonging to the model for which values shall be
+            cached.
+        """
+        if fk_fields is None:
+            fk_fields = [i for i in model._meta.get_fields() if i.many_to_one]
+
+        for i in fk_fields:
+            self.data[i] = {}
+
+        self.fk_id_attrs = [i.attname for i in fk_fields]
+
+    def update_chunk(self, queryset):
+        # get missing FKs
+        missing_all = [set() for _ in self]
+        for obj in queryset:
+            for attname, missing, cache in zip(attname, missing_all, self.values()):
+                fk = getattr(obj, attname)
+                rel_obj = cache.get(fk, self.MISSING)
+                if rel_obj is MISSING:
+                    missing.add(fk)
+                else:
+                    setattr(obj, name, rel_obj)
+
+        # fill cache

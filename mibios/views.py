@@ -567,16 +567,47 @@ class TableView(DatasetMixin, UserRequiredMixin, SingleTableView):
         return [(field.name + '__' if field else '') + i for i in kw.keys()]
 
 
-class CSVRenderer():
+class BaseRenderer:
+    """
+    Helper class to generate an http response to data export / file download
+    requests
+
+    Sub-classes must implement a render() method that take an iterator over
+    chunks of data, e.g. a table row.  For a regular http response render()
+    must write the content to the response object.  For streaming, a generator
+    function is passed to the response object.
+    """
+    description = None
+    content_type = None
+    streaming_support = None
+
+    def __init__(self, filename):
+        if self.streaming_support:
+            response_class = StreamingHttpResponse
+        else:
+            response_class = HttpResponse
+
+        self.response = response_class(content_type=self.content_type)
+        self.response['Content-Disposition'] = \
+            f'attachment; filename="{filename}"'
+
+    def render(self, values):
+        raise NotImplementedError
+
+
+class CSVRenderer(BaseRenderer):
     description = 'comma-separated text file'
     content_type = 'text/csv'
     delimiter = ','
-    streaming = False
-
-    def __init__(self, response, **kwargs):
-        self.response = response
+    streaming_support = True
 
     def render(self, values):
+        if self.response.streaming:
+            return self._render_as_stream(values)
+        else:
+            return self._render_nostream(values)
+
+    def _render_nostream(self, values):
         """
         Render all rows to the response
         """
@@ -584,6 +615,29 @@ class CSVRenderer():
                             lineterminator='\n')
         for i in values:
             writer.writerow(i)
+
+    def _render_as_stream(self, values):
+        """
+        Make a response content generator, rendering all rows.
+
+        values: An iterable over rows, each row being a list of str values.
+
+        The content generator yields bytes.
+        """
+        def _render():
+            data = []
+            while True:
+                n = 0
+                for n, row in enumerate(values, start=1):
+                    data.append(f'{self.delimiter.join(row)}\n')
+                    if n % 1 == 0:
+                        break
+                if n == 0:
+                    break
+                yield ''.join(data)
+                data = []
+
+        self.response.streaming_content = _render()
 
 
 class CSVTabRenderer(CSVRenderer):
@@ -594,11 +648,9 @@ class CSVTabRenderer(CSVRenderer):
 class CSVRendererZipped(CSVRenderer):
     description = 'comma-separated text file, zipped'
     content_type = 'application/zip'
-    streaming = True
 
     def __init__(self, response, filename):
-        self.response = response
-        self.filename = filename[:-len('.zip')]
+        super().__init__(filename=filename[:-len('.zip')])
 
     def _render(self, values):
         """
@@ -622,13 +674,13 @@ class CSVTabRendererZipped(CSVRendererZipped):
     delimiter = '\t'
 
 
-class TextRendererZipped():
+class TextRendererZipped(BaseRenderer):
     description = 'zipped text file'
     content_type = 'application/zip'
+    streaming_support = False
 
-    def __init__(self, response, filename):
-        self.response = response
-        self.filename = filename[:-len('.zip')]
+    def __init__(self, filename):
+        super().__init__(filename=filename[:-len('.zip')])
 
     def render(self, values):
         """
@@ -697,20 +749,11 @@ class ExportMixin(ExportBaseMixin):
 
     def render_to_response(self, context):
         name, suffix, Renderer = self.get_format()
-
-        if Renderer.streaming:
-            response = StreamingHttpResponse(
-                content_type=Renderer.content_type
-            )
-        else:
-            response = HttpResponse(content_type=Renderer.content_type)
-
         filename = self.get_filename() + suffix
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
 
-        Renderer(response, filename=filename).render(self.get_values())
-
-        return response
+        renderer = Renderer(filename=filename)
+        renderer.render(self.get_values())
+        return renderer.response
 
 
 class ExportView(ExportMixin, TableView):

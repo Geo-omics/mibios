@@ -1,0 +1,9 @@
+{% extends "glamr/base.html" %}
+{% load static glamr_extras %}
+{% block content %}
+<ul class="list-group">
+    {% for model, model_name in models %}
+    <li class="list-group-item"><a href="{% url 'generic_table' model=model_name %}">{{ model|meta:"verbose_name_plural" }}</a></li>
+    {% endfor %}
+</ul>
+{% endblock %}
