@@ -122,6 +122,13 @@ class FKCache(dict):
 
         self.field_names = [i.name for i in fk_fields]
         self.fk_id_attrs = [i.attname for i in fk_fields]
+        self.querysets = []
+        for i in fk_fields:
+            manager = i.related_model.objects
+            if hasattr(manager, 'str_only'):
+                self.querysets.append(manager.str_only())
+            else:
+                self.querysets.append(manager.all())
 
     def update_chunk(self, queryset):
         missing_all = [set() for _ in self]
@@ -129,22 +136,26 @@ class FKCache(dict):
             self.field_names,
             self.fk_id_attrs,
             missing_all,
+            self.querysets,
             self.values(),  # the per-relation caches
         ))
         # 1. get missing FKs
         for obj in queryset:
-            for _, attname, missing, fcache in per_rel_things:
+            for _, attname, missing, _, fcache in per_rel_things:
                 fk = getattr(obj, attname)
+                if fk is None:
+                    continue
                 if fk not in fcache:
                     missing.add(fk)
 
         # 2. get missing and update cache
-        for field, (_, _, missing, fcache) in zip(self.keys(), per_rel_things):
-            for obj in field.related_model.objects.filter(pk__in=missing):
+        for _, _, missing, qs, fcache in per_rel_things:
+            for obj in qs.filter(pk__in=missing):
                 fcache[obj.pk] = obj
         del missing_all
 
         # 3. populate chunk with related objects
         for obj in queryset:
-            for fname, attname, _, fcache in per_rel_things:
-                setattr(obj, fname, fcache[getattr(obj, attname)])
+            for fname, attname, _, _, fcache in per_rel_things:
+                if (pk := getattr(obj, attname)) is not None:
+                    setattr(obj, fname, fcache[pk])

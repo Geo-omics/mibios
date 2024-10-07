@@ -3,12 +3,13 @@ from pathlib import Path
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
-from django.db.models import ForeignObjectRel
+from django.db.models import ForeignObjectRel, Prefetch
 
 from . import DUMP_FILES
 from mibios.umrad.utils import atomic_dry, InputFileSpec
 from mibios.umrad.manager import InputFileError, Loader as UMRADLoader
 from mibios.umrad.model_utils import delete_all_objects_quickly
+from mibios.umrad.utils import ProgressPrinter
 
 
 class DumpFile(InputFileSpec):
@@ -101,8 +102,33 @@ class CitationLoader(Loader):
     )
 
 
+class TaxNameLoader(Loader):
+    @atomic_dry
+    def load(self, **kwargs):
+        super().load(**kwargs)
+        print('Populating nodes with scientific names...')
+        # self.populate_sci_names()
+        print('[OK]')
+
+    @atomic_dry
+    def populate_sci_names(self):
+        """
+        Populate the TaxNode.name field with scientific names
+        """
+        TaxName = self.model
+        TaxNode = TaxName._meta.get_field('node').related_model
+        nodes = TaxNode.objects.prefetch_related(Prefetch(
+            'taxname_set',
+            queryset=TaxName.objects.filter(name_class=TaxName.NAME_CLASS_SCI)
+        ))
+        pp = ProgressPrinter('tax nodes processed')
+        for obj in pp(nodes):
+            obj.name = obj.taxname_set.all()[0].name
+        TaxNode.objects.fast_bulk_update(nodes, fields=['name'], batch_size=10000)
+
+
 class TaxNodeLoader(Loader):
-    spec_skip_fields = ['ancestors']
+    spec_skip_fields = ['ancestors', 'name']
 
     @atomic_dry
     def load(self, **kwargs):

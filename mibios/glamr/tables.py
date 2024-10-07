@@ -98,6 +98,15 @@ class Table(Table0):
                 qs = qs.prefetch_related(field.name)
         self.data.data = qs
 
+    def prepare_values(self):
+        """
+        Get customized queryset for as_values()
+
+        Should return a QuerySet.  as_values() may not call this e.g. if
+        self.data.data if the table's data is not a QuerySet.
+        """
+        return self.data.data
+
     def as_values(self, exclude_columns=None):
         """
         Adapting super().as_values() with iterator2() and force_str on all
@@ -132,6 +141,7 @@ class Table(Table0):
                     # fields are needed to get the values for this column we'll
                     # have to get them all
                     use_only = False
+                    print(f'BORK {i=}')
 
             self.values_cache = FKCache(self._meta.model, cache_fields)
 
@@ -213,6 +223,11 @@ class CompoundAbundanceTable(Table):
     class Meta:
         model = omics_models.CompoundAbundance
         exclude = ['id']
+
+
+class ContigTable(Table):
+    class Meta:
+        model = omics_models.Contig
 
 
 class DBInfoTable(Table):
