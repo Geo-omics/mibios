@@ -1257,6 +1257,7 @@ class TaxonAbundance(Model):
         else:
             orgname = self.taxon.name  # queries DB
         return f'{orgname}/{self.sample.sample_id}: {self.tpm}'
+    __str__.needs_fields = ('taxon', 'taxon__name', 'sample__sample_id', 'tpm')
 
 
 class CompoundAbundance(AbstractAbundance):
@@ -1380,6 +1381,7 @@ class Contig(SequenceLike):
 
     def __str__(self):
         return self.accession
+    __str__.needs_fields = ('sample__sample_id', 'contig_no')
 
     @property
     def accession(self):

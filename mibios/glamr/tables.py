@@ -2,14 +2,16 @@ from django.urls import reverse
 from django.utils.encoding import force_str
 from django.utils.html import escape, format_html, mark_safe
 
-from django_tables2 import Column, Table as Table0, tables_factory
+from django_tables2 import (
+    Column, Table as Table0, table_factory as table_factory0,
+)
 
 from mibios.glamr import models as glamr_models
 from mibios.ncbi_taxonomy.models import TaxName, TaxNode
 from mibios.omics import models as omics_models
 from mibios.query import QuerySet
 
-from .utils import get_record_url
+from .utils import FKCache, get_record_url
 
 
 class Table(Table0):
@@ -48,7 +50,7 @@ class Table(Table0):
             exclude += ((i for i in self._meta.model.get_internal_fields()
                          if i not in exclude))
         data = self.customize_queryset(data)
-        
+
         super().__init__(data=data, exclude=exclude, **kwargs)
 
     def customize_queryset(self, qs):
@@ -113,12 +115,30 @@ class Table(Table0):
 
         if isinstance(self.data.data, QuerySet):
             cache_fields = []
+            onlies = []
+            use_only = True
             for i in columns:
                 if field := i.accessor.get_field(self._meta.model):
-                    if field.manuy_to_one:
+                    if field.many_to_one:
                         cache_fields.append(field)
+
+                    if field.one_to_many:
+                        # passing those to only() raises trouble
+                        pass
+                    else:
+                        onlies.append(field.name)
+                else:
+                    # get_field() returned None, so since we don't know what
+                    # fields are needed to get the values for this column we'll
+                    # have to get them all
+                    use_only = False
+
             self.values_cache = FKCache(self._meta.model, cache_fields)
-            self.data.data = self.data.data.iterator2(self.values_cache)
+
+            qs = self.data.data
+            if use_only:
+                qs = qs.only(*onlies)
+            self.data.data = qs.iterator2(cache=self.values_cache)
 
         yield [force_str(col.header) for col in columns]
 
@@ -138,7 +158,7 @@ def table_factory(model, table=Table):
 
             attrs['value_' + i.name] = value_FOO
     table_class = type('TweakedTable', (Table,), attrs)
-    return tables_factory(model, table=table_class)
+    return table_factory0(model, table=table_class)
 
 
 def linkify_record(record):

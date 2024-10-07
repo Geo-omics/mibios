@@ -179,6 +179,7 @@ class TaxName(Model):
 
     def __str__(self):
         return self.name
+    __str__.needs_fields = ('name',)
 
 
 class TaxNode(Model):
@@ -251,6 +252,7 @@ class TaxNode(Model):
         else:
             rank = self.rank + ' '
         return f'{rank}{self.name}'
+    __str__.needs_fields = ('rank',)  # FIXME: name?
 
     @cached_property
     def name(self):
