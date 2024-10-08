@@ -9,6 +9,7 @@ from . import DUMP_FILES
 from mibios.umrad.utils import atomic_dry, InputFileSpec
 from mibios.umrad.manager import InputFileError, Loader as UMRADLoader
 from mibios.umrad.model_utils import delete_all_objects_quickly
+from mibios.umrad.utils import ProgressPrinter
 
 
 class DumpFile(InputFileSpec):
@@ -101,8 +102,55 @@ class CitationLoader(Loader):
     )
 
 
+class TaxNameLoader(Loader):
+    @atomic_dry
+    def load(self, update=True, **kwargs):
+        """
+        Load ncbi tax names
+
+        Update mode: Using the parent Loader update mode won't work well for
+        names as the first column is not a unique key or similar.  Since
+        TaxName is a leaf model (it should not be target of an FK) we'll just
+        delete it all and load from scratch.
+        """
+        if update:
+            print('NOTICE: update mode for tax names works by deleting and '
+                  'replacing all existing data')
+            delete_all_objects_quickly(self.model)
+        super().load(update=False, **kwargs)
+        print('Populating nodes with scientific names...')
+        self.populate_sci_names()
+        print('[OK]')
+
+    @atomic_dry
+    def populate_sci_names(self):
+        """
+        Populate the TaxNode.name field with scientific names
+        """
+        TaxName = self.model
+        TaxNode = TaxName._meta.get_field('node').related_model
+        names = dict(
+            TaxName.objects.filter(name_class=TaxName.NAME_CLASS_SCI)
+            .values_list('node_id', 'name')
+        )
+        print(f'Loaded {len(names)} scientific names')
+        nodes = TaxNode.objects.only('pk', 'name')
+        print(f'Loaded {len(nodes)} tax nodes')
+        pp = ProgressPrinter('{progress} tax nodes processed')
+        new = changed = 0
+        for obj in pp(nodes):
+            new_name = names[obj.pk]
+            if obj.name == '':
+                new += 1
+            elif new_name != obj.name:
+                changed += 1
+            obj.name = new_name
+        print(f'Sci. names newly set: {new} / exiting but changed: {changed}')
+        TaxNode.loader.fast_bulk_update(nodes, ['name'])
+
+
 class TaxNodeLoader(Loader):
-    spec_skip_fields = ['ancestors']
+    spec_skip_fields = ['ancestors', 'name']
 
     @atomic_dry
     def load(self, **kwargs):
