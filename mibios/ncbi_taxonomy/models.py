@@ -5,7 +5,7 @@ from mibios.umrad.model_utils import ch_opt, fk_opt, fk_req, opt
 from mibios.umrad.model_utils import Model as UmradModel
 from mibios.umrad.manager import Manager
 
-from .managers import CitationLoader, Loader, TaxNodeLoader
+from .managers import CitationLoader, Loader, TaxNameLoader, TaxNodeLoader
 
 
 class Model(UmradModel):
@@ -171,6 +171,9 @@ class TaxName(Model):
         help_text='synonym, common name, ...',
     )
 
+    objects = Manager()
+    loader = TaxNameLoader()
+
     class Meta:
         unique_together = (
             # don't need the unique_name? Ha!
@@ -237,6 +240,7 @@ class TaxNode(Model):
         help_text='inherits hydrogenosome gencode from parent'
     )
     ancestors = models.ManyToManyField('self', symmetrical=False)
+    name = models.TextField(verbose_name='scientific name')
 
     objects = Manager()
     loader = TaxNodeLoader()
@@ -256,23 +260,6 @@ class TaxNode(Model):
         else:
             rank = self.rank + ' '
         return f'{rank}{self.name}'
-
-    @cached_property
-    def name(self):
-        """
-        Get the scientific name of node
-
-        This works because (as it seems) each node has exactly one scientific
-        name.
-        """
-        try:
-            for i in self._prefetched_objects_cache['taxname_set']:
-                if i.name_class == TaxName.NAME_CLASS_SCI:
-                    return i
-        except (AttributeError, KeyError):
-            pass
-
-        return self.taxname_set.filter(name_class=TaxName.NAME_CLASS_SCI).get()
 
     def is_root(self):
         """ Say if node is the root of the taxonomic tree """
