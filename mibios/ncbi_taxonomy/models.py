@@ -3,10 +3,13 @@ from django.utils.functional import cached_property
 
 from mibios.umrad.model_utils import ch_opt, fk_opt, fk_req, opt
 from mibios.umrad.model_utils import Model as UmradModel
+from mibios.umrad.manager import Manager
+
 from .managers import CitationLoader, Loader, TaxNodeLoader
 
 
 class Model(UmradModel):
+    objects = Manager()
     loader = Loader()
 
     class Meta:
@@ -48,6 +51,7 @@ class Citation(Model):
     medline_id.empty_values = medline_id.empty_values + [0]
     pubmed_id.empty_values = pubmed_id.empty_values + [0]
 
+    objects = Manager()
     loader = CitationLoader()
 
     def __str__(self):
@@ -234,6 +238,7 @@ class TaxNode(Model):
     )
     ancestors = models.ManyToManyField('self', symmetrical=False)
 
+    objects = Manager()
     loader = TaxNodeLoader()
 
     class Meta:
