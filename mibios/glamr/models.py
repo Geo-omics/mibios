@@ -398,6 +398,8 @@ class Dataset(IDMixin, AbstractDataset):
             s = f'{s} ({self.dataset_id})'
 
         return s
+    __str__.needs_fields = ('primary_ref', 'primary_ref__short_reference',
+                            'scheme', 'short_name', 'dataset_id')
 
     def display_simple(self):
         """
@@ -497,6 +499,7 @@ class Reference(IDMixin, Model):
         if settings.INTERNAL_DEPLOYMENT:
             value = f'{value} ({self.reference_id})'
         return value
+    __str__.needs_fields = ('short_reference', 'title', 'reference_id')
 
 
 class Sample(IDMixin, AbstractSample):
@@ -635,6 +638,7 @@ class Sample(IDMixin, AbstractSample):
             if self.sample_id and settings.INTERNAL_DEPLOYMENT:
                 value = f'{value} ({self.sample_id})'
         return value or self.sample_id or super().__str__()
+    __str__.needs_fields = ('sample_name', 'biosample', 'sample_id')
 
     @cached_property
     def private(self):

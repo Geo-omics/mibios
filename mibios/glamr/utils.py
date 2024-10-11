@@ -99,3 +99,63 @@ def estimate_row_totals(model):
 
     stat_model = apps.get_model('glamr', stat_model_name)
     return int(stat_model.objects.get(name=model._meta.db_table).num_rows)
+
+
+class FKCache(dict):
+    MISSING = object()
+
+    def __init__(self, model, fk_fields=None):
+        """
+        Values cache for tables
+
+        Parameters:
+        model: model of table
+        fk_fields:
+            ForeignKey fields belonging to the model for which values shall be
+            cached.
+        """
+        if fk_fields is None:
+            fk_fields = [i for i in model._meta.get_fields() if i.many_to_one]
+
+        for i in fk_fields:
+            self[i] = {}
+
+        self.field_names = [i.name for i in fk_fields]
+        self.fk_id_attrs = [i.attname for i in fk_fields]
+        self.querysets = []
+        for i in fk_fields:
+            manager = i.related_model.objects
+            if hasattr(manager, 'str_only'):
+                self.querysets.append(manager.str_only())
+            else:
+                self.querysets.append(manager.all())
+
+    def update_chunk(self, queryset):
+        missing_all = [set() for _ in self]
+        per_rel_things = list(zip(
+            self.field_names,
+            self.fk_id_attrs,
+            missing_all,
+            self.querysets,
+            self.values(),  # the per-relation caches
+        ))
+        # 1. get missing FKs
+        for obj in queryset:
+            for _, attname, missing, _, fcache in per_rel_things:
+                fk = getattr(obj, attname)
+                if fk is None:
+                    continue
+                if fk not in fcache:
+                    missing.add(fk)
+
+        # 2. get missing and update cache
+        for _, _, missing, qs, fcache in per_rel_things:
+            for obj in qs.filter(pk__in=missing):
+                fcache[obj.pk] = obj
+        del missing_all
+
+        # 3. populate chunk with related objects
+        for obj in queryset:
+            for fname, attname, _, _, fcache in per_rel_things:
+                if (pk := getattr(obj, attname)) is not None:
+                    setattr(obj, fname, fcache[pk])

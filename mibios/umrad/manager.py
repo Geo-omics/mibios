@@ -557,6 +557,7 @@ class BaseLoader(MibiosBaseManager):
                     else:
                         pool_key = field.to_python(value)
 
+                    breakpoint()
                     try:
                         obj = obj_pool[pool_key]
                     except KeyError:

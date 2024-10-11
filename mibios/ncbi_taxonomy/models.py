@@ -6,6 +6,7 @@ from mibios.umrad.model_utils import Model as UmradModel
 from mibios.umrad.manager import Manager
 
 from .managers import CitationLoader, Loader, TaxNameLoader, TaxNodeLoader
+from .queryset import TaxNodeQuerySet
 
 
 class Model(UmradModel):
@@ -242,7 +243,7 @@ class TaxNode(Model):
     ancestors = models.ManyToManyField('self', symmetrical=False)
     name = models.TextField(verbose_name='scientific name')
 
-    objects = Manager()
+    objects = Manager.from_queryset(TaxNodeQuerySet)()
     loader = TaxNodeLoader()
 
     class Meta:
@@ -324,7 +325,9 @@ class TaxNode(Model):
     def __eq__(self, other):
         try:
             # It's taxid or nothing
-            return self.taxid == other.taxid
+            re = self.taxid == other.taxid
+            # breakpoint()
+            return re
         except AttributeError:
             # other has no taxid attr
             return False
