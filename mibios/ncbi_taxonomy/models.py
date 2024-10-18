@@ -322,11 +322,9 @@ class TaxNode(Model):
         return lca
 
     def __eq__(self, other):
-        try:
-            # It's taxid or nothing
+        if isinstance(other, TaxNode):
             return self.taxid == other.taxid
-        except AttributeError:
-            # other has no taxid attr
+        else:
             return False
 
     def is_ancestor_of(self, other):
