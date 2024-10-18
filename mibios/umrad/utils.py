@@ -115,12 +115,10 @@ class ProgressPrinter():
     How to use:
 
     pp = ProgressPrinter('{progress} foo done')
-    count = 0
-    for i in some_iterator():
+    for i in some_iterable:
         do_stuff()
-        count += 1
-        pp.update(count)
-    pp.finished()
+        pp.inc()
+    pp.finish()
 
     This will print "<n> foo done" once per second to the terminal and print
     the final count after the for loop ends. The internal timer will keep
