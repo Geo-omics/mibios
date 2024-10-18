@@ -27,7 +27,7 @@ def fwd(apps, schema_editor):
     for obj in nodes:
         obj.name = names[obj.pk]
     # saving takes about ~8 min
-    TaxNode.objects.bulk_update(nodes, ['name'])
+    TaxNode.objects.bulk_update(nodes, ['name'], batch_size=25000)
 
 
 class Migration(migrations.Migration):
