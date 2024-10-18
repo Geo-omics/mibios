@@ -646,6 +646,7 @@ class ModelTableMixin(GenericModelMixin, ExportMixin):
                 + self.model._meta.model_name
                 + '/{{ record.pk }}</a>]',
                 order_by='pk',
+                exclude_from_export=True,
             )
             cols.append(('record links', col))
             del col
