@@ -7,6 +7,7 @@ from django_tables2 import (
     Column, LazyPaginator, SingleTableView, TemplateColumn, table_factory,
 )
 
+from django.apps import apps
 from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
@@ -480,6 +481,67 @@ class FilterMixin:
         return ctx
 
 
+class GenericModelMixin:
+    """
+    Mixin to set model attribute from URL kwargs
+    """
+    url_model_kw = 'model'
+    url_model_attr = 'model'
+
+    allowed_models = (
+        'glamr.sample',
+        'glamr.dataset',
+        'glamr.reference',
+        'omics.contig',
+        'omics.readabundance',
+        'omics.taxonabundance',
+        'ncbi_taxonomy.taxname',
+        'ncbi_taxonomy.taxnode',
+    )
+    """ app label + model names of models allowed in generic views """
+
+    @classmethod
+    def is_allowed_model(cls, model):
+        """ Tell if the view supports/allows the model given """
+        return f'{model._meta.app_label}.{model._meta.model_name}' in cls.allowed_models  # noqa:E501
+
+    _allowed_models = None
+
+    @classmethod
+    def get_allowed_models(cls):
+        """ Return list of allowed models' classes """
+        if cls._allowed_models is None:
+            cls._allowed_models = \
+                [apps.get_model(i) for i in cls.allowed_models]
+        return cls._allowed_models
+
+    def setup(self, request, *args, **kwargs):
+        super().setup(request, *args, **kwargs)
+        if (
+                (getattr(self, self.url_model_attr, None) is None)
+                ==
+                (kwargs.get(self.url_model_kw, None) is None)
+        ):
+            raise TypeError(
+                'if the url kwarg is given then the model attr must not be'
+                ' set and vice versa'
+            )
+
+        if not (model_name := kwargs.get(self.url_model_kw)):
+            # nothing to do, model is set by class
+            return
+
+        try:
+            model = get_registry().models[model_name]
+        except KeyError as e:
+            raise Http404(f'not a model: {e}') from e
+
+        if self.is_allowed_model(model):
+            setattr(self, self.url_model_attr, model)
+        else:
+            raise Http404(f'not supported: {model}')
+
+
 _estimated_row_totals_cache = {}
 
 
@@ -489,7 +551,7 @@ def get_row_totals_estimate(model):
     return _estimated_row_totals_cache[model]
 
 
-class ModelTableMixin(ExportMixin):
+class ModelTableMixin(GenericModelMixin, ExportMixin):
     """
     Mixin for SingleTableView
 
@@ -523,25 +585,14 @@ class ModelTableMixin(ExportMixin):
         Sample: ['taxonabundance', 'functional_abundance'],
     }
 
-    def setup(self, request, *args, model=None, **kwargs):
-        """
-        setup: Sets model from url kwarg, if possible.  If this default
-        behaviour is not correct for an inheriting view, then override this, so
-        call super().setup() and then set self.model as desired.
-        """
+    def setup(self, request, *args, **kwargs):
+        # GenericModelMixin sets the model
         super().setup(request, *args, **kwargs)
-        if model:
-            try:
-                self.model = get_registry().models[model]
-            except KeyError as e:
-                raise Http404(f'no such model: {e}') from e
-
         try:
             est = get_row_totals_estimate(self.model)
         except Exception as e:
             log.error(f'estimating row totals failed: {e}')
             self.paginator_class = LazyPaginator
-            raise
         else:
             if est > self.LAZY_PAGINATION_THRESHOLD:
                 self.paginator_class = LazyPaginator
@@ -1132,6 +1183,18 @@ class AbundanceGeneView(ModelTableMixin, BaseMixin, SingleTableView):
             return self.get_queryset().to_fasta()
         else:
             return super().get_values()
+
+
+class AvailableDataView(BaseMixin, TemplateView):
+    template_name = 'glamr/available_data.html'
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['models'] = [
+            (i, i._meta.model_name)
+            for i in GenericModelMixin.get_allowed_models()
+        ]
+        return ctx
 
 
 class ContactView(BaseMixin, TemplateView):
@@ -1906,8 +1969,7 @@ class ToManyListView(FilterMixin, ModelTableMixin, BaseMixin, SingleTableView):
         except AttributeError:
             self.accessor_name = field.name
 
-        # add model for ModelTableMixin.setup()
-        kwargs['model'] = self.model._meta.model_name
+        # hand over to ModelTableMixin
         super().setup(request, *args, **kwargs)
 
     def get_object_lookups(self):
