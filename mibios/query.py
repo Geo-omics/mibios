@@ -302,6 +302,77 @@ class Q(models.Q):
         return model.get_field(lhs.join('__'))
 
 
+class FKCache(dict):
+    """
+    Container to hold multiple PK -> object mappings
+
+    It can use the data is holds to set the foreign key relations of a queryset
+    """
+    MISSING = object()
+
+    def __init__(self, model, fk_fields=None):
+        """
+        Values cache for tables
+
+        Parameters:
+        model: model of table
+        fk_fields:
+            ForeignKey fields belonging to the model for which values shall be
+            cached.
+        """
+        if fk_fields is None:
+            fk_fields = [i for i in model._meta.get_fields() if i.many_to_one]
+
+        for i in fk_fields:
+            self[i] = {}
+
+        self.field_names = [i.name for i in fk_fields]
+        self.fk_id_attrs = [i.attname for i in fk_fields]
+        self.querysets = []
+        for i in fk_fields:
+            manager = i.related_model.objects
+            if hasattr(manager, 'str_only'):
+                self.querysets.append(manager.str_only())
+            else:
+                self.querysets.append(manager.all())
+
+    def update_chunk(self, queryset):
+        """
+        Assign FK relations to objects in the given queryset
+
+        This will evaluate an yet un-evaluated queryset.  It may incur
+        additional DB queries to fetch data not yet cached.
+        """
+        missing_all = [set() for _ in self]
+        per_rel_things = list(zip(
+            self.field_names,
+            self.fk_id_attrs,
+            missing_all,
+            self.querysets,
+            self.values(),  # the per-relation caches
+        ))
+        # 1. get missing FKs
+        for obj in queryset:
+            for _, attname, missing, _, fcache in per_rel_things:
+                fk = getattr(obj, attname)
+                if fk is None:
+                    continue
+                if fk not in fcache:
+                    missing.add(fk)
+
+        # 2. get missing and update cache
+        for _, _, missing, qs, fcache in per_rel_things:
+            for obj in qs.filter(pk__in=missing):
+                fcache[obj.pk] = obj
+        del missing_all
+
+        # 3. populate chunk with related objects
+        for obj in queryset:
+            for fname, attname, _, _, fcache in per_rel_things:
+                if (pk := getattr(obj, attname)) is not None:
+                    setattr(obj, fname, fcache[pk])
+
+
 class QuerySet(models.QuerySet):
     def __init__(self, *args, manager=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -659,3 +730,53 @@ class QuerySet(models.QuerySet):
                 ofile.write(sep.join(row) + '\n')
                 count += 1
         print(f'Saved {count} rows to {ofile.name}')
+
+    def iterator2(self, chunk_size=20000, pk_pos=0, cache=None):
+        """
+        Alternative iterator implementation for large table data export
+
+        pk_pos:
+            If used after values_list() this tells us the index of the PK value
+            in the result tuple.  Defaults to zero.
+
+        cache:
+            An optional FKCache object to be used to populate FK related
+            objects.  If this is None or an empty dict then no such cache will
+            be used.
+        """
+        if chunk_size <= 0:
+            raise ValueError('chunk size must be positive')
+
+        qs = self.order_by('pk')
+        last_pk = 0
+        while True:
+            chunk = qs.filter(pk__gt=last_pk)[:chunk_size]
+
+            if cache:
+                cache.update_chunk(chunk)
+
+            yield from chunk
+
+            if len(chunk) < chunk_size:
+                # no further results
+                break
+
+            last_record = chunk[len(chunk) - 1]
+            if isinstance(last_record, tuple):
+                # values_list()
+                last_pk = last_record[pk_pos]
+            else:
+                # model instances
+                last_pk = last_record.pk
+
+    def add_only(self, *fields):
+        """
+        Like only() but additionally selects fields from a previous only() call
+
+        If defer() was called previously, then this behaves like regular only()
+        """
+        field_names, defer = self.query.deferred_loading
+        if defer:
+            return self.only(*fields)
+        else:
+            return self.only(*set(field_names).union(fields))

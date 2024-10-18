@@ -4,7 +4,7 @@ import pprint
 import re
 
 from django_tables2 import (
-    Column, LazyPaginator, SingleTableView, TemplateColumn, table_factory,
+    Column, LazyPaginator, SingleTableView, TemplateColumn
 )
 
 from django.apps import apps
@@ -30,14 +30,14 @@ from mibios.glamr.filters import (
 )
 from mibios.glamr.forms import DatasetFilterFormHelper
 from mibios.glamr.models import Sample, Dataset, pg_class, dbstat
-from mibios.query import Q
+from mibios.query import Q, QuerySet
 from mibios.views import (
-    ExportBaseMixin, StaffLoginRequiredMixin, TextRendererZipped,
-    VersionInfoMixin,
+    ExportBaseMixin, StaffLoginRequiredMixin,
+    TextRendererZipped, VersionInfoMixin,
 )
 from mibios.omics import get_sample_model
 from mibios.omics.models import (
-    CompoundAbundance, FuncAbundance, ReadAbundance, TaxonAbundance,
+    CompoundAbundance, Contig, FuncAbundance, ReadAbundance, TaxonAbundance,
     SampleTracking,
 )
 from mibios.ncbi_taxonomy.models import TaxNode
@@ -78,6 +78,10 @@ class ExportMixin(ExportBaseMixin):
 
     Should be used together with a django_tables2 table view.
     Also requires BaseMixin to pass around the cache option.
+
+    Differs from mibios.ExportMixin in that this doesn't override the template
+    response, instead conditional switch in get() if a file export response is
+    needed.  The code is just copy-pasted into our get().
     """
     export_query_param = 'export'
     export_options = None
@@ -134,7 +138,12 @@ class ExportMixin(ExportBaseMixin):
     def get(self, request, *args, **kwargs):
         if self.download_requested():
             # data export response
-            return self.export_response()
+            name, suffix, Renderer = self.get_format()
+            filename = self.get_filename() + suffix
+
+            renderer = Renderer(filename=filename)
+            renderer.render(self.get_values())
+            return renderer.response
         else:
             # Normal html table response
             return super().get(request, *args, **kwargs)
@@ -163,53 +172,53 @@ class ExportMixin(ExportBaseMixin):
         self.requested_export_option = opt
         return True
 
-    def export_response(self):
-        name, suffix, Renderer = self.get_format(fmt_name='tab/zipped')
+    def get_format(self, fmt_name='tab'):
+        # TODO: this is here to set the format, as long as we lack format
+        # selection
+        return super().get_format(fmt_name=fmt_name)
 
-        if Renderer.streaming:
-            response = StreamingHttpResponse(
-                content_type=Renderer.content_type
-            )
-        else:
-            response = HttpResponse(content_type=Renderer.content_type)
-
-        filename = self.get_filename() + suffix
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
-
-        Renderer(response, filename=filename).render(self.get_values())
-
-        return response
-
-    def get_values(self):
+    def get_values(self, streaming=False):
         """
         Collect data to be exported
         """
         if self.requested_export_option is self.EXPORT_TABLE:
-            # export current table
+            # the current table
             if hasattr(self, 'get_table'):
-                return self.get_table(**self.get_table_kwargs()).as_values()
+                table = self.get_table(**self.get_table_kwargs())
             else:
-                raise Http404('export not implemented')
+                raise Http404('exporting this table is not implemented')
 
-        try:
-            # try exporting related data
-            field = self.model._meta.get_field(self.requested_export_option)
-        except FieldDoesNotExist:
-            pass
         else:
-            f = {field.remote_field.name + '__in': self.get_queryset()}
-            qs = field.related_model.objects.filter(**f)
-            # return qs.values_list()
+            # non-default export options
             try:
-                # for use with ModelTableMixin:
-                tab_cls = self.TABLE_CLASSES[field.related_model]
-            except (AttributeError, KeyError):
-                raise   # <-+-- FIXME something wrong here
-                #           V
-                tab_cls = table_factory(field.related_model, tables.Table)
-            return tab_cls(data=qs).as_values()
+                # try exporting related data
+                field = \
+                    self.model._meta.get_field(self.requested_export_option)
+            except FieldDoesNotExist:
+                raise Http404('the given export option is not implemented')
+            else:
+                f = {field.remote_field.name + '__in': self.get_queryset()}
+                qs = field.related_model.objects.filter(**f)
+                try:
+                    # for use with ModelTableMixin:
+                    tab_cls = self.TABLE_CLASSES[field.related_model]
+                except (AttributeError, KeyError):
+                    raise   # <-+-- FIXME something wrong here
+                    #           V
+                    tab_cls = table_factory(field.related_model, tables.Table)
+                table = tab_cls(data=qs)
 
-        raise Http404('the given export option is not implemented')
+        self.table = table  # DEBUG
+
+        """
+        from mibios.omics.models import Contig
+        return Contig.objects.values_list().iterator2()
+        if streaming:
+            if isinstance(table.data.data, QuerySet):
+                table.data.data = table.data.data.iterator2()
+        """
+
+        return table.as_values()
 
     def get_export_options_context_data(self):
         """ helper for get_context_data() """
@@ -444,29 +453,37 @@ class FilterMixin:
     """
     Mixin for django-filter
     """
-    def get(self, request, *args, **kwargs):
-        try:
-            fclass = filter_registry.from_get(request.GET)
-        except LookupError:
-            # GET qstr does not match filter signature
-            try:
-                fclass = filter_registry.by_model[self.model]
-            except KeyError:
-                fclass = None
-        else:
-            if self.model is not fclass._meta.model:
-                raise Http404('model is incompatible with filter code ')
+    filter_class = None
 
-        self.filter_class = fclass
-        return super().get(request, *args, **kwargs)
+    def apply_filter(self, qs):
+        """
+        Set the view's filter attribute and return filtered queryset
+        """
+        if self.filter_class is None:
+            try:
+                fclass = filter_registry.from_get(self.request.GET)
+            except LookupError:
+                # GET qstr does not match filter signature
+                try:
+                    fclass = filter_registry.by_model[self.model]
+                except KeyError:
+                    fclass = None
+            else:
+                if self.model is not fclass._meta.model:
+                    raise Http404('model is incompatible with filter code ')
+        else:
+            fclass = self.filter_class
+
+        if fclass:
+            self.filter = fclass(self.request.GET, qs)
+            return self.filter.qs
+        else:
+            self.filter = None
+            return qs
 
     def get_queryset(self):
         qs = super().get_queryset()
-        if self.filter_class:
-            self.filter = self.filter_class(self.request.GET, qs)
-            qs = self.filter.qs
-        else:
-            self.filter = None
+        qs = self.apply_filter(qs)
         return qs
 
     def get_context_data(self, **ctx):
@@ -572,6 +589,7 @@ class ModelTableMixin(GenericModelMixin, ExportMixin):
     LAZY_PAGINATION_THRESHOLD = 10000
 
     TABLE_CLASSES = {
+        Contig: tables.ContigTable,
         Dataset: tables.DatasetTable,
         Sample: tables.SampleTable,
         TaxonAbundance: tables.TaxonAbundanceTable,
@@ -616,7 +634,7 @@ class ModelTableMixin(GenericModelMixin, ExportMixin):
         # the factory at SingleTableMixin
         return self.TABLE_CLASSES.get(
             self.model,
-            table_factory(self.model, tables.Table),
+            tables.table_factory(self.model),
         )
 
     def get_queryset(self):
