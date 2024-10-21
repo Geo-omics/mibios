@@ -6,6 +6,7 @@ from mibios.umrad.model_utils import Model as UmradModel
 from mibios.umrad.manager import Manager
 
 from .managers import CitationLoader, Loader, TaxNameLoader, TaxNodeLoader
+from .queryset import TaxNodeQuerySet
 
 
 class Model(UmradModel):
@@ -242,7 +243,7 @@ class TaxNode(Model):
     ancestors = models.ManyToManyField('self', symmetrical=False)
     name = models.TextField(verbose_name='scientific name')
 
-    objects = Manager()
+    objects = Manager.from_queryset(TaxNodeQuerySet)()
     loader = TaxNodeLoader()
 
     class Meta:

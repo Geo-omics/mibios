@@ -5,11 +5,12 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db.models import ForeignObjectRel
 
-from . import DUMP_FILES
 from mibios.umrad.utils import atomic_dry, InputFileSpec
 from mibios.umrad.manager import InputFileError, Loader as UMRADLoader
 from mibios.umrad.model_utils import delete_all_objects_quickly
 from mibios.umrad.utils import ProgressPrinter
+
+from . import DUMP_FILES
 
 
 class DumpFile(InputFileSpec):
@@ -151,6 +152,7 @@ class TaxNameLoader(Loader):
 
 class TaxNodeLoader(Loader):
     spec_skip_fields = ['ancestors', 'name']
+    use_in_migrations = True
 
     @atomic_dry
     def load(self, **kwargs):
