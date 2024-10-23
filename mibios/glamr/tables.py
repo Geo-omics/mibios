@@ -25,22 +25,19 @@ class Table(Table0):
             f'parameters'
         )
 
+        exclude = list(exclude) if exclude else []
+
         if self.html_fields and not self.is_for_export():
             # for HTML display, exclude everything not in html_fields:
             if self._meta.fields:
                 # must only set one of these (or neither)
                 raise ValueError('both html_fields and Meta.fields are set')
 
-            exclude = list(exclude) if exclude else []
             for i in self._meta.model._meta.get_fields():
                 if i.name not in self.html_fields:
                     if i.name not in exclude:
                         exclude.append(i.name)
 
-        if exclude is None:
-            exclude = []
-
-        exclude = list(exclude)
         exclude += ((i for i in self.get_extra_excludes() if i not in exclude))
         if hasattr(self._meta.model, 'get_internal_fields'):
             exclude += ((i for i in self._meta.model.get_internal_fields()
