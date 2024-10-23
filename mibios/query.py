@@ -2,8 +2,10 @@ from collections import OrderedDict
 from decimal import Decimal
 import json
 from logging import getLogger
+from operator import attrgetter, itemgetter
 from pathlib import Path
 
+from django.core.exceptions import FieldDoesNotExist
 from django.db import models
 
 from django_tables2 import table_factory
@@ -300,6 +302,169 @@ class Q(models.Q):
         if lhs[-1] in models.Field.get_lookups():
             lhs = lhs[:-1]
         return model.get_field(lhs.join('__'))
+
+
+class FKCacheBin(dict):
+    """
+    Mapping from PKs to model instances
+    """
+    def __init__(self, field):
+        """
+        field:
+            ForeignKey field for which values shall be cached.
+        """
+        super().__init__(self)
+        self.field_name = field.name
+        self.attname = field.attname
+        manager = field.related_model.objects
+        if hasattr(manager, 'str_only'):
+            self.related_queryset = manager.str_only()
+        else:
+            self.related_queryset = manager.all()
+
+    def _get_row_pos(self, queryset):
+        """
+        Helper to get our values' position in row (for values list querysets)
+        """
+        if queryset._fields:
+            names = queryset._fields
+        else:
+            # is empty tuple, so getting it all, cf. ValuesListIterable
+            names = [
+                *queryset.query.extra_select,
+                *queryset.query.values_select,
+                *queryset.query.annotation_select,
+            ]
+        return names.index(self.attname)
+
+    def update_bin(self, queryset):
+        """
+        Checks queryset for missing related objects and retrieve them
+
+        If the queryset is of the values list type, then just store the string
+        representation, otherwise we store the related model instance.
+        """
+        if queryset._fields is None:
+            # regular models-queryset
+            get_fk = attrgetter(self.attname)
+        else:
+            # values list queryset
+            get_fk = itemgetter(
+                queryset.get_output_field_names().index(self.attname)
+            )
+
+        missing = set()
+        for i in queryset:
+            fk = get_fk(i)
+            if fk is None:
+                continue
+            if fk not in self:
+                missing.add(fk)
+
+        relqs = self.related_queryset.filter(pk__in=missing)
+
+        if queryset._fields is None:
+            for obj in relqs:
+                self[obj.pk] = obj
+        else:
+            for obj in relqs:
+                # for values lists convert to str right here
+                self[obj.pk] = str(obj)
+
+    def set_related_obj(self, obj):
+        """
+        Set the related FK object
+
+        Assumes we were update properly, will raise KeyError otherwise.
+        """
+        if (pk := getattr(obj, self.attname)) is not None:
+            setattr(obj, self.field_name, self[pk])
+
+
+class FKCache(dict):
+    """
+    Container to hold multiple PK -> object mappings
+
+    It can use the data is holds to set the foreign key relations of a queryset
+    """
+    def __init__(self, model, fk_fields=None):
+        """
+        Values cache for tables
+
+        Parameters:
+        model: model of table
+        fk_fields:
+            ForeignKey fields belonging to the model for which values shall be
+            cached.
+        """
+        super().__init__(self)
+        self.model = model
+        # FIXME: maybe remove mode options, if not needed (good for testing?)
+        if fk_fields is None:
+            fk_fields = [i for i in model._meta.get_fields() if i.many_to_one]
+
+        for i in fk_fields:
+            self[i] = FKCacheBin(i)
+
+    def bins(self):
+        """ convenience method to get the collection of cache bins """
+        return self.values()
+
+    def get_map_value_row_fn(self, queryset):
+        """
+        Return a function to convert a row tuple where FKs are replaced with
+        their cached object value, usually the str-representation.
+        """
+        # 1. Construct a row-length list of Nones and cache-bins so that cached
+        # FK fields correspond to their cache bin.
+        list_of_caches = []
+        for i in queryset.get_output_field_names():
+            try:
+                fk_field = self.model._meta.get_field(i)
+            except FieldDoesNotExist:
+                list_of_caches.append(None)
+            else:
+                list_of_caches.append(self.get(fk_field, None))
+
+        def map_row_fn(row):
+            return tuple((
+                val if (cache is None or val is None) else cache[val]
+                for cache, val in zip(list_of_caches, row)
+            ))
+
+        return map_row_fn
+
+    def update_chunk(self, queryset):
+        """
+        Assign FK relations to objects in the given queryset
+
+        This will evaluate an yet un-evaluated queryset.  It may incur
+        additional DB queries to fetch data not yet cached.
+        """
+        # 1. identify and get missing FKs
+        for i in self.bins():
+            i.update_bin(queryset)
+
+        # 2. update objects
+        for obj in queryset:
+            for i in self.bins():
+                i.set_related_obj(obj)
+
+    def update_values_list(self, queryset):
+        """
+        Generate updated value listing
+
+        queryset:
+            A value_list()-queryset
+
+        Returns a new list to replace the original queryset
+        """
+        # 1. identify and get missing FKs
+        for i in self.bins():
+            i.update_bin(queryset)
+
+        mapper = self.get_map_value_row_fn(queryset)
+        return [mapper(i) for i in queryset]
 
 
 class QuerySet(models.QuerySet):
@@ -659,3 +824,118 @@ class QuerySet(models.QuerySet):
                 ofile.write(sep.join(row) + '\n')
                 count += 1
         print(f'Saved {count} rows to {ofile.name}')
+
+    def get_output_field_names(self):
+        """
+        Get the selected field (or otherwise) names, of fetched rows output
+        fields, in correct order.
+
+        Only for querysets on which values() or values_list() was called.  Will
+        raise ValueError if called with an incompatible queryset instance.
+
+        Compare this to what NamedValuesListIterable does.
+        """
+        if self._fields is None:
+            raise ValueError(
+                'method shall only be called after values() or values_list()'
+            )
+        elif self._fields:
+            return self._fields
+        else:
+            return [
+                *self.query.extra_select,
+                *self.query.values_select,
+                *self.query.annotation_select,
+            ]
+
+    def iterate(self, chunk_size=20000, cache=None):
+        """
+        Alternative iterator implementation for large table data export
+
+        cache:
+            An optional FKCache object to be used to populate FK related
+            objects.  If this is None or an empty dict then no such cache will
+            be used.
+        """
+        if chunk_size <= 0:
+            raise ValueError('chunk size must be positive')
+
+        if self._fields is None:
+            # normal model-instance queryset
+            return self._iterate_model(chunk_size, cache)
+        else:
+            return self._iterate_values_list(chunk_size, cache)
+
+    def _iterate_model(self, chunk_size, cache):
+        """ iterate() implementation for normal model-based querysets """
+        if cache is True:
+            # auto-caching-mode
+            # TODO: pick up fields from only()?
+            cache = FKCache(self.model, fk_fields=None)
+
+        qs = self.order_by('pk')
+
+        last_pk = 0
+        while True:
+            chunk = qs.filter(pk__gt=last_pk)[:chunk_size]
+
+            if cache:
+                # update in-place
+                cache.update_chunk(chunk)
+
+            yield from chunk
+
+            if len(chunk) < chunk_size:
+                # no further results
+                break
+
+            last_pk = chunk[len(chunk) - 1].pk
+
+    def _iterate_values_list(self, chunk_size, cache):
+        """ iterate() implementation for values_list() querysets """
+        qs = self
+
+        outnames = qs.get_output_field_names()
+        hide_pk = False
+        try:
+            pk_pos = outnames.index(qs.model._meta.pk.name)
+        except ValueError:
+            if 'pk' in outnames:
+                pk_pos = outnames.index('pk')
+            else:
+                # we have to get PK to make chunking work
+                qs = qs.values_list('pk', *outnames)
+                pk_pos = 0
+                hide_pk = True
+
+        if cache is True:
+            # auto-caching-mode
+            fk_fields = []
+            for i in qs.model._meta.get_fields():
+                if not i.many_to_one:
+                    continue
+                if i.name in outnames or i.attname in outnames:
+                    fk_fields.append(i)
+            cache = FKCache(qs.model, fk_fields=fk_fields)
+
+        qs = qs.order_by('pk')
+
+        last_pk = 0
+        while True:
+            chunk = qs.filter(pk__gt=last_pk)[:chunk_size]
+
+            if cache:
+                # chunk is replaced
+                chunk = cache.update_values_list(chunk)
+
+            chunk_length = len(chunk)
+            last_pk = chunk[chunk_length - 1][pk_pos]
+
+            if hide_pk:
+                chunk = ((i[slice(1, None)] for i in chunk))
+
+            yield from chunk
+
+            if chunk_length < chunk_size:
+                # no further results
+                break
