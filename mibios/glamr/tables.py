@@ -42,7 +42,12 @@ class Table(Table0):
         if hasattr(self._meta.model, 'get_internal_fields'):
             exclude += ((i for i in self._meta.model.get_internal_fields()
                          if i not in exclude))
+
+        if data is None:
+            data = self._meta.model.objects.all()
+
         data = self.customize_queryset(data)
+
         super().__init__(data=data, exclude=exclude, **kwargs)
 
     def customize_queryset(self, qs):
