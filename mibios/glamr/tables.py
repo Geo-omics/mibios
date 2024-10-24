@@ -1,4 +1,5 @@
 from django.urls import reverse
+from django.utils.encoding import force_str
 from django.utils.html import escape, format_html, mark_safe
 
 from django_tables2 import Column, Table as Table0
@@ -6,6 +7,7 @@ from django_tables2 import Column, Table as Table0
 from mibios.glamr import models as glamr_models
 from mibios.ncbi_taxonomy.models import TaxName, TaxNode
 from mibios.omics import models as omics_models
+from mibios.query import QuerySet
 
 from .utils import get_record_url
 
@@ -83,6 +85,59 @@ class Table(Table0):
         """ override this to exclude more fields """
         return []
 
+    def as_values(self, exclude_columns=None):
+        """
+        Adapting super().as_values() with iterate() and force_str on all
+        values
+        """
+        if not isinstance(self.data.data, QuerySet):
+            return super().as_values(exclude_columns=exclude_columns)
+
+        if exclude_columns is None:
+            exclude_columns = ()
+
+        columns = [
+            column
+            for column in self.columns.iterall()
+            if not (column.column.exclude_from_export
+                    or column.name in exclude_columns)
+        ]
+
+        selected = []
+        skipped_columns = []
+        for i in columns:
+            if field := i.accessor.get_field(self._meta.model):
+                if field.many_to_one:
+                    # FK
+                    selected.append(field.attname)
+                elif field.one_to_many or field.many_to_many:
+                    # skip these on export
+                    skipped_columns.append(i)
+                else:
+                    selected.append(field.name)
+            else:
+                # have to skip this one
+                skipped_columns.append(i)
+        columns = [i for i in columns if i not in skipped_columns]
+
+        self.data.data = (self.data.data
+                          .values_list(*selected)
+                          .iterate(cache=True))
+
+        yield [force_str(col.header) for col in columns]
+        yield from self.as_values_bottom(columns)
+
+    def as_values_bottom(self, columns):
+        """
+        This is the bottom part of the django_tables2's as_values()
+
+        This separate method allows for table-specific customization.
+        """
+        # directly iterate via our iterate()
+        # row is a tuple, values assumed to be of simple builtin types
+        for row in self.data.data:
+            yield ['' if i is None else force_str(i) for i in row]
+
 
 def linkify_record(record):
     """
@@ -136,6 +191,11 @@ class CompoundAbundanceTable(Table):
     class Meta:
         model = omics_models.CompoundAbundance
         exclude = ['id']
+
+
+class ContigTable(Table):
+    class Meta:
+        model = omics_models.Contig
 
 
 class DBInfoTable(Table):
@@ -276,7 +336,7 @@ class ReadAbundanceTable(Table):
             # we want to get the UniRef100 accessions
             fields[ref_field_pos] = 'ref__accession'
 
-        qs = self.data.data.order_by().values_list(*fields).iterator()
+        qs = self.data.data.order_by().values_list(*fields).iterate()
 
         try:
             sample_field_pos = self.sequence.index('sample')
@@ -316,6 +376,14 @@ class TaxNodeTable(Table):
     class Meta:
         model = TaxNode
         fields = ('taxid', 'rank', 'name', 'parent')
+
+    def customize_queryset(self, qs):
+        return qs.select_related('parent')
+
+    # TODO as_values might benefit from a special FKCache for the parent so
+    # that parents that get exposrted anyways don't have to be retrieved twice
+    # def as_values(self):
+    #    ...
 
 
 class TaxonAbundanceTable(Table):

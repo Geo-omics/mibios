@@ -37,7 +37,7 @@ from mibios.views import (
 )
 from mibios.omics import get_sample_model
 from mibios.omics.models import (
-    CompoundAbundance, FuncAbundance, ReadAbundance, TaxonAbundance,
+    CompoundAbundance, Contig, FuncAbundance, ReadAbundance, TaxonAbundance,
     SampleTracking,
 )
 from mibios.ncbi_taxonomy.models import TaxNode
@@ -572,6 +572,7 @@ class ModelTableMixin(GenericModelMixin, ExportMixin):
     LAZY_PAGINATION_THRESHOLD = 10000
 
     TABLE_CLASSES = {
+        Contig: tables.ContigTable,
         Dataset: tables.DatasetTable,
         Sample: tables.SampleTable,
         TaxonAbundance: tables.TaxonAbundanceTable,

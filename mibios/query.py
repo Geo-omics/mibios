@@ -855,7 +855,7 @@ class QuerySet(models.QuerySet):
         cache:
             An optional FKCache object to be used to populate FK related
             objects.  If this is None or an empty dict then no such cache will
-            be used.
+            be used.  If True, then an FKCache will be used automatically.
         """
         if chunk_size <= 0:
             raise ValueError('chunk size must be positive')
