@@ -85,14 +85,12 @@ class Table(Table0):
         """ override this to exclude more fields """
         return []
 
-    def as_values(self, exclude_columns=None):
+    def _get_export_columns(self, exclude_columns=None):
         """
-        Adapting super().as_values() with iterate() and force_str on all
-        values
-        """
-        if not isinstance(self.data.data, QuerySet):
-            return super().as_values(exclude_columns=exclude_columns)
+        Helper to get possible columns to export
 
+        This code is mostly from the top of super().as_values()
+        """
         if exclude_columns is None:
             exclude_columns = ()
 
@@ -102,29 +100,75 @@ class Table(Table0):
             if not (column.column.exclude_from_export
                     or column.name in exclude_columns)
         ]
+        return columns
 
-        selected = []
-        skipped_columns = []
+    def get_export_fields(self, columns=None):
+        """
+        Get field names or similar items to be exported
+
+        columns:
+            Selection of table columns from which to pick the export fields.
+            This is mostly here so it can be passed from our as_values()
+            implementation which (following upstream) may receive an
+            exclude_columns parameter.  If columns is None, then the usual
+            columns for export are used to base the exported fields on.
+
+        This will be called by as_values() and passed as-is to values_list().
+        Hence, returning an empty list means to export all fields.
+        """
+        if columns is None:
+            columns = self._get_export_columns()
+
+        field_names = []
         for i in columns:
             if field := i.accessor.get_field(self._meta.model):
                 if field.many_to_one:
                     # FK
-                    selected.append(field.attname)
+                    field_names.append(field.attname)  # TODO: or just name?
                 elif field.one_to_many or field.many_to_many:
                     # skip these on export
-                    skipped_columns.append(i)
+                    pass
                 else:
-                    selected.append(field.name)
+                    field_names.append(field.name)
             else:
                 # have to skip this one
-                skipped_columns.append(i)
-        columns = [i for i in columns if i not in skipped_columns]
+                # TODO: keep annotations and extras?
+                pass
+        return field_names
+
+    def as_values(self, exclude_columns=None):
+        """
+        Adapting super().as_values() with iterate() and force_str on all
+        values
+        """
+        if not isinstance(self.data.data, QuerySet):
+            return super().as_values(exclude_columns=exclude_columns)
+
+        columns = self._get_export_columns(exclude_columns=exclude_columns)
+        select_names = self.get_export_fields(columns)
+
+        headers = []
+        for i in select_names:
+            for col in columns:
+                if field := col.accessor.get_field(self._meta.model):
+                    if i == field.name or i == field.attname:
+                        headers.append(col.header)
+                        break
+            else:
+                # no matching column
+                try:
+                    field = self.model.get_field(i)
+                except (LookupError, AttributeError):
+                    # last resort
+                    headers.append(i)
+                else:
+                    headers.append(field.verbose_name)
 
         self.data.data = (self.data.data
-                          .values_list(*selected)
+                          .values_list(*select_names)
                           .iterate(cache=True))
 
-        yield [force_str(col.header) for col in columns]
+        yield [force_str(i) for i in headers]
         yield from self.as_values_bottom(columns)
 
     def as_values_bottom(self, columns):
@@ -322,44 +366,19 @@ class ReadAbundanceTable(Table):
             value = value.accession
         return value
 
-    def as_values(self):
+    def get_export_fields(self, columns):
         """
-        Table export, re-implemented for speed with large data
+        Use default fields but replace ref with ref's accession
         """
-        fields = list(self.sequence)
-
-        try:
-            ref_field_pos = fields.index('ref')
-        except ValueError:
-            pass
-        else:
-            # we want to get the UniRef100 accessions
-            fields[ref_field_pos] = 'ref__accession'
-
-        qs = self.data.data.order_by().values_list(*fields).iterate()
-
-        try:
-            sample_field_pos = self.sequence.index('sample')
-        except ValueError:
-            # no sample field, yield data as-is:
-            yield from qs
-            return
-
-        # yield data with sample as string replacement:
-        sample_cache = {}
-        for row in qs:
-            row = list(row)
-            pk = row[sample_field_pos]
-            try:
-                row[sample_field_pos] = sample_cache[pk]
-            except KeyError:
-                # getting Samples one at a time won't impact overall
-                # performance (a few millions rows per sample)
-                sample_cache[pk] = \
-                    str(glamr_models.Sample.objects.get(pk=pk))
-                row[sample_field_pos] = sample_cache[pk]
-
-            yield tuple(row)
+        field_names = []
+        for i in super().get_export_fields():
+            if i == 'ref_id':
+                # adds a join, but almost each row will have a distinct uniref,
+                # so probably better than prefetch/caching
+                field_names.append('ref__accession')
+            else:
+                field_names.append(i)
+        return field_names
 
 
 class ReferenceTable(Table):
