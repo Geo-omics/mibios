@@ -5,7 +5,7 @@ from django.utils.html import escape, format_html, mark_safe
 from django_tables2 import Column, Table as Table0
 
 from mibios.glamr import models as glamr_models
-from mibios.ncbi_taxonomy.models import TaxName, TaxNode
+from mibios.ncbi_taxonomy.models import TaxNode
 from mibios.omics import models as omics_models
 from mibios.query import QuerySet
 
@@ -122,18 +122,10 @@ class Table(Table0):
         field_names = []
         for i in columns:
             if field := i.accessor.get_field(self._meta.model):
-                if field.many_to_one:
-                    # FK
-                    field_names.append(field.attname)  # TODO: or just name?
-                elif field.one_to_many or field.many_to_many:
+                if field.one_to_many or field.many_to_many:
                     # skip these on export
-                    pass
-                else:
-                    field_names.append(field.name)
-            else:
-                # have to skip this one
-                # TODO: keep annotations and extras?
-                pass
+                    continue
+                field_names.append(i.accessor)
         return field_names
 
     def as_values(self, exclude_columns=None):
@@ -409,8 +401,7 @@ class TaxonAbundanceTable(Table):
     sample = Column(linkify=linkify_value)
     taxon = Column(linkify=linkify_value, verbose_name='Tax ID')
     rank = Column(accessor='taxon__rank')
-    tax_name = Column(accessor='taxon', orderable=False,
-                      verbose_name='Tax Name')
+    tax_name = Column(accessor='taxon__name', verbose_name='Tax Name')
 
     class Meta:
         model = omics_models.TaxonAbundance
@@ -425,49 +416,8 @@ class TaxonAbundanceTable(Table):
     def render_taxon(self, value):
         return value.taxid
 
-    def render_tax_name(self, value):
-        # value is TaxNode obj
-        return value.name
-
-    def as_values(self):
-        """
-        Table export, re-implemented for speed with large data
-        """
-        # collect tax names and sample names for fast lookup
-        # TODO: these maps could be cached globally, saving couple seconds here
-        names = TaxName.objects.filter(name_class=TaxName.NAME_CLASS_SCI)
-        names = names.only('node_id', 'name')
-        tax_name_map = dict(names.values_list('node_id', 'name'))
-        del names
-        sample_name_map = {
-            i.pk: str(i)
-            for i in glamr_models.Sample.objects.all()
-        }
-
-        # we assume data is a QuerySet
-        qs = self.data.data.order_by()
-
-        # Output fields, order etc. need to be manually kept in sync with table
-        # declarations.
-        fields = ['sample_id', 'taxon_id', 'taxon__taxid', 'taxon__rank',
-                  'tpm']
-        for spk, tpk, taxid, rank, tpm in qs.values_list(*fields).iterator():
-            if tpk is None:
-                taxid = ''
-                rank = ''
-                name = 'unclassified'  # TODO: also show unclass on HTML output
-            else:
-                name = tax_name_map[tpk]
-
-            yield [
-                sample_name_map[spk],
-                taxid,
-                rank,
-                name,
-                tpm,
-            ]
-
-        return
+    def get_export_fields(self, columns):
+        return ['sample', 'taxon__taxid', 'taxon__rank', 'taxon__name', 'tpm']
 
 
 def linkify_reference(value):

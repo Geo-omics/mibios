@@ -346,11 +346,11 @@ class FKCacheBin(dict):
         """
         if queryset._fields is None:
             # regular models-queryset
-            get_fk = attrgetter(self.attname)
+            get_fk = attrgetter(self.field_name)
         else:
             # values list queryset
             get_fk = itemgetter(
-                queryset.get_output_field_names().index(self.attname)
+                queryset.get_output_field_names().index(self.field_name)
             )
 
         missing = set()
