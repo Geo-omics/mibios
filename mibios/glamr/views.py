@@ -13,7 +13,7 @@ from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
 from django.db import OperationalError, connection
 from django.db.models import Count, Field, Prefetch, URLField
-from django.http import Http404, HttpResponse, StreamingHttpResponse
+from django.http import Http404, HttpResponse
 from django.urls import reverse
 from django.utils.functional import cached_property, classproperty
 from django.utils.html import format_html
@@ -32,8 +32,8 @@ from mibios.glamr.forms import DatasetFilterFormHelper
 from mibios.glamr.models import Sample, Dataset, pg_class, dbstat
 from mibios.query import Q
 from mibios.views import (
-    ExportBaseMixin, StaffLoginRequiredMixin, TextRendererZipped,
-    VersionInfoMixin,
+    ExportBaseMixin, StaffLoginRequiredMixin,
+    TextRendererZipped, VersionInfoMixin,
 )
 from mibios.omics import get_sample_model
 from mibios.omics.models import (
@@ -78,6 +78,10 @@ class ExportMixin(ExportBaseMixin):
 
     Should be used together with a django_tables2 table view.
     Also requires BaseMixin to pass around the cache option.
+
+    Differs from mibios.ExportMixin in that this doesn't override the template
+    response, instead conditional switch in get() if a file export response is
+    needed.  The code is just copy-pasted into our get().
     """
     export_query_param = 'export'
     export_options = None
@@ -134,7 +138,12 @@ class ExportMixin(ExportBaseMixin):
     def get(self, request, *args, **kwargs):
         if self.download_requested():
             # data export response
-            return self.export_response()
+            name, suffix, Renderer = self.get_format()
+            filename = self.get_filename() + suffix
+
+            renderer = Renderer(filename=filename)
+            renderer.render(self.get_values())
+            return renderer.response
         else:
             # Normal html table response
             return super().get(request, *args, **kwargs)
@@ -163,53 +172,48 @@ class ExportMixin(ExportBaseMixin):
         self.requested_export_option = opt
         return True
 
-    def export_response(self):
-        name, suffix, Renderer = self.get_format(fmt_name='tab/zipped')
+    def get_format(self, fmt_name='tab'):
+        # TODO: this is here to set the format, as long as we lack format
+        # selection
+        return super().get_format(fmt_name=fmt_name)
 
-        if Renderer.streaming:
-            response = StreamingHttpResponse(
-                content_type=Renderer.content_type
-            )
-        else:
-            response = HttpResponse(content_type=Renderer.content_type)
-
-        filename = self.get_filename() + suffix
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
-
-        Renderer(response, filename=filename).render(self.get_values())
-
-        return response
-
-    def get_values(self):
+    def get_values(self, streaming=False):
         """
         Collect data to be exported
+
+        This assumes class inherits from django_table2's SingleTableView.
         """
         if self.requested_export_option is self.EXPORT_TABLE:
-            # export current table
+            # the current table
             if hasattr(self, 'get_table'):
-                return self.get_table(**self.get_table_kwargs()).as_values()
+                table = self.get_table(**self.get_table_kwargs())
             else:
-                raise Http404('export not implemented')
+                raise Http404('exporting this table is not implemented')
 
-        try:
-            # try exporting related data
-            field = self.model._meta.get_field(self.requested_export_option)
-        except FieldDoesNotExist:
-            pass
         else:
-            f = {field.remote_field.name + '__in': self.get_queryset()}
-            qs = field.related_model.objects.filter(**f)
-            # return qs.values_list()
+            # non-default export options
             try:
-                # for use with ModelTableMixin:
-                tab_cls = self.TABLE_CLASSES[field.related_model]
-            except (AttributeError, KeyError):
-                raise   # <-+-- FIXME something wrong here
-                #           V
-                tab_cls = table_factory(field.related_model, tables.Table)
-            return tab_cls(data=qs).as_values()
+                # try exporting related data
+                field = \
+                    self.model._meta.get_field(self.requested_export_option)
+            except FieldDoesNotExist:
+                raise Http404('the given export option is not implemented')
+            else:
+                if (model := field.related_model) is None:
+                    # not a relation
+                    raise Http404('invalid export option')
 
-        raise Http404('the given export option is not implemented')
+                f = {field.remote_field.name + '__in': self.get_queryset()}
+                qs = model.objects.filter(**f)
+                try:
+                    # for use with ModelTableMixin:
+                    tab_cls = self.TABLE_CLASSES[model]
+                except (AttributeError, KeyError):
+                    # other views
+                    tab_cls = table_factory(model, table=tables.Table)
+                table = tab_cls(data=qs)
+
+        yield from table.as_values()
 
     def get_export_options_context_data(self):
         """ helper for get_context_data() """

@@ -1,7 +1,10 @@
 from collections import OrderedDict
 import csv
-from itertools import tee, zip_longest
+from itertools import islice, tee, zip_longest
 from math import isnan
+import sys
+import time
+import traceback
 from zipfile import ZipFile, ZIP_DEFLATED
 
 from django.apps import apps
@@ -567,16 +570,131 @@ class TableView(DatasetMixin, UserRequiredMixin, SingleTableView):
         return [(field.name + '__' if field else '') + i for i in kw.keys()]
 
 
-class CSVRenderer():
+class Values2CSVGenerator:
+    """
+    Helper to turn Table.as_values() data into http streaming response bytes
+
+    Performance:  The outer iterator collects up to chunk_size lines and yields
+    them in one chunk.  Yielding about 1000 lines at a time gives us about 8
+    MB/s up from 2 MB/s if yielding single lines.
+
+    We attempt to detect and log client disconnection.  There is
+    instrumentation that logs total transfer stats and data rate.
+    """
+    default_chunk_size = 1000
+
+    def __init__(self, values, sep, chunk_size=default_chunk_size):
+        self.chunk_size = chunk_size
+        self.values = values
+        self.sep = sep
+        self.total_rows = None
+        self.total_bytes = None
+        self.total_time = None
+
+    def close(self):
+        """
+        wsgi might call this in certain error cases
+
+        We'll try to log what error is being handled by wsgi.
+        """
+        exc_type, exc_value, exc_traceback = sys.exc_info()
+        if exc_type is not None:
+            log.error(
+                f'Export aborted! cause: {exc_type}: {exc_value} / full)\n'
+                f'A traceback follows.  If additionally a full traceback is'
+                f'printed to stdout/err, then this indicated a bug\nin mibios/'
+                f'glamr.  Absense of the extra stack trace indicates that WSGI'
+                f' aborted the export, possibly for client disconnection.'
+            )
+            log.info(''.join(traceback.format_tb(exc_traceback)))
+
+        self.rows.close()
+        self.values.close()
+
+    def __iter__(self):
+        self.rows = self._get_rows()
+        return self._get_data()
+
+    def _get_rows(self):
+        """
+        The inner generator, formats one row (a tuple) at a time into bytes.
+        """
+        n = 0
+        try:
+            for n, row in enumerate(self.values, start=1):
+                yield f'{self.sep.join(row)}\n'.encode()
+        finally:
+            self.total_rows = n
+
+    def _get_data(self):
+        """
+        This is the outer generator, yielding chunk_size many lines at once
+        """
+        t0 = time.monotonic()
+
+        rows = self.rows
+        chunk_size = self.chunk_size
+        total_bytes = 0
+        try:
+
+            while True:
+                data = b''.join(islice(rows, chunk_size))
+                if not data:
+                    break
+                yield data
+                total_bytes += len(data)
+
+        finally:
+            self.total_bytes = total_bytes
+            self.total_time = time.monotonic() - t0
+            rows = '???' if self.total_rows is None else self.total_rows
+            rate = self.total_bytes / self.total_time / 1_000_000
+            megabytes = self.total_bytes / 1_000_000
+            log.info(f'exported {rows} rows / {megabytes:.1f}M / '
+                     f'{rate:.1f} M/s')
+
+
+class BaseRenderer:
+    """
+    Abstract helper class to generate an http response to data export / file
+    download requests
+
+    Sub-classes must implement a render() method that takes an iterator over
+    chunks of data, e.g. a table row.  For a regular http response render()
+    must write the content to the response object.  For streaming, a generator
+    function is passed to the response object.
+    """
+    description = None
+    content_type = None
+    streaming_support = None
+
+    def __init__(self, filename):
+        if self.streaming_support:
+            response_class = StreamingHttpResponse
+        else:
+            response_class = HttpResponse
+
+        self.response = response_class(content_type=self.content_type)
+        self.response['Content-Disposition'] = \
+            f'attachment; filename="{filename}"'
+
+    def render(self, values):
+        raise NotImplementedError
+
+
+class CSVRenderer(BaseRenderer):
     description = 'comma-separated text file'
     content_type = 'text/csv'
     delimiter = ','
-    streaming = False
-
-    def __init__(self, response, **kwargs):
-        self.response = response
+    streaming_support = True
 
     def render(self, values):
+        if self.response.streaming:
+            return self._render_as_stream(values)
+        else:
+            return self._render_no_stream(values)
+
+    def _render_nostream(self, values):
         """
         Render all rows to the response
         """
@@ -584,6 +702,29 @@ class CSVRenderer():
                             lineterminator='\n')
         for i in values:
             writer.writerow(i)
+
+    def _render_as_stream(self, values):
+        """
+        Make a response content generator, rendering all rows.
+
+        values: An iterable over rows, each row being a list of str values.
+
+        The content generator yields bytes.
+        """
+        self.stream_generator = Values2CSVGenerator(values, self.delimiter)
+        self.response.streaming_content = self.stream_generator
+        return
+
+        def _render():
+            CHUNK_SIZE = 1000
+            rows = (f'{self.delimiter.join(row)}\n'.encode() for row in values)
+            while True:
+                data = b''.join(islice(rows, CHUNK_SIZE))
+                if not data:
+                    break
+                yield data
+
+        self.response.streaming_content = _render()
 
 
 class CSVTabRenderer(CSVRenderer):
@@ -594,11 +735,9 @@ class CSVTabRenderer(CSVRenderer):
 class CSVRendererZipped(CSVRenderer):
     description = 'comma-separated text file, zipped'
     content_type = 'application/zip'
-    streaming = True
 
     def __init__(self, response, filename):
-        self.response = response
-        self.filename = filename[:-len('.zip')]
+        super().__init__(filename=filename[:-len('.zip')])
 
     def _render(self, values):
         """
@@ -622,13 +761,13 @@ class CSVTabRendererZipped(CSVRendererZipped):
     delimiter = '\t'
 
 
-class TextRendererZipped():
+class TextRendererZipped(BaseRenderer):
     description = 'zipped text file'
     content_type = 'application/zip'
+    streaming_support = False
 
-    def __init__(self, response, filename):
-        self.response = response
-        self.filename = filename[:-len('.zip')]
+    def __init__(self, filename):
+        super().__init__(filename=filename[:-len('.zip')])
 
     def render(self, values):
         """
@@ -697,20 +836,11 @@ class ExportMixin(ExportBaseMixin):
 
     def render_to_response(self, context):
         name, suffix, Renderer = self.get_format()
-
-        if Renderer.streaming:
-            response = StreamingHttpResponse(
-                content_type=Renderer.content_type
-            )
-        else:
-            response = HttpResponse(content_type=Renderer.content_type)
-
         filename = self.get_filename() + suffix
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
 
-        Renderer(response, filename=filename).render(self.get_values())
-
-        return response
+        renderer = Renderer(filename=filename)
+        renderer.render(self.get_values())
+        return renderer.response
 
 
 class ExportView(ExportMixin, TableView):
