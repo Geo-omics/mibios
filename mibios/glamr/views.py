@@ -444,29 +444,37 @@ class FilterMixin:
     """
     Mixin for django-filter
     """
-    def get(self, request, *args, **kwargs):
-        try:
-            fclass = filter_registry.from_get(request.GET)
-        except LookupError:
-            # GET qstr does not match filter signature
-            try:
-                fclass = filter_registry.by_model[self.model]
-            except KeyError:
-                fclass = None
-        else:
-            if self.model is not fclass._meta.model:
-                raise Http404('model is incompatible with filter code ')
+    filter_class = None
 
-        self.filter_class = fclass
-        return super().get(request, *args, **kwargs)
+    def apply_filter(self, qs):
+        """
+        Set the view's filter attribute and return filtered queryset
+        """
+        if self.filter_class is None:
+            try:
+                fclass = filter_registry.from_get(self.request.GET)
+            except LookupError:
+                # GET qstr does not match filter signature
+                try:
+                    fclass = filter_registry.by_model[self.model]
+                except KeyError:
+                    fclass = None
+            else:
+                if self.model is not fclass._meta.model:
+                    raise Http404('model is incompatible with filter code ')
+        else:
+            fclass = self.filter_class
+
+        if fclass:
+            self.filter = fclass(self.request.GET, qs)
+            return self.filter.qs
+        else:
+            self.filter = None
+            return qs
 
     def get_queryset(self):
         qs = super().get_queryset()
-        if self.filter_class:
-            self.filter = self.filter_class(self.request.GET, qs)
-            qs = self.filter.qs
-        else:
-            self.filter = None
+        qs = self.apply_filter(qs)
         return qs
 
     def get_context_data(self, **ctx):
