@@ -77,6 +77,10 @@ def get_package_data():
                 if app not in data:
                     data[app] = []
                 data[app].append(p)
+
+    # other files
+    data['mibios.glamr'] += ['extra_field_attributes.py.template']
+
     return data
 
 
