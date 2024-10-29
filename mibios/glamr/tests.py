@@ -173,12 +173,19 @@ class StaffAccessTests(TestDataMixin, TestCase):
         AUTHENTICATION_BACKENDS=['django.contrib.auth.backends.ModelBackend']
     )
 
-    def _get_page_with_login(self, view):
+    def _get_restricted_page(self, view):
         """
-        request page for each user
+        request a staff-only page as different users
 
-        non-staff should get a 302 response redicrecting them to the login page
+        The deny response status code depends a bit on the page.
         """
+        # admin views redirect to the login page, even if user is logged in
+        # already, on glamr's staff pages we'll just give out a 403
+        if view.startswith('glamr_admin:'):
+            deny_status = 302
+        else:
+            deny_status = 403
+
         qs = User.objects.all()
         # need staff and non-staff for this test
         self.assertTrue(qs.filter(is_staff=True).exists())
@@ -190,8 +197,13 @@ class StaffAccessTests(TestDataMixin, TestCase):
                 resp = self.client.get(reverse(view))
                 self.assertEqual(
                     resp.status_code,
-                    200 if user.is_staff else 302
+                    200 if user.is_staff else deny_status
                 )
+
+        with self.subTest(view=view, user='anonymous'):
+            self.client.logout()
+            resp = self.client.get(reverse(view))
+            self.assertEqual(resp.status_code, deny_status)
 
     def test_simple_login(self):
         """ check that users were created correctly and that login() works """
@@ -201,14 +213,14 @@ class StaffAccessTests(TestDataMixin, TestCase):
 
     def test_internal_pages(self):
         for view in ['dbinfo', 'sample_tracking']:
-            self._get_page_with_login(view)
+            self._get_restricted_page(view)
 
     def test_admin_pages(self):
         PREF = 'glamr_admin:'
         views = ['glamr_aboutinfo_changelist', 'glamr_credit_changelist',
                  'index']
         for view in views:
-            self._get_page_with_login(PREF + view)
+            self._get_restricted_page(PREF + view)
 
     def test_private_data_access(self):
         qs = Dataset.loader.filter(private=True)
