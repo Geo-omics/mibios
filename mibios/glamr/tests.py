@@ -9,6 +9,7 @@ How to get test  coverage:
 python3 -m coverage run --branch --source=./mibios ./manage.py test
 python3 -m coverage html -d cov_html
 """
+import logging
 import re
 import tempfile
 
@@ -44,6 +45,13 @@ class DiscoverRunner(runner.DiscoverRunner):
         self.exclude_tags.update(
             set(self.default_exclude_tags).difference(self.tags)
         )
+
+    def run_tests(self, *args, **kwargs):
+        logging.disable(logging.CRITICAL)
+        try:
+            return super().run_tests(*args, **kwargs)
+        finally:
+            logging.disable(logging.NOTSET)
 
 
 class TestUserMixin:
