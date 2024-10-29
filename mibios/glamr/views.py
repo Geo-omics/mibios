@@ -4,7 +4,7 @@ import pprint
 import re
 
 from django_tables2 import (
-    Column, LazyPaginator, SingleTableView, TemplateColumn, table_factory,
+    Column, LazyPaginator, SingleTableView, table_factory, TemplateColumn
 )
 
 from django.apps import apps
@@ -531,8 +531,7 @@ class GenericModelMixin:
         super().setup(request, *args, **kwargs)
         if (
                 (getattr(self, self.url_model_attr, None) is None)
-                ==
-                (kwargs.get(self.url_model_kw, None) is None)
+                == (kwargs.get(self.url_model_kw, None) is None)
         ):
             raise TypeError(
                 'if the url kwarg is given then the model attr must not be'
@@ -629,7 +628,7 @@ class ModelTableMixin(GenericModelMixin, ExportMixin):
         # the factory at SingleTableMixin
         return self.TABLE_CLASSES.get(
             self.model,
-            table_factory(self.model, tables.Table),
+            table_factory(self.model, table=tables.Table),
         )
 
     def get_queryset(self):
