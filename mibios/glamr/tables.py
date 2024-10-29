@@ -334,7 +334,6 @@ class ReadAbundanceTable(Table):
 
     class Meta:
         model = omics_models.ReadAbundance
-        order_by = ['-target_cov']
         exclude = ['id']
 
     def customize_queryset(self, qs):
