@@ -26,7 +26,7 @@ from .models import Dataset, Sample
 
 from . import urls0, models as glamr_models
 from .accounts import create_staff_group
-from .views import SearchMixin
+from .views import GenericModelMixin, SearchMixin
 
 
 class DiscoverRunner(runner.DiscoverRunner):
@@ -112,14 +112,21 @@ class EmptyDBViewTests(TestCase):
         self.assertEqual(resp.status_code, 200)
 
     def test_data_generic_table_page(self):
-        for _, app_models in apps.all_models.items():
+        allowed = GenericModelMixin.get_allowed_models()
+        for appname, app_models in apps.all_models.items():
             for model_name, model in app_models.items():
+                if appname == 'omics' and model_name in ['sample', 'dataset']:
+                    # those swapped out models mess up the assertEq logic below
+                    continue
                 if issubclass(model, Model):
                     with self.subTest(model_name=model_name):
                         kw = dict(model=model_name)
                         url = reverse('generic_table', kwargs=kw)
                         resp = self.client.get(url)
-                        self.assertEqual(resp.status_code, 200)
+                        self.assertEqual(
+                            resp.status_code,
+                            200 if model in allowed else 404
+                        )
 
     def test_data_generic_table_404_page(self):
         kw = dict(model='nosuchmodel')
