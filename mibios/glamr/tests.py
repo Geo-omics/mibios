@@ -165,14 +165,13 @@ class EmptyDBViewTests(TestCase):
 
 
 @override_settings(ROOT_URLCONF=urls0)
+@override_settings(
+    AUTHENTICATION_BACKENDS=['django.contrib.auth.backends.ModelBackend']
+)
 class StaffAccessTests(TestDataMixin, TestCase):
     """
     Test accessing certain pages while logged in as staff or non-staff
     """
-    settings_kw = dict(
-        AUTHENTICATION_BACKENDS=['django.contrib.auth.backends.ModelBackend']
-    )
-
     def _get_restricted_page(self, view):
         """
         request a staff-only page as different users
@@ -192,7 +191,7 @@ class StaffAccessTests(TestDataMixin, TestCase):
         self.assertTrue(qs.filter(is_staff=False).exists())
         for user in qs:
             params = dict(view=view, user=user, is_staff=user.is_staff)
-            with self.subTest(**params), self.settings(**self.settings_kw):
+            with self.subTest(**params):
                 self.assertTrue(self.login(user))
                 resp = self.client.get(reverse(view))
                 self.assertEqual(
