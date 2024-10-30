@@ -1,5 +1,4 @@
 from django.urls import reverse
-from django.utils.encoding import force_str
 from django.utils.html import escape, format_html, mark_safe
 
 from django_tables2 import Column, Table as Table0
@@ -160,7 +159,7 @@ class Table(Table0):
                           .values_list(*select_names)
                           .iterate(cache=True))
 
-        yield [force_str(i) for i in headers]
+        yield headers
         yield from self.as_values_bottom(columns)
 
     def as_values_bottom(self, columns):
@@ -169,10 +168,10 @@ class Table(Table0):
 
         This separate method allows for table-specific customization.
         """
-        # directly iterate via our iterate()
-        # row is a tuple, values assumed to be of simple builtin types
-        for row in self.data.data:
-            yield ['' if i is None else force_str(i) for i in row]
+        # directly iterate via our iterate(),
+        # row is a tuple, expect values to be of simple builtin types, None is
+        # usually used for blank values
+        yield from self.data.data
 
 
 def linkify_record(record):
