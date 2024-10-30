@@ -661,14 +661,16 @@ class Values2CSVGenerator:
         # pr.enable()
         ccount = 0
         buf = io.BytesIO()
-        write = buf.write
         sep = self.sep.encode()
+        sjoin = self.sep.join
         try:
 
             while True:
                 # data = b''.join(islice(rows, chunk_size))
                 buf.seek(0)
                 for numrows, row in enumerate(islice(self.values, chunk_size), start=1):
+                    buf.write(f'{sjoin(("" if i is None else str(i) for i in row))}\n'.encode())
+                    """
                     for valnum, value in enumerate(row):
                         if valnum:
                             write(sep)
@@ -680,6 +682,7 @@ class Values2CSVGenerator:
                         else:
                             write(str(value).encode())
                     write(b'\n')
+                    """
 
                 self.total_rows += numrows
                 total_bytes += buf.tell()
@@ -688,7 +691,7 @@ class Values2CSVGenerator:
                 ccount += 1
                 # if not data:
                 #    break
-                yield buf.getbuffer()
+                yield buf.getvalue()
 
         finally:
             pr.enable()
