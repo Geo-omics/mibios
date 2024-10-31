@@ -168,19 +168,10 @@ class Table(Table0):
 
         This separate method allows for table-specific customization.
         """
-        # directly iterate via our iterate()
-        # row is a tuple, values assumed to be of simple builtin types
+        # directly iterate via our iterate(),
+        # row is a tuple, expect values to be of simple builtin types, None is
+        # usually used for blank values
         yield from self.data.data
-        return
-        join = '\t'.join
-        for row in self.data.data:
-            # yield ['' if i is None else force_str(i) for i in row]
-            yield f'''{join((
-                "" if i is None
-                else i if isinstance(i, str)
-                else str(i)
-                for i in row
-            ))}\n'''.encode()
 
 
 def linkify_record(record):
