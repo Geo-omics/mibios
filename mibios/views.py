@@ -617,7 +617,8 @@ class Values2CSVGenerator:
         exc_type, exc_value, exc_traceback = sys.exc_info()
         if exc_type is not None:
             log.error(
-                f'Export aborted! cause: {exc_type}: {exc_value} / full)\n'
+                f'Export aborted! cause: {exc_type.__class__.__name__}: '
+                f'{exc_value} / full)\n'
                 f'A traceback follows.  If additionally a full traceback is'
                 f'printed to stdout/err, then this indicated a bug\nin mibios/'
                 f'glamr.  Absense of the extra stack trace indicates that WSGI'
@@ -632,9 +633,10 @@ class Values2CSVGenerator:
         # import cProfile
         # from pstats import SortKey
         # pr = cProfile.Profile()
+        # pr.enable()
         try:
-            # yield from self._format_rows()
-            yield from self._format_rows_csv()
+            yield from self._format_rows()
+            # yield from self._format_rows_csv()
         finally:
             # pr.enable()
             # pr.disable()
@@ -653,22 +655,20 @@ class Values2CSVGenerator:
         This variant with hand-crafted formatting is less versatile but a bit
         faster (~5%) than the csv module based alternative.
         """
-        buf = io.BytesIO()
-        write = buf.write
         sjoin = self.sep.join
         while True:
-            for numrows, row in enumerate(islice(self.rows, self.chunk_size), start=1):  # noqa:E501
-                write(f'{sjoin(("" if i is None else str(i) for i in row))}\n'.encode())  # noqa:E501
-            chunk_bytes = buf.truncate()
+            data = b''.join((
+                f'{sjoin(("" if i is None else str(i) for i in row))}\n'.encode()  # noqa:E501
+                for row in islice(self.rows, self.chunk_size)
+            ))
+            chunk_bytes = len(data)
             if not chunk_bytes:
                 # the final chunk is always zero bytes
                 break
             self.num_chunks += 1
-            self.num_rows += numrows
+            self.num_rows += self.chunk_size  # likely wrong at last chunk
             self.total_bytes += chunk_bytes
-            buf.seek(0)
-            yield buf.getvalue()
-        buf.close()
+            yield data
 
     def _format_rows_csv(self):
         """
