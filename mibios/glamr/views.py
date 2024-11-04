@@ -49,7 +49,7 @@ from . import models, tables, GREAT_LAKES
 from .forms import QBuilderForm, QLeafEditForm, SearchForm
 from .search_fields import ADVANCED_SEARCH_MODELS, search_fields
 from .search_utils import get_suggestions
-from .utils import estimate_row_totals, get_record_url
+from .utils import estimate_row_totals, exclude_private_data, get_record_url
 
 
 log = getLogger(__name__)
@@ -640,10 +640,9 @@ class ModelTableMixin(GenericModelMixin, ExportMixin):
         this method in get_queryset().
         """
         qs = super().get_queryset()
-        if self.model is Dataset or self.model is Sample:
-            qs = qs.exclude_private(self.request.user)
-            if self.model is Dataset:
-                qs = qs.annotate(sample_count=Count('sample', distinct=True))
+        qs = exclude_private_data(qs, self.request.user)
+        if self.model is Dataset:
+            qs = qs.annotate(sample_count=Count('sample', distinct=True))
         return qs
 
     def _get_improved_columns(self):
@@ -1294,8 +1293,7 @@ class RecordView(BaseMixin, DetailView):
         if queryset is None:
             queryset = self.get_queryset()
 
-        if self.model is Dataset or self.model is Sample:
-            queryset = queryset.exclude_private(self.request.user)
+        queryset = exclude_private_data(queryset, self.request.user)
 
         lookups = self.get_object_lookups()
         queryset = queryset.filter(**lookups)
@@ -1566,7 +1564,7 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
     @cached_property
     def _queryset(self):
         qs = super().get_queryset()
-        qs = qs.exclude_private(self.request.user)
+        qs = exclude_private_data(qs, self.request.user)
         qs = qs.select_related('primary_ref')
 
         # to get sample type in table
@@ -1992,10 +1990,9 @@ class ToManyListView(FilterMixin, ModelTableMixin, BaseMixin, SingleTableView):
         """ This is similar to DetailView.get_object() """
         if queryset is None:
             queryset = self.obj_model.objects.all()
-        queryset = queryset.filter(**self.get_object_lookups())
 
-        if self.obj_model is Dataset or self.obj_model is Sample:
-            queryset = queryset.exclude_private(self.request.user)
+        queryset = queryset.filter(**self.get_object_lookups())
+        queryset = exclude_private_data(queryset, self.request.user)
 
         try:
             return queryset.get()

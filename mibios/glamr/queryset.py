@@ -22,15 +22,40 @@ log = getLogger(__name__)
 
 
 class DatasetQuerySet(QuerySet):
+
+    _allowed_pks = {}
+    """ class-level cache, PKs that a user is allowed """
+
+    @classmethod
+    def _get_allowed_pks(cls, model, user):
+        if user not in cls._allowed_pks:
+            q = Q(restricted_to=None)  # no restrictions
+            if user.is_authenticated:
+                # or restriction to a user's group
+                q = q | Q(restricted_to__user=user)
+
+            qs = model.objects.filter(q).values_list('pk', flat=True)
+            cls._allowed_pks[user] = tuple(qs)
+        return cls._allowed_pks[user]
+
+    @classmethod
+    def clear_allowed_pks(cls, **kwargs):
+        """
+        Clear the allowed PKs cache
+
+        Should be called whenever the Dataset.restricted_to relation changes
+        """
+        cls._allowed_pks = {}
+
+    def get_allowed_pks(self, user):
+        # this is a wrapper just to inject the model into the class method
+        return self._get_allowed_pks(self.model, user)
+
     def exclude_private(self, user):
         """
         Exclude private datasets for which user is not member of allowed group.
         """
-        q = Q(restricted_to=None)  # no restrictions
-        if user.is_authenticated:
-            # or restriction to a user's group
-            q = q | Q(restricted_to__user=user)
-        return self.filter(q)
+        return self.filter(pk__in=self.get_allowed_pks(user))
 
     def summary(
             self,
@@ -92,16 +117,39 @@ class DatasetQuerySet(QuerySet):
 
 
 class SampleQuerySet(OmicsSampleQuerySet):
+
+    _allowed_pks = {}
+
+    @classmethod
+    def _get_allowed_pks(cls, model, user):
+        if user not in cls._allowed_pks:
+            Dataset = model._meta.get_field('dataset').related_model
+            qs = model.objects.filter(
+                dataset__in=Dataset.objects.exclude_private(user)
+            )
+            qs = qs.values_list('pk', flat=True)
+            cls._allowed_pks[user] = tuple(qs)
+        return cls._allowed_pks[user]
+
+    def get_allowed_pks(self, user):
+        # this is a wrapper just to inject the model into the class method
+        return self._get_allowed_pks(self.model, user)
+
+    @classmethod
+    def clear_allowed_pks(cls, **kwargs):
+        """
+        Clear the allowed PKs cache
+
+        Should be called whenever the Dataset.restricted_to relation changes
+        """
+        cls._allowed_pks = {}
+
     def exclude_private(self, user):
         """
         Exclude samples of private datasets unless user is member of allowed
         group.
         """
-        q = Q(dataset__restricted_to=None)  # no restrictions
-        if user.is_authenticated:
-            # or restriction to a user's group
-            q = q | Q(dataset__restricted_to__user=user)
-        return self.filter(q)
+        return self.filter(pk__in=self.get_allowed_pks(user))
 
     def basic_counts(self, *fields, exclude_blank_fields=[]):
         """
