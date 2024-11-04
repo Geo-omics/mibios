@@ -1119,7 +1119,7 @@ class AbundanceView(MapMixin, ModelTableMixin, BaseMixin, SingleTableView):
             # (object-)model lacks reverse abundance relation
             raise
 
-        qs = qs.filter(sample__dataset__private=False)
+        qs = exclude_private_data(qs, self.request.user)
         return qs
 
     def get_context_data(self, **ctx):
@@ -1794,22 +1794,6 @@ class SampleView(MapMixin, RecordView):
             fields.append(i)
         return fields
 
-    def get_details(self):
-        if self.object.private:
-            # limit fields and add a special notice for private samples
-            self.fields = ['sample_name', 'collection_timestamp',
-                           'geo_loc_name', 'noaa_site']
-            special_note = [(
-                'status',
-                None,
-                [('sample from non-public dataset', None)],
-                None
-            )]
-        else:
-            special_note = []
-
-        return special_note + super().get_details()
-
     def get_collection_timestamp_detail(self, field, item):
         name, info, _, _ = item
         value = self.object.format_collection_timestamp()
@@ -1822,19 +1806,18 @@ class SampleView(MapMixin, RecordView):
 
         krona_url = None
         taxabund_url = None
-        if not obj.private:
-            if SampleTracking.Flag.TAXABUND in tr:
-                krona_url = reverse(
-                    'krona', kwargs=dict(samp_no=obj.get_record_id_no())
-                )
-                taxabund_url = reverse(
-                    'relations',
-                    kwargs=dict(
-                        obj_model='sample',
-                        pk=obj.pk,
-                        field='taxonabundance',
-                    ),
-                )
+        if SampleTracking.Flag.TAXABUND in tr:
+            krona_url = reverse(
+                'krona', kwargs=dict(samp_no=obj.get_record_id_no())
+            )
+            taxabund_url = reverse(
+                'relations',
+                kwargs=dict(
+                    obj_model='sample',
+                    pk=obj.pk,
+                    field='taxonabundance',
+                ),
+            )
         abund_links = [
             (krona_url, 'krona chart'),
             (taxabund_url, 'abundance/taxa'),
@@ -1842,7 +1825,7 @@ class SampleView(MapMixin, RecordView):
 
         if obj.sample_type == 'metagenome':
             funcabund_url = None
-            if not obj.private and SampleTracking.Flag.UR1ABUND in tr:
+            if SampleTracking.Flag.UR1ABUND in tr:
                 funcabund_url = reverse(
                     'relations',
                     kwargs=dict(
