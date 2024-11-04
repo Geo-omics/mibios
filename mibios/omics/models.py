@@ -1055,12 +1055,15 @@ class File(Model):
 
         Would return None for files not to be published.
 
-        The hereby implemented POLICY is to publish all tracked files under
-        their original name and relative path.
+        The hereby implemented POLICY is to publish all tracked files not from
+        a private sample under their original name and relative path.
         """
         # Uncomment this to unpublish all files
         # return None
-        return self.public_root / self.relpath
+        if self.sample.dataset.private is False:
+            return self.public_root / self.relpath
+        else:
+            return None
 
     def manage_public_path(self):
         """
