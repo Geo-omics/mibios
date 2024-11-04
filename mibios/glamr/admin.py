@@ -4,6 +4,7 @@ from django.contrib import messages
 from django.http import Http404, HttpResponseRedirect
 from django.urls import reverse
 
+from .accounts import STAFF_GROUP_NAME
 from .models import AboutInfo, Credit
 
 
@@ -11,11 +12,38 @@ class AdminSite(admin.AdminSite):
     site_header = 'GLAMR site administration'
 
 
+class UserChangeForm(auth.forms.UserChangeForm):
+    def clean_groups(self):
+        """ automatically set the staff group membership based on is_staff """
+        # this should be a Group queryset
+        groups = self.cleaned_data.get('groups')
+        group_names = None
+        is_staff = self.cleaned_data.get('is_staff')
+        if STAFF_GROUP_NAME in ((i.name for i in groups)):
+            if not is_staff:
+                # remove group
+                group_names = [i.name for i in groups
+                               if i.name != STAFF_GROUP_NAME]
+        else:
+            if is_staff:
+                # add user to staff group
+                group_names = [i.name for i in groups] + [STAFF_GROUP_NAME]
+
+        if group_names is None:
+            # keep as-is
+            return groups
+        else:
+            self.cleaned_data['groups'] = \
+                auth.models.Group.objects.filter(name__in=group_names)
+            return self.cleaned_data['groups']
+
+
 class GroupAdmin(auth.admin.GroupAdmin):
     exclude = ['permissions']
 
 
 class UserAdmin(auth.admin.UserAdmin):
+    form = UserChangeForm
     exclude = ['user_permissions']
     actions = ['setup_account']
 
