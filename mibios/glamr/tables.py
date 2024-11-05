@@ -6,6 +6,7 @@ from django_tables2 import Column, Table as Table0
 from mibios.glamr import models as glamr_models
 from mibios.ncbi_taxonomy.models import TaxNode
 from mibios.omics import models as omics_models
+from mibios.omics.tables import FileTable as OmicsFileTable
 from mibios.query import QuerySet
 
 from .utils import get_record_url
@@ -282,26 +283,21 @@ class DBInfoTable(Table):
         return (qs.order_by(flag), True)
 
 
-class FileTable(Table):
-    download_url = Column(
-        verbose_name='File',
-        order_by='public',
-        empty_values=(),  # triggers render_FOO()
-    )
-
+class FileTable(OmicsFileTable):
     class Meta:
         model = omics_models.File
         fields = ['download_url', 'filetype', 'size', 'modtime']
+        exclude = ['is_public']
 
     def render_download_url(self, value, record):
-        if value and record.public:
-            return mark_safe(f'<a href="{value}">{record.public.name}</a>')
-        else:
-            if record.public:
-                name = record.public.name
+        if record.public:
+            name = record.public.name
+            if value:
+                return format_html('<a href="{}">{}</a>', value, name)
             else:
-                name = ''
-            return f'(unavailable) {name}'
+                return f'{name} (unavailable)'
+        else:
+            return '(unavailable)'
 
 
 class FunctionAbundanceTable(Table):

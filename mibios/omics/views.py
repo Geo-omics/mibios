@@ -8,8 +8,8 @@ from django_tables2 import SingleTableView
 
 from mibios.views import StaffLoginRequiredMixin
 from . import get_sample_model
-from .models import SampleTracking, TaxonAbundance
-from .tables import SampleTrackingTable
+from .models import File, SampleTracking, TaxonAbundance
+from .tables import FileTable, SampleTrackingTable
 
 
 class RequiredSettingsMixin:
@@ -58,6 +58,15 @@ def krona(request, samp_no):
         raise Http404('no abundance data for sample or error with krona')
 
     return HttpResponse(html)
+
+
+class FileListingView(StaffLoginRequiredMixin, SingleTableView):
+    template_name = 'omics/file_listing.html'
+    table_class = FileTable
+    table_pagination = False
+
+    def get_queryset(self):
+        return File.objects.all()
 
 
 class SampleTrackingView(StaffLoginRequiredMixin, SingleTableView):
