@@ -617,7 +617,8 @@ class ModelTableMixin(GenericModelMixin, ExportMixin):
         kw['exclude'] = list(self.exclude)
         if self.model not in self.TABLE_CLASSES:
             kw['extra_columns'] = self._get_improved_columns()
-        kw['view'] = self
+        if issubclass(self.get_table_class(), tables.Table):
+            kw['view'] = self
         return kw
 
     def get_table_class(self):
