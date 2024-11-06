@@ -137,16 +137,38 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
         Otherwise we expect a list of group names, though usually just a single
         name.
         """
-        if value is not None:
-            value = value.casefold()
-        if value in ['false', 'public']:
+        # reserved names, case-folded:
+        STAFF_WORDS = ['true', 'private', 'glamr-staff', 'staff']
+        PUBLIC_WORDS = ['false', 'public']
+
+        if value is None:
+            return value
+        if value.casefold() in PUBLIC_WORDS:
             # public access
             return None
-        elif not value or value in ['true', 'private', 'glamr-staff', 'staff']:
+        elif not value or value.casefold() in STAFF_WORDS:
             # private data
             return ((self.staff_group_name,),)
         else:
-            return value
+            value = self.split_m2m_value(value)
+            for name in value:
+                if name.casefold() in STAFF_WORDS + PUBLIC_WORDS:
+                    # The reserved names must be alone
+                    raise SkipRow(f'reserved value "{name}" in group listing')
+                # Since Group.objects is just the normal Django-supplied
+                # manager, new groups won't be auto-created during loading, so
+                # we create them here and now
+                try:
+                    grp = Group.objects.filter(name__iexact=name).get()
+                except Group.DoesNotExist:
+                    Group.objects.create(name=name)
+                    print(f'New user group created: {name}')
+                else:
+                    if name != grp.name:
+                        # found a similar group, name differs in case only
+                        raise SkipRow(f'similar group name exist: value '
+                                      f'"{value}" vs. group {grp}')
+            return (value,)
 
     def split_by_comma(self, value, obj):
         return [(i, ) for i in self.split_m2m_value(value, sep=',')]
