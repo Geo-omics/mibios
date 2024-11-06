@@ -8,7 +8,7 @@ from operator import attrgetter, length_hint
 from time import sleep
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
+from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.db import connection, transaction
 from django.utils.module_loading import import_string
 
@@ -471,6 +471,7 @@ class BaseLoader(MibiosBaseManager):
         no_input=False,
         first_lineno=None,
         diff_stats=False,
+        blank_invalid=True,
     ):
         """
         Do the data loading, called by load()
@@ -494,8 +495,9 @@ class BaseLoader(MibiosBaseManager):
         upd_objs = []  # will be updated
         m2m_data = {}
         missing_fks = defaultdict(set)
-        skipped_rows = []
-        skipped_rows_not_logged = 0
+        skipped_log = []
+        blanked_values = []
+        skipped_log_not_logged = 0
         fk_skip_count = 0
         field = pk = value = obj = m2m = None
 
@@ -510,19 +512,19 @@ class BaseLoader(MibiosBaseManager):
                         value = fn(value, obj)
                     except SkipRow as e:
                         if e.log:
-                            skipped_rows.append(dict(
+                            skipped_log.append(dict(
                                 lineno=lineno,
                                 field=field,
                                 value=value,
                                 message=' / '.join((str(i) for i in e.args)),
                             ))
                         else:
-                            skipped_rows_not_logged += 1
+                            skipped_log_not_logged += 1
                         break  # skips line / avoids for-else block
                     except Exception as e:
                         if skip_on_error and isinstance(e, InputFileError):
                             # skip line on expected errors
-                            skipped_rows.append(dict(
+                            skipped_log.append(dict(
                                 lineno=lineno,
                                 field=field,
                                 value=value,
@@ -545,7 +547,7 @@ class BaseLoader(MibiosBaseManager):
                     # the object, the value's type must match that of the obj
                     # pool's keys
                     if value is None:
-                        skipped_rows.append(dict(
+                        skipped_log.append(dict(
                             lineno=lineno,
                             field=field,
                             message='no record ID in row\'s first item',
@@ -634,18 +636,22 @@ class BaseLoader(MibiosBaseManager):
             else:  # the for else / row not skipped / keep obj
                 if validate:
                     try:
-                        obj.full_clean()
+                        blanked_log = self._validate(obj, blank_invalid)
                     except ValidationError as e:
                         print(f'\nERROR on line {lineno}: '
                               f'{"(new)" if obj_is_new else "(update)"} {e}'
                               f'offending row:\n{self.current_row}')
                         print(f'{vars(obj)=}')
                         if skip_on_error:
-                            print('-- skipped row --')
+                            print(f'-- skipped row,  line: {lineno} --')
                             skip_on_error -= 1
-                            continue  # skips line
-                        print(f'{vars(obj)=}')
+                            continue  # skips the line
                         raise
+                    else:
+                        if blanked_log:
+                            for i in blanked_log:
+                                i['lineno'] = lineno
+                            blanked_values.extend(blanked_log)
 
                 if obj_is_new:
                     new_objs.append(obj)
@@ -680,13 +686,18 @@ class BaseLoader(MibiosBaseManager):
         if fk_skip_count:
             print(f'WARNING: skipped {fk_skip_count} rows due to unknown but '
                   f'non-null FK IDs')
-        if skip_total := skipped_rows_not_logged + len(skipped_rows):
+        if skip_total := skipped_log_not_logged + len(skipped_log):
             print(f'Skipped {skip_total} rows (see import log for details)')
-            if skipped_rows_not_logged:
-                skipped_rows.append(dict(message=f'skipped (but no details'
-                                    f' logged): {skipped_rows_not_logged}'))
+            if skipped_log_not_logged:
+                skipped_log.append(dict(message=f'skipped (but no details'
+                                   f' logged): {skipped_log_not_logged}'))
             del skip_total
-        del skipped_rows_not_logged
+        del skipped_log_not_logged
+        if blanked_values:
+            print(f'WARNING: {len(blanked_values)} invalid values got blanked/'
+                  f'nulled (see import log for details)')
+        skipped_log.extend(blanked_values)
+        del blanked_values
 
         if not new_objs and not upd_objs:
             # Assume the empty file (or what else?) is an error.  In
@@ -694,7 +705,7 @@ class BaseLoader(MibiosBaseManager):
             # data.  Accordingly, all data changes happen further down in this
             # method.
             print('WARNING: nothing saved, empty file or all got skipped')
-            return {}, skipped_rows
+            return {}, skipped_log
 
         if missing_fks:
             del fname, bad_ids, bad_id_list
@@ -806,7 +817,7 @@ class BaseLoader(MibiosBaseManager):
 
         sleep(1)  # let progress meter finish before returning
 
-        return diff, skipped_rows
+        return diff, skipped_log
 
     def _update_m2m(self, field_name, m2m_data):
         """
@@ -925,6 +936,55 @@ class BaseLoader(MibiosBaseManager):
         del q, qs
 
         self.bulk_create_wrapper(Through.objects.bulk_create)(through_objs)
+
+    def _validate(self, obj, blank_invalid=True):
+        """
+        Validate an object.  This helper is called from _load() once per row.
+
+        blank_invalid:
+            If this is True, then we'll try to fix invalid data by setting the
+            offending value to None
+
+        Returns None if the given object is clean.  In some error cases it
+        returns a dictionary listing the fields that got blanked/nulled if the
+        resulting object was then clean.  Raises ValidationError in all other
+        cases.
+        """
+        try:
+            obj.full_clean()
+        except ValidationError as e:
+            if blank_invalid:
+                blanked_log = []
+                for key, errlist in e.error_dict.items():
+                    try:
+                        field = self.model._meta.get_field(key)
+                    except FieldDoesNotExist:
+                        continue
+                    else:
+                        if not field.null or not field.blank:
+                            continue
+                    for err in errlist:
+                        if not isinstance(err, ValidationError):
+                            continue
+                        if err.code != 'invalid':
+                            continue
+                        # a bad value, e.g. text instead of a decimal
+                        setattr(obj, field.name, None)
+                        blanked_log.append(dict(
+                            field=field.name,
+                            value=err.params['value'],
+                            message='invalid value, blanked/nulled',
+                        ))
+                if blanked_log:
+                    try:
+                        obj.full_clean()
+                    except ValidationError:
+                        pass
+                    else:
+                        return blanked_log
+
+            # raise original error
+            raise e
 
     def get_choice_value_prep_method(self, field):
         """

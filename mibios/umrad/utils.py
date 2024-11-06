@@ -1022,12 +1022,12 @@ def save_import_log(
             # skip log items are dicts usually with lineno and messages keys
             out = ''
             if lineno := i.pop('lineno', None):
-                out += f'Skipped line {lineno}:'
+                out += f'Skipped data at {lineno}:'
             else:
                 out += 'Skipped line(s):'
             msg = i.pop('message', '')
             items = ' '.join((f'{k}={v}' for k, v in i.items()))
-            ofile.write(f'{out}{items}: {msg}\n')
+            ofile.write(f'{out} {items}: {msg}\n')
 
     print(f'Import log saved to: {opath}')
 
