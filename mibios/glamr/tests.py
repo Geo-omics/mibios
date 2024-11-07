@@ -8,6 +8,9 @@ option.
 How to get test  coverage:
 python3 -m coverage run --branch --source=./mibios ./manage.py test
 python3 -m coverage html -d cov_html
+
+How to create or re-create the test fixture run the AAALoadMetaDataTests test
+first.
 """
 import logging
 import re
@@ -275,11 +278,13 @@ class AAALoadMetaDataTests(TestCase):
                 'dumpdata',
                 '--all',
                 '--indent=4',
+                '--natural-foreign',
                 f'--output='
                 f'{settings.TEST_FIXTURES_DIR / "test_metadata.json"}',
                 'glamr.sample',
                 'glamr.reference',
                 'glamr.dataset',
+                'auth.group',
             )
 
     def test_compile_extra_field_attributes(self):
