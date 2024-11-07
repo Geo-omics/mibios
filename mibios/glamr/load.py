@@ -138,21 +138,22 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
         name.
         """
         # reserved names, case-folded:
-        STAFF_WORDS = ['true', 'private', 'glamr-staff', 'staff']
-        PUBLIC_WORDS = ['false', 'public']
+        STAFF_VAL = ['true', 'private', 'glamr-staff', 'glamr_staff', 'staff']
+        PUBLIC_VAL = ['false', 'public']
+        RESERVED = STAFF_VAL + PUBLIC_VAL
 
         if value is None:
             return value
-        if value.casefold() in PUBLIC_WORDS:
+        if value.casefold() in PUBLIC_VAL:
             # public access
             return None
-        elif not value or value.casefold() in STAFF_WORDS:
+        elif not value or value.casefold() in STAFF_VAL:
             # private data
             return ((self.staff_group_name,),)
         else:
-            value = self.split_m2m_value(value)
-            for name in value:
-                if name.casefold() in STAFF_WORDS + PUBLIC_WORDS:
+            group_names = self.split_m2m_value(value)
+            for name in group_names:
+                if name.casefold() in RESERVED:
                     # The reserved names must be alone
                     raise SkipRow(f'reserved value "{name}" in group listing')
                 # Since Group.objects is just the normal Django-supplied
@@ -168,7 +169,12 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
                         # found a similar group, name differs in case only
                         raise SkipRow(f'similar group name exist: value '
                                       f'"{value}" vs. group {grp}')
-            return (value,)
+
+            # inject the staff group, gets access to all non-public datasets
+            return tuple(
+                [(self.staff_group_name, )]
+                + [(i, ) for i in group_names]
+            )
 
     def split_by_comma(self, value, obj):
         return [(i, ) for i in self.split_m2m_value(value, sep=',')]
