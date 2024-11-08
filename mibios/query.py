@@ -925,11 +925,14 @@ class QuerySet(models.QuerySet):
             chunk = qs.filter(pk__gt=last_pk)[:chunk_size]
 
             if cache:
-                # chunk is replaced
+                # chunk is replaced, type is list now
                 chunk = cache.update_values_list(chunk)
 
-            chunk_length = len(chunk)
-            last_pk = chunk[chunk_length - 1][pk_pos]
+            # For non-empty chunk get last PK before they are removed.  Must
+            # also avoid negative indexing in case chunk is queryset, so
+            # calculate last row via length.
+            if chunk_length := len(chunk):
+                last_pk = chunk[chunk_length - 1][pk_pos]
 
             if hide_pk:
                 chunk = ((i[slice(1, None)] for i in chunk))
