@@ -474,18 +474,23 @@ class SearchableQuerySet(QuerySet):
                           f'{e.__class__.__name__}: {e}')
                 return SearchResult.empty()
 
-        try:
-            new_tsquery = self.model.objects.get_fallback_tsquery(tsquery)
-        except Exception as e:
-            if settings.DEBUG:
-                raise
-            else:
-                log.error(f'error transforming to fallback tsquery'
-                          f'{e.__class__.__name__}: {e}')
-                return SearchResult.empty()
+        if tsquery:
+            try:
+                new_tsquery = self.model.objects.get_fallback_tsquery(tsquery)
+            except Exception as e:
+                if settings.DEBUG:
+                    raise
+                else:
+                    log.error(f'error transforming to fallback tsquery'
+                              f'{e.__class__.__name__}: {e}')
+                    return SearchResult.empty()
+        else:
+            # query was some nonsense, e.g. a single letter and postgres gave
+            # us an empty tsquery.
+            new_tsquery = None
 
         log.debug(f'FALLBACK SEARCH {query=} {tsquery=} {new_tsquery=}')
-        if new_tsquery == tsquery and not force:
+        if not tsquery or (new_tsquery == tsquery and not force):
             # shortcut, assumes original query failed, return empty result
             return SearchResult.empty()
         else:

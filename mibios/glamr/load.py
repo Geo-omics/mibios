@@ -625,7 +625,12 @@ class SearchableManager(Loader):
         self.bulk_create(it)
 
     def tsquery_from_str(self, query, search_type='websearch'):
-        """ Get the postgresql tsquery from the given user input """
+        """
+        Get the postgresql tsquery from the given user input
+
+        Should returns a str, possibly empty (for legitimate reasons), or None
+        if query was None.
+        """
         if connections[self.db].vendor != 'postgresql':
             raise NotSupportedError('this method requires PostgreSQL')
 
@@ -657,11 +662,19 @@ class SearchableManager(Loader):
         postgresql documentation on this is a bit sparse, when considering only
         the connectives | and &, it looks like the plain, phrase, and websearch
         search types do not involve queries that are further nested than this.
-        Its in disjunctive normal form!
+        It's in disjunctive normal form!
 
         We do not further analyse the tokens that make up the inner
         conjunctions.
+
+        Returns a non-empty list of non-empty lists of non-empty strings.
         """
+        if not isinstance(tsquery, str):
+            raise TypeError('tsquery is not a str')
+
+        if not tsquery:
+            raise ValueError('tsquery is empty')
+
         dnf = []
         for disjunct in tsquery.split(' | '):
             clause = []
@@ -674,10 +687,8 @@ class SearchableManager(Loader):
                 dnf.append(clause)
             else:
                 raise ValueError(f'empty clause?: {clause}')
-        if dnf:
-            return dnf
-        else:
-            raise ValueError('tsquery is empty')
+
+        return dnf
 
     @classmethod
     def get_fallback_tsquery(cls, tsquery_str):
