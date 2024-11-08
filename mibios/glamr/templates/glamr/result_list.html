@@ -38,10 +38,10 @@
         {% else %}
         Global search
         {% endif %}
-        for <small class="fw-bolder">{{query}}</small> returned {{total_count}}{%if total_count_at_limit%}+{%endif%} records:
+        for <q><small class="fw-bolder">{{query}}</small></q> returned {{total_count}}{%if total_count_at_limit%}+{%endif%} records:
 
     {% else %}
-        No results for <small class="fw-bolder">"{{query}}"</small>
+        No results for <small class="fw-bolder">{% if query is None%}&lt;empty query&gt;{%else%}"{{query}}"{%endif%}</small>
         {% if search_model %}among {{search_model|meta:"verbose_name_plural"}}.{% endif %}
     {% endif %}
 </h3>

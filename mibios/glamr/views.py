@@ -48,7 +48,7 @@ from mibios.omics.views import RequiredSettingsMixin
 from . import models, tables, GREAT_LAKES
 from .forms import QBuilderForm, QLeafEditForm, SearchForm
 from .search_fields import ADVANCED_SEARCH_MODELS, search_fields
-from .search_utils import get_suggestions
+from .search_utils import get_suggestions, SearchResult
 from .utils import estimate_row_totals, exclude_private_data, get_record_url
 
 
@@ -893,7 +893,7 @@ class SearchMixin(SearchFormMixin):
         self.soft_limit = self.DEFAULT_LIMIT
         self.real_query = None
         self.check_abundance = False
-        self.search_result = {}
+        self.search_result = SearchResult.empty()
         self.suggestions = []
         self.did_fallback_search = False
 
@@ -921,11 +921,11 @@ class SearchMixin(SearchFormMixin):
         Depending on the search's success, this methods sets the view's
         search_result and suggestions attributes.
 
-        Returns a dict.  Sets self.suggestions as a side-effect.
+        Returns a SearchResult object.  Sets self.suggestions as a side-effect.
         """
         self.process_search_form()
         if not self.query:
-            return {}
+            return SearchResult.empty()
 
         search_kwargs = {
             'query': self.query,
@@ -2016,6 +2016,11 @@ class SampleListView(MapMixin, ToManyListView):
 
 
 class SearchResultMixin(MapMixin):
+    """
+    Run a search and set the view's search result
+
+    Use together with SearchMixin.
+    """
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['suggestions'] = self.suggestions

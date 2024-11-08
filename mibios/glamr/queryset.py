@@ -418,6 +418,8 @@ class SearchableQuerySet(QuerySet):
         """
         Full-text search
 
+        This, together with fallback_search() is the main entry point to FTS.
+
         :param str query: The search string.
         :param bool highlight:
             Set to True to HTML-highlight the query term in hits.  If this is
@@ -429,8 +431,7 @@ class SearchableQuerySet(QuerySet):
             gauge the total number of hits.
         :param dict kwargs: Parameters passed on to search_qs().
 
-        Returns a dict mapping models to dict mapping PKs to "snippets."
-        Snippets are lists of (field, text) tuples.
+        Returns a SearchResult object.
         """
 
         qs = self.search_qs(query, highlight=highlight, **kwargs)
