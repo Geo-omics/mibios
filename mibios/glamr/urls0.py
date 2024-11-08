@@ -9,7 +9,6 @@ url declarations for the mibios.glamr app
 # still makes sense.
 from functools import partial
 
-from django.conf import settings
 from django.contrib.auth import views as auth_views
 from django.http.response import Http404
 from django.urls import include, path, re_path
@@ -81,12 +80,9 @@ urlpatterns = [
     path('minitest/', never_cache(views.MiniTestView.as_view())),
     path('basetest/', never_cache(views.BaseTestView.as_view())),
     path('omics/', include(omics_urls)),
+    path('', include(mibios_urls.model_graph_urls))
 ]
 
-if settings.INTERNAL_DEPLOYMENT:
-    urlpatterns.append(
-        path('', include(mibios_urls.model_graph_urls))
-    )
 
 # The default template names are without path, so take up the global name space
 # and mibios' templates may take precedence if mibios is listed first in
