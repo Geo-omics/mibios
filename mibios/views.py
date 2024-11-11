@@ -28,6 +28,7 @@ from django_tables2 import (SingleTableMixin, SingleTableView, Column,
 from pandas import isna
 import zipstream
 
+from mibios.ops.utils import profile_this
 from . import (__version__, QUERY_FORMAT, QUERY_AVG_BY,
                get_registry)
 from .data import DataConfig, TableConfig, NO_CURATION_PREFIX
@@ -636,17 +637,11 @@ class Values2CSVGenerator:
 
     def __iter__(self):
         t0 = time.monotonic()
-        # import cProfile
-        # from pstats import SortKey
-        # pr = cProfile.Profile()
-        # pr.enable()
         try:
-            yield from self._format_rows()
-            # yield from self._format_rows_csv()
+            with profile_this(enabled=False, name='format_rows'):
+                yield from self._format_rows()
+                # yield from self._format_rows_csv()
         finally:
-            # pr.enable()
-            # pr.disable()
-            # pr.print_stats(sort=SortKey.CUMULATIVE)
             self.total_time = time.monotonic() - t0
             rate = self.total_bytes / self.total_time / 1_000_000
             megabytes = self.total_bytes / 1_000_000
