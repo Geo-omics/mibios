@@ -3,6 +3,7 @@ from itertools import groupby
 
 from django.conf import settings
 from django.http import Http404, HttpResponse
+from django.views.decorators.cache import patch_cache_control
 
 from django_tables2 import SingleTableView
 
@@ -60,7 +61,10 @@ def krona(request, samp_no):
     except TaxonAbundance.DoesNotExist:
         raise Http404('no abundance data for sample or error with krona')
 
-    return HttpResponse(html)
+    resp = HttpResponse(html)
+    if request.user.is_authenticated:
+        patch_cache_control(resp, private=True)
+    return resp
 
 
 class FileListingView(StaffLoginRequiredMixin, SingleTableView):

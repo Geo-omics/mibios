@@ -18,7 +18,7 @@ from django.core.exceptions import PermissionDenied
 from django.http import Http404, HttpResponse, StreamingHttpResponse
 from django.urls import reverse
 from django.utils.html import format_html
-from django.views.decorators.cache import cache_page
+from django.views.decorators.cache import cache_control, cache_page
 from django.views.generic.base import ContextMixin, TemplateView, View
 from django.views.generic.edit import FormView
 
@@ -86,6 +86,12 @@ class CuratorRequiredMixin(CuratorMixin, UserRequiredMixin,
 class StaffLoginRequiredMixin(UserPassesTestMixin):
     raise_exception = True
     permission_denied_message = 'Login via staff account is required.'
+
+    def dispatch(self, request, *args, **kwargs):
+        disp = super().dispatch
+        if request.user.is_authenticated:
+            disp = cache_control(private=True)(disp)
+        return disp(request, *args, **kwargs)
 
     def test_func(self):
         return self.request.user.is_staff
