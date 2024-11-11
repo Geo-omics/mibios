@@ -1,5 +1,5 @@
+from contextlib import ContextDecorator
 import cProfile
-from functools import wraps
 import logging
 import pstats
 import tracemalloc
@@ -77,33 +77,54 @@ class Profiling:
 
         prof.disable()
         for sortby in ['cumulative', 'tottime']:
-            with open(f'profile.{sortby}.txt', 'w') as f:
+            with open(f'profile.request.{sortby}.txt', 'w') as f:
                 ps = pstats.Stats(prof, stream=f).sort_stats(sortby)
                 ps.print_stats()
 
         return response
 
 
-def profile(func):
+class profile_this(ContextDecorator):
     """
-    Profile given function or method
+    Convenience profiling helper
+
+    Use this via with block or decorate a function with it.
+
+    E.g.:
+
+        @profile_this(True):
+        def some_func(a, b, c):
+            ...
+
+        with profile_this(name='foo_code'):
+            ...
     """
-    @wraps(func)
-    def profiled_func(*args, **kwargs):
-        prof = cProfile.Profile()
-        prof.enable()
+    def __init__(self, enabled=True, name=None):
+        self.name = name
+        self.prof = cProfile.Profile() if enabled else None
 
-        retval = func(*args, **kwargs)
+    def __call__(self, func):
+        # if used as decorator with no given name, we default to use the
+        # function name to use for the output file name.
+        if self.name is None:
+            self.name = func.__name__
+        return super().__call__(func)
 
-        prof.disable()
-        for sortby in ['cumulative', 'tottime']:
-            with open(f'profile.{func.__name__}.{sortby}.txt', 'w') as f:
-                ps = pstats.Stats(prof, stream=f).sort_stats(sortby)
-                ps.print_stats()
+    def __enter__(self):
+        if self.prof is not None:
+            self.prof.enable()
 
-        return retval
-
-    return profiled_func
+    def __exit__(self, exc_type, exc, exc_tb):
+        if self.prof is not None:
+            self.prof.disable()
+            if self.name:
+                name = f'{self.name}.'
+            else:
+                name = ''
+            for sortby in ['cumulative', 'tottime']:
+                with open(f'profile.{name}{sortby}.txt', 'w') as f:
+                    ps = pstats.Stats(self.prof, stream=f).sort_stats(sortby)
+                    ps.print_stats()
 
 
 class TraceMalloc:
