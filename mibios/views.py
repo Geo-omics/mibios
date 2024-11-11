@@ -645,9 +645,8 @@ class Values2CSVGenerator:
             self.total_time = time.monotonic() - t0
             rate = self.total_bytes / self.total_time / 1_000_000
             megabytes = self.total_bytes / 1_000_000
-            log.info(f'exported {self.num_rows} rows / {megabytes:.1f}M / '
-                     f'{rate:.1f} M/s')
-            log.info(f'chunk count: {self.num_chunks}')
+            log.info(f'export rows:{self.num_rows}({self.num_chunks})'
+                     f'/{megabytes:.1f}M @ {rate:.1f}M/s')
 
     def _format_rows(self):
         """
