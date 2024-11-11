@@ -17,7 +17,7 @@ from django.http import Http404, HttpResponse
 from django.urls import reverse
 from django.utils.functional import cached_property, classproperty
 from django.utils.html import format_html
-from django.views.decorators.cache import cache_page
+from django.views.decorators.cache import cache_control, cache_page
 from django.views.generic import DetailView
 from django.views.generic.base import TemplateView, View
 from django.views.generic.list import ListView
@@ -57,10 +57,12 @@ log = getLogger(__name__)
 
 class BaseMixin(VersionInfoMixin):
     def dispatch(self, request, *args, cache=True, **kwargs):
+        disp = super().dispatch
+        if request.user.is_authenticated:
+            disp = cache_control(private=True)(disp)
         if cache:
-            return cache_page(300)(super().dispatch)(request, *args, **kwargs)
-        else:
-            return super().dispatch(request, *args, **kwargs)
+            disp = cache_page(300)(disp)
+        return disp(request, *args, **kwargs)
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
