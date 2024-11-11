@@ -429,10 +429,10 @@ class FKCache(dict):
                 list_of_caches.append(self.get(fk_field, None))
 
         def map_row_fn(row):
-            return tuple((
+            return [
                 val if (cache is None or val is None) else cache[val]
                 for cache, val in zip(list_of_caches, row)
-            ))
+            ]
 
         return map_row_fn
 
@@ -584,12 +584,18 @@ class ValuesListIterable(BaseIterable):
         self.pk_pos = pk_pos
         self.hide_pk = hide_pk
 
+    @staticmethod
+    def _rm_pk(row):
+        del row[0]  # PK is always first elem if we have to remove it
+        return row
+
     def _iter(self):
         qs = self.queryset
         cache = self.cache
         chunk_size = self.chunk_size
         pk_pos = self.pk_pos
         hide_pk = self.hide_pk
+        rm_pk = self._rm_pk
 
         last_pk = 0
         while True:
@@ -600,13 +606,15 @@ class ValuesListIterable(BaseIterable):
                 chunk = cache.update_values_list(chunk)
 
             # For non-empty chunk get last PK before they are removed.  Must
-            # also avoid negative indexing in case chunk is queryset, so
-            # calculate last row via length.
+            # also avoid negative indexing in no-cache case where chunk is
+            # queryset, so calculate last row via length.
             if chunk_length := len(chunk):
                 last_pk = chunk[chunk_length - 1][pk_pos]
 
             if hide_pk:
-                chunk = ((i[slice(1, None)] for i in chunk))
+                # if we get here, then pk_pos is always 0
+                # chunk = ((i[slice(1, None)] for i in chunk))
+                chunk = ((rm_pk(row) for row in chunk))
 
             yield from chunk
 
