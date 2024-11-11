@@ -47,8 +47,11 @@ def krona(request, samp_no):
     Display Krona visualization for taxon abundance of one sample
     """
     Sample = get_sample_model()
+    # FIXME: exclude_private is defined in/depends on mibios.glamr
+    qs = Sample.objects.exclude_private(request.user)
+    qs = qs.filter(sample_id=f'samp_{samp_no}')
     try:
-        sample = Sample.objects.get(sample_id=f'samp_{samp_no}')
+        sample = qs.get()
     except Sample.DoesNotExist:
         raise Http404('no such sample')
 
