@@ -46,7 +46,9 @@ def get_record_url(*args, **kwargs):
     Use this instead of Model.get_absolute_url() because it needs to work on
     models from other apps.
     """
-    # If object/model has its own get_record_url the use that, otherwise fall
+    DEFAULT_KEYTYPE = 'natkey'
+    ktype = DEFAULT_KEYTYPE
+    # If object/model has its own get_record_url then use that, otherwise fall
     # back to the generic 'record' url.
     if len(args) == 1 and not kwargs:
         # called with object
@@ -55,15 +57,14 @@ def get_record_url(*args, **kwargs):
             return obj.get_record_url(obj)
         model_name = obj._meta.model_name
         key = obj.pk
-        ktype = None
     elif len(args) == 1 and len(kwargs) == 1:
         # called with model name and keytype/key keyword arg
         model_name = args[0]
         (ktype, key), *_ = kwargs.items()
+        ktype = ktype or DEFAULT_KEYTYPE
     elif len(args) == 2 and not kwargs:
         # called with model name and key / default keytype
         model_name, key = args
-        ktype = None
     else:
         raise TypeError(
             f'bad number/combination of args/kwargs: {args=} {kwargs=}'
@@ -73,10 +74,9 @@ def get_record_url(*args, **kwargs):
     if hasattr(model, 'get_record_url'):
         return model.get_record_url(key, ktype=ktype)
     else:
-        kwargs = dict(model=model_name, key=key)
-        if ktype is not None:
-            kwargs['ktype'] = ktype + ':'
-        return reverse('record', kwargs=kwargs)
+        if ktype != DEFAULT_KEYTYPE:
+            key = f'{ktype}:{key}'
+        return reverse('record', args=[model_name, key])
 
 
 @cache

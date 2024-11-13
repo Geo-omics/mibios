@@ -63,7 +63,12 @@ class IDMixin:
 
     @classmethod
     def _get_url_template(cls):
-        """ helper to get record URL """
+        """
+        Helper to get record URL
+
+        This runs reverse() with a placeholder.  Nature and number of args to
+        pass to reverse depends on the url pattern.
+        """
         try:
             return cls._url_template
         except AttributeError:
@@ -71,23 +76,29 @@ class IDMixin:
             # arg number and order must correspond to url conf
             cls._url_template = reverse(
                 cls._meta.model_name,
-                args=['_KTYPE_', '_KEY_'],
+                args=['_KEY_'],
             )
             return cls._url_template
 
     @classmethod
-    def get_record_url(cls, key, ktype=''):
-        if ktype is None:
-            ktype = ''
+    def get_record_url(cls, key, ktype=None):
+        """
+        Get the URL for detail view of the record.
 
-        if ktype:
-            ktype.removesuffix(':')
-            if ktype != 'pk':
-                raise ValueError(f'illegal key type: {ktype=}')
+        key:
+            Something to identify the objects.  Can be the objects itself, or
+            its PK or natural key.
+        ktype:
+            Key type, allowed values match what's in the url pattern
+        """
+        if ktype is None:
+            ktype = 'natkey'
+        elif ktype not in ['pk', 'natkey']:
+            raise ValueError(f'illegal key type: {ktype=}')
 
         if isinstance(key, cls):
             # object given
-            if ktype == '':
+            if ktype == 'natkey':
                 try:
                     key = key.get_record_id_no()
                 except ValueError:
@@ -97,12 +108,8 @@ class IDMixin:
             if ktype == 'pk':
                 key = key.pk
 
-        if ktype:
-            ktype += ':'
-
-        return (cls._get_url_template()
-                .replace('_KTYPE_', ktype)
-                .replace('_KEY_', str(key)))
+        key = f'{"" if ktype == "natkey" else ktype + ":"}{key}'
+        return cls._get_url_template().replace('_KEY_', key)
 
     def get_absolute_url(self):
         return self.get_record_url(self)

@@ -24,7 +24,7 @@ from . import accounts, views
 from .admin import admin_site
 
 
-kpat = r'(?P<ktype>pk:)?(?P<key>[\w:-]+)'
+kpat = r'(pk:(?P<pk>[\d]+)|(?P<natkey>[\w:-]+))'
 """ accession/primary key pattern for RecordView """
 
 
