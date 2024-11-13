@@ -1290,7 +1290,27 @@ class RecordView(BaseMixin, DetailView):
         This default implementation only supports lookup by primary key via the
         'key' kwarg.  Overwrite this to support other kinds of lookup.
         """
-        return dict(pk=self.kwargs['key'])
+        # Expect either 'pk' or 'natkey' should be parsed from URL path
+        if natkey := self.kwargs.get('natkey'):
+            return self.get_natural_object_lookups(natkey)
+        elif pk := self.kwargs.get('pk'):
+            return dict(pk=pk)
+        else:
+            raise RuntimeError(f'missing items in {self.kwargs=}')
+
+    def get_natural_object_lookups(self, key):
+        """
+        Return lookup/filter based on natural key
+
+        The default implementation attempts to go by the primary key.
+        Inheriting views should overwrite this method if they want to use a
+        real natural key.
+
+        This is called by get_object_lookups() with what it thinks is the
+        natural key from the URL.  It should return a dict that can be used as
+        kwargs in QuerySet.filter().
+        """
+        return dict(pk=key)
 
     def get_object(self, lookups=None, queryset=None):
         if queryset is None:
@@ -1522,13 +1542,9 @@ class DatasetView(MapMixin, RecordView):
     ]
     exclude = ['restricted_to']
 
-    def get_object_lookups(self):
-        key = self.kwargs['key']
-        if self.kwargs.get('ktype', None) == 'pk:':
-            return dict(pk=key)
-        else:
-            # default to lookup via set number
-            return dict(dataset_id=f'set_{key}')
+    def get_natural_object_lookups(self, key):
+        """ implement lookup via set number """
+        return dict(dataset_id=f'set_{key}')
 
     def get_sample_queryset(self):
         return self.object.sample_set.all()
@@ -1703,13 +1719,9 @@ class ReferenceView(RecordView):
     def get_queryset(self):
         return super().get_queryset().prefetch_related('dataset_set')
 
-    def get_object_lookups(self):
-        key = self.kwargs['key']
-        if self.kwargs.get('ktype', None) == 'pk:':
-            return dict(pk=key)
-        else:
-            # default to lookup via paper number
-            return dict(reference_id=f'paper_{key}')
+    def get_natural_object_lookups(self, key):
+        """ implement lookup via paper number """
+        return dict(reference_id=f'paper_{key}')
 
     def get_publication_detail(self, field, item):
         name, info, values, unit = item
@@ -1773,13 +1785,9 @@ class SampleView(MapMixin, RecordView):
         qs = qs.select_related('dataset', 'dataset__primary_ref')
         return qs
 
-    def get_object_lookups(self):
-        key = self.kwargs['key']
-        if self.kwargs.get('ktype', None) == 'pk:':
-            return dict(pk=key)
-        else:
-            # default to lookup via sample number
-            return dict(sample_id=f'samp_{key}')
+    def get_natural_object_lookups(self, key):
+        """ implement lookup via sample number """
+        return dict(sample_id=f'samp_{key}')
 
     def get_ordered_fields(self):
         fields = []
