@@ -99,29 +99,3 @@ def estimate_row_totals(model):
 
     stat_model = apps.get_model('glamr', stat_model_name)
     return int(stat_model.objects.get(name=model._meta.db_table).num_rows)
-
-
-def exclude_private_data(queryset, user):
-    """ helper to remove private data from generic querysets """
-    qs = queryset
-    if hasattr(qs, 'exclude_private'):
-        # e.g. Dataset or Sample models
-        return qs.exclude_private(user)
-
-    Sample = apps.get_model('glamr', 'Sample')
-    Dataset = apps.get_model('glamr', 'Dataset')
-
-    for field in qs.model._meta.get_fields():
-        if not field.many_to_one:
-            continue
-
-        if field.related_model in (Sample, Dataset):
-            break
-    else:
-        # has no FK to Sample or Dataset
-        return qs
-
-    return qs.filter(**{
-        f'{field.name}__pk__in':
-        field.related_model.objects.get_allowed_pks(user)}
-    )

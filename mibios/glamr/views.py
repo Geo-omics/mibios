@@ -47,9 +47,10 @@ from mibios.omics.models import File, Gene
 from mibios.omics.views import RequiredSettingsMixin
 from . import models, tables, GREAT_LAKES
 from .forms import QBuilderForm, QLeafEditForm, SearchForm
+from .queryset import exclude_private_data
 from .search_fields import ADVANCED_SEARCH_MODELS, search_fields
 from .search_utils import get_suggestions, SearchResult
-from .utils import estimate_row_totals, exclude_private_data, get_record_url
+from .utils import estimate_row_totals, get_record_url
 
 
 log = getLogger(__name__)
