@@ -6,6 +6,7 @@ from django.contrib.auth.models import Group
 from django.contrib.contenttypes.fields import GenericForeignKey, \
         GenericRelation
 from django.contrib.contenttypes.models import ContentType
+from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex, GistIndex
 from django.contrib.postgres.search import SearchVectorField
 from django.core.exceptions import FieldDoesNotExist, ValidationError
@@ -364,6 +365,10 @@ class Dataset(IDMixin, AbstractDataset):
         'Searchable',
         related_query_name='dataset',
     )
+    access = ArrayField(
+        models.SmallIntegerField(**opt),
+        default=None, null=True, blank=True,
+    )
 
     accession_fields = ('dataset_id', )
 
@@ -372,6 +377,13 @@ class Dataset(IDMixin, AbstractDataset):
 
     class Meta:
         default_manager_name = 'objects'
+        indexes = [
+            GinIndex(
+                fields=['access'],
+                opclasses=['array_ops'],
+                name='dataset_access_gin',
+            ),
+        ]
 
     EXTERNAL_ACCN_FIELDS = \
         ['bioproject', 'jgi_project', 'gold_id', 'mgrast_study']
@@ -383,7 +395,7 @@ class Dataset(IDMixin, AbstractDataset):
         """
         Return list of fields with non-public usage
         """
-        fields = ['private', 'note', 'restricted_to']
+        fields = ['private', 'note', 'restricted_to', 'access']
         return super().get_internal_fields() + fields
 
     def __str__(self):
@@ -627,6 +639,10 @@ class Sample(IDMixin, AbstractSample):
         'Searchable',
         related_query_name='sample',
     )
+    access = ArrayField(
+        models.SmallIntegerField(**opt),
+        default=None, null=True, blank=True,
+    )
 
     objects = Manager.from_queryset(SampleQuerySet)()
     loader = SampleLoader.from_queryset(SampleQuerySet)()
@@ -635,6 +651,13 @@ class Sample(IDMixin, AbstractSample):
 
     class Meta:
         default_manager_name = 'objects'
+        indexes = [
+            GinIndex(
+                fields=['access'],
+                opclasses=['array_ops'],
+                name='sample_access_gin',
+            ),
+        ]
 
     def __str__(self):
         value = self.sample_name or self.biosample or ''
@@ -654,6 +677,7 @@ class Sample(IDMixin, AbstractSample):
             'collection_ts_partial',
             'sortchem',
             'notes',
+            'access',
         ]
         return fields
 
