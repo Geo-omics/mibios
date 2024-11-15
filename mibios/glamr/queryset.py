@@ -115,6 +115,25 @@ class DatasetQuerySet(QuerySet):
 
         return df
 
+    def update_access(self):
+        """
+        Synchronize content of the access column
+
+        This method will only work on postgres, not sqlite.
+
+        Generally, all changes to the access field should go through this
+        method.
+        """
+        qs = self.all().prefetch_related('restricted_to')
+        for obj in qs:
+            groups = list(obj.restricted_to.all())
+            if groups:
+                obj.access = sorted([i.pk for i in groups])
+            else:
+                # is public
+                obj.access = [0]
+        return self.model.objects.bulk_update(qs, ['access'])
+
 
 class SampleQuerySet(OmicsSampleQuerySet):
 
@@ -213,6 +232,26 @@ class SampleQuerySet(OmicsSampleQuerySet):
                 df.loc['other'] = others
 
         return df
+
+    def update_access(self):
+        """
+        Synchronize content of the access column
+
+        This method will only work on postgres, not sqlite.
+
+        Generally, all changes to the access field should go through this
+        method.
+        """
+        qs = self.all().select_related('dataset')
+        qs = qs.prefetch_related('dataset__restricted_to')
+        for obj in qs:
+            groups = list(obj.dataset.restricted_to.all())
+            if groups:
+                obj.access = sorted([i.pk for i in groups])
+            else:
+                # is public, 0 is not used as PK in Group table.
+                obj.access = [0]
+        return self.model.objects.bulk_update(qs, ['access'])
 
 
 class ts_headline(Func):
