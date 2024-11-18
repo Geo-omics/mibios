@@ -1326,8 +1326,7 @@ class FileManager(Manager):
                 if is_new:
                     print(' [not saved]')
                 else:
-                    print(' [but iwe\'re keeping it?!]')
-                breakpoint()
+                    print(' [but we\'re keeping it?!]')
                 continue
             else:
                 if is_new:
