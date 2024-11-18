@@ -306,7 +306,7 @@ class Q(models.Q):
 
 class FKCacheBin(dict):
     """
-    Mapping from PKs to model instances
+    Mapping from PKs to model instances (or str() results)
     """
     def __init__(self, field):
         """
@@ -346,7 +346,7 @@ class FKCacheBin(dict):
         """
         if queryset._fields is None:
             # regular models-queryset
-            get_fk = attrgetter(self.field_name)
+            get_fk = attrgetter(self.attname)
         else:
             # values list queryset
             get_fk = itemgetter(
