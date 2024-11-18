@@ -176,6 +176,12 @@ class DatasetQuerySet(QuerySet):
 
         return df
 
+    def str_only(self):
+        qs = self.select_related('primary_ref')
+        qs = qs.only('scheme', 'dataset_id', 'primary_ref__reference_id',
+                     'primary_ref__title', 'primary_ref__short_reference')
+        return qs
+
     def update_access(self):
         """
         Synchronize content of the access column
@@ -304,6 +310,9 @@ class SampleQuerySet(OmicsSampleQuerySet):
                 df.loc['other'] = others
 
         return df
+
+    def str_only(self):
+        return self.only('sample_name', 'sample_id')
 
     def update_access(self):
         """
