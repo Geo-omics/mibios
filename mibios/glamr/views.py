@@ -133,31 +133,34 @@ class ExportMixin(ExportBaseMixin):
         value = value.replace(' ', '-')
         return value
 
-    def dispatch(self, request, *args, cache=True, **kwargs):
-        # never cache data export
-        cache = cache and not self.download_requested()
-        return super().dispatch(request, *args, cache=cache, **kwargs)
-
-    def get(self, request, *args, **kwargs):
-        if self.download_requested():
-            # data export response
-            name, suffix, Renderer = self.get_format()
-            filename = self.get_filename() + suffix
-
-            renderer = Renderer(filename=filename)
-            renderer.render(self.get_values())
-            return renderer.response
+    def dispatch(self, request, *args, **kwargs):
+        if self.check_export_request():
+            return self.get_export(request, *args, **kwargs)
         else:
-            # Normal html table response
-            return super().get(request, *args, **kwargs)
+            return super().dispatch(request, *args, **kwargs)
 
-    def download_requested(self):
+    def get_export(self, request, *args, **kwargs):
         """
-        Tell if we need an download response from GET query string.
+        Handle responding to GET requests for export/download.
+
+        This runs instead of the usual get() when exporting.
+        """
+        name, suffix, Renderer = self.get_format()
+        filename = self.get_filename() + suffix
+        renderer = Renderer(filename=filename)
+        renderer.render(self.get_values())
+        return renderer.response
+
+    def check_export_request(self):
+        """
+        Tell if request is for export/download.
 
         Evaluate the GET query string for the export parameter.  This sets the
         self.requested_export_option attribute and returns True or False.
         """
+        if self.request.method.casefold() != 'get':
+            return False
+
         opt = self.request.GET.get(self.export_query_param)
         # With GET.get() we get None if the key does not appear in the query
         # string.  It's an empty string if the key is there but without a
@@ -180,61 +183,77 @@ class ExportMixin(ExportBaseMixin):
         # selection
         return super().get_format(fmt_name=fmt_name)
 
-    def get_values(self, streaming=False):
+    def get_export_queryset(self, export_option):
         """
-        Collect data to be exported
+        Get the queryset corresponding to given export option.
 
-        This assumes class inherits from django_table2's SingleTableView.
+        The returned queryset needs to have all filters applied so it's
+        accurate when exist() is run on it, but is not expected to have
+        table-specific columns or annotations set yet.
+        """
+        if export_option is self.EXPORT_TABLE:
+            return self.get_queryset()
+
+        # Try for related data export, other more intricate options would need
+        # to be implemented by inheriting views.
+        try:
+            # try exporting related data
+            field = \
+                self.model._meta.get_field(export_option)
+        except FieldDoesNotExist:
+            raise Http404(f'export option not implemented: {export_option}')
+        else:
+            if (relmodel := field.related_model) is None:
+                # not a relation
+                raise Http404(f'invalid export option: {export_option}')
+
+            f = {field.remote_field.name + '__in': self.get_queryset()}
+            return relmodel.objects.filter(**f)
+
+    def get_export_table(self):
+        """
+        Get django_tables2 table for export.
         """
         if self.requested_export_option is self.EXPORT_TABLE:
             # the current table
             if hasattr(self, 'get_table'):
-                table = self.get_table(**self.get_table_kwargs())
-            else:
-                raise Http404('exporting this table is not implemented')
+                # view inherits from django_table2's SingleTableView
+                return self.get_table(**self.get_table_kwargs())
 
-        else:
-            # non-default export options
-            try:
-                # try exporting related data
-                field = \
-                    self.model._meta.get_field(self.requested_export_option)
-            except FieldDoesNotExist:
-                raise Http404('the given export option is not implemented')
-            else:
-                if (model := field.related_model) is None:
-                    # not a relation
-                    raise Http404('invalid export option')
+        # For related data or fallback go by queryset's model.
+        qs = self.get_export_queryset(self.requested_export_option)
+        try:
+            # for use with ModelTableMixin:
+            tab_cls = self.TABLE_CLASSES[qs.model]
+        except (AttributeError, KeyError):
+            # other views or model not listed
+            tab_cls = table_factory(qs.model, table=tables.Table)
+        return tab_cls(data=qs)
 
-                f = {field.remote_field.name + '__in': self.get_queryset()}
-                qs = model.objects.filter(**f)
-                try:
-                    # for use with ModelTableMixin:
-                    tab_cls = self.TABLE_CLASSES[model]
-                except (AttributeError, KeyError):
-                    # other views
-                    tab_cls = table_factory(model, table=tables.Table)
-                table = tab_cls(data=qs)
+    def get_values(self):
+        """
+        The data to be exported
 
-        yield from table.as_values()
+        This is passed as generator to the renderer's render() method.  It
+        iterates over rows, each row being a tuple/list.
+        """
+        yield from self.get_export_table().as_values()
 
-    def get_export_options_context_data(self):
-        """ helper for get_context_data() """
-        if not hasattr(self, 'get_queryset'):
-            # FIXME: not sure when this is triggtered
-            # TODO: maybe disable downloads for empty querysets?
-            return []
+    def get_export_href_data(self, option):
+        """
+        Get URL and href text for a given export option
 
-        return [self._get_export_ctx(i) for i in self.export_options]
+        This helper is called from get_context_data().  Returns a tuple of
+        strings: (URL, txt).  Raises ValueError for invalid option.
 
-    def _get_export_ctx(self, option):
-        disable_link = False
-
+        Queries the DB with exists() for each option.
+        """
         if option is self.EXPORT_TABLE:
             # default export, the view's model
             option = ''
             link_txt = self.model._meta.verbose_name_plural
             link_txt += ' (this table)'
+            is_active = True
         else:
             try:
                 field = self.model._meta.get_field(option)
@@ -245,21 +264,28 @@ class ExportMixin(ExportBaseMixin):
             link_txt = field.related_name \
                 or field.related_model._meta.verbose_name_plural
 
+            is_active = self.get_export_queryset(option).exists()
+
             if not settings.INTERNAL_DEPLOYMENT:
                 # currently impractical, use too much resources
+                # FIXME
                 if link_txt == 'functional_abundance':
-                    disable_link = True
+                    is_active = False
 
-        qstr = self.request.GET.copy()
-        qstr[self.export_query_param] = option
-        url = f'?{qstr.urlencode()}'
-        if disable_link:
+        if is_active:
+            qstr = self.request.GET.copy()
+            qstr[self.export_query_param] = option
+            url = f'?{qstr.urlencode()}'
+        else:
             url = None
         return url, link_txt
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['export_options'] = self.get_export_options_context_data()
+        ctx['export_options'] = [
+            self.get_export_href_data(i)
+            for i in self.export_options
+        ]
         return ctx
 
 
