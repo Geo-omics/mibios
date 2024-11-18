@@ -1,9 +1,11 @@
 from collections import OrderedDict
 from decimal import Decimal
+from inspect import getgeneratorstate, getgeneratorlocals
 import json
 from logging import getLogger
 from operator import attrgetter, itemgetter
 from pathlib import Path
+from pprint import pprint, pformat
 
 from django.core.exceptions import FieldDoesNotExist
 from django.db import models
@@ -467,6 +469,155 @@ class FKCache(dict):
         return [mapper(i) for i in queryset]
 
 
+class BaseIterable:
+    """
+    Alternative iterable implementation for large table data export.
+
+    To be used by our Queryset.iterate().  These iterators are to be used only
+    once.
+    """
+    DEFAULT_CHUNK_SIZE = 20000
+
+    def __init__(self, queryset, chunk_size=None):
+        if chunk_size is None:
+            chunk_size = self.DEFAULT_CHUNK_SIZE
+        elif chunk_size <= 0:
+            raise ValueError('chunk size must be positive')
+        self.queryset = queryset
+        self.chunk_size = chunk_size
+        self._it = None
+
+    def debug(self):
+        """ print state of the iterator """
+        pprint(vars(self))
+        if self._it is not None:
+            print(f'state: {getgeneratorstate(self._it)}')
+            pprint(getgeneratorlocals(self._it))
+
+    def __iter__(self):
+        # Attach the iterator as attribute to allow easier introspection.
+        # Allow this to happen only once per object lifetime to reduce possible
+        # confusing.
+        if self._it is None:
+            self._it = self._iter()
+        else:
+            raise RuntimeError('iter() only allowed once here')
+        yield from self._it
+
+    def _iter(self):
+        """
+        The iterator/generator yielding the data.
+
+        inheriting classes must implement this
+        """
+        raise NotImplementedError
+
+
+class ModelIterable(BaseIterable):
+    """ Iterable over regular model-based querysets """
+    def __init__(self, queryset, chunk_size, cache):
+        super().__init__(queryset, chunk_size)
+        if cache is True:
+            # auto-caching-mode
+            # TODO: pick up fields from only()?
+            cache = FKCache(self.queryset.model, fk_fields=None)
+        self.cache = cache
+        self.queryset = self.queryset.order_by('pk')
+
+    def _iter(self):
+        qs = self.queryset
+        chunk_size = self.chunk_size
+        cache = self.cache
+        last_pk = 0
+        while True:
+            chunk = qs.filter(pk__gt=last_pk)[:chunk_size]
+
+            if cache:
+                # update in-place
+                cache.update_chunk(chunk)
+
+            yield from chunk
+
+            if len(chunk) < chunk_size:
+                # no further results
+                break
+
+            last_pk = chunk[len(chunk) - 1].pk
+
+        # so debug() can display this if we're closed
+        self._final_iter_vars = pformat(locals())
+
+
+class ValuesListIterable(BaseIterable):
+    """ Iterable over values-listing querysets """
+
+    def __init__(self, queryset, chunk_size, cache):
+        super().__init__(queryset, chunk_size)
+        qs = self.queryset
+        outnames = qs.get_output_field_names()
+        hide_pk = False
+        try:
+            pk_pos = outnames.index(qs.model._meta.pk.name)
+        except ValueError:
+            if 'pk' in outnames:
+                pk_pos = outnames.index('pk')
+            else:
+                # we have to get PK to make chunking work
+                qs = qs.values_list('pk', *outnames)
+                pk_pos = 0
+                hide_pk = True
+
+        if cache is True:
+            # auto-caching-mode
+            fk_fields = []
+            for i in qs.model._meta.get_fields():
+                if not i.many_to_one:
+                    continue
+                if i.name in outnames or i.attname in outnames:
+                    fk_fields.append(i)
+            cache = FKCache(qs.model, fk_fields=fk_fields)
+
+        qs = qs.order_by('pk')
+
+        self.queryset = qs
+        self.cache = cache
+        self.pk_pos = pk_pos
+        self.hide_pk = hide_pk
+
+    def _iter(self):
+        qs = self.queryset
+        cache = self.cache
+        chunk_size = self.chunk_size
+        pk_pos = self.pk_pos
+        hide_pk = self.hide_pk
+
+        last_pk = 0
+        while True:
+            chunk = qs.filter(pk__gt=last_pk)[:chunk_size]
+
+            if cache:
+                # chunk is replaced, type is list now
+                chunk = cache.update_values_list(chunk)
+
+            # For non-empty chunk get last PK before they are removed.  Must
+            # also avoid negative indexing in case chunk is queryset, so
+            # calculate last row via length.
+            if chunk_length := len(chunk):
+                last_pk = chunk[chunk_length - 1][pk_pos]
+
+            if hide_pk:
+                chunk = ((i[slice(1, None)] for i in chunk))
+
+            yield from chunk
+
+            if chunk_length < chunk_size:
+                # no further results
+                break
+
+        # so debug() can display this when we're closed
+        self._final_iter_vars = pformat(locals())
+
+
 class QuerySet(models.QuerySet):
     def __init__(self, *args, manager=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -848,23 +999,23 @@ class QuerySet(models.QuerySet):
                 *self.query.annotation_select,
             ]
 
-    def iterate(self, chunk_size=20000, cache=None):
+    def iterate(self, chunk_size=None, cache=None):
         """
         Alternative iterator implementation for large table data export
 
+        chunk_size:
+            How much to get per DB query.  For values much below 1000 the cost
+            of chunking becomes noticable.
         cache:
             An optional FKCache object to be used to populate FK related
             objects.  If this is None or an empty dict then no such cache will
             be used.  If True, then an FKCache will be used automatically.
         """
-        if chunk_size <= 0:
-            raise ValueError('chunk size must be positive')
-
         if self._fields is None:
             # normal model-instance queryset
-            return self._iterate_model(chunk_size, cache)
+            return ModelIterable(self, chunk_size, cache)
         else:
-            return self._iterate_values_list(chunk_size, cache)
+            return ValuesListIterable(self, chunk_size, cache)
 
     def _iterate_model(self, chunk_size, cache):
         """ iterate() implementation for normal model-based querysets """
