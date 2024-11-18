@@ -54,6 +54,8 @@ class AppConfig(_AppConfig):
 
         # register checks
         register_checks()(import_string('mibios.glamr.accounts.accounts_check'))  # noqa:E501
+        register_checks()(import_string('mibios.glamr.managers.check_dataset_access'))  # noqa:E501
+        register_checks()(import_string('mibios.glamr.managers.check_sample_access'))  # noqa:E501
 
         # some signal connections here, avoiding circular imports
         User = import_string('django.contrib.auth.models.User')
