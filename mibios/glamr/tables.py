@@ -1,7 +1,7 @@
 from django.urls import reverse
 from django.utils.html import escape, format_html, mark_safe
 
-from django_tables2 import Column, Table as Table0
+from django_tables2 import Column, ManyToManyColumn, Table as Table0
 
 from mibios.glamr import models as glamr_models
 from mibios.ncbi_taxonomy.models import TaxNode
@@ -9,6 +9,7 @@ from mibios.omics import models as omics_models
 from mibios.omics.tables import FileTable as OmicsFileTable
 from mibios.query import QuerySet
 
+from . import HORIZONTAL_ELLIPSIS
 from .utils import get_record_url
 
 
@@ -427,6 +428,30 @@ def linkify_reference(value):
         return value.doi
     else:
         return get_record_url(value)
+
+
+class DatasetAccessTable(Table0):
+    dataset_id = Column(linkify=linkify_record)
+    primary_ref = Column(linkify=linkify_value, verbose_name='Reference')
+    scheme = Column(verbose_name='Scheme')
+    sample_count = Column()
+    restricted_to = ManyToManyColumn(verbose_name='allowed groups')
+    access = Column('group id access list')
+
+    class Meta:
+        model = glamr_models.Dataset
+        fields = ['dataset_id', 'scheme', 'sample_count']
+        sequence = ['dataset_id', 'primary_ref', 'scheme', 'sample_count',
+                    'restricted_to', 'access']
+
+    def render_scheme(self, value):
+        if len(value) <= 25:
+            return value
+        else:
+            return f'{value[:25]} [{HORIZONTAL_ELLIPSIS}]'
+
+    def render_primary_ref(self, value):
+        return value.short_reference
 
 
 class DatasetTable(Table):

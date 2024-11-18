@@ -1524,6 +1524,21 @@ class RecordView(BaseMixin, DetailView):
         return details
 
 
+class DatasetAccessView(StaffLoginRequiredMixin, BaseMixin, SingleTableView):
+    """ List datasets/studies with any access restrictions """
+    template_name = 'glamr/dataset_access.html'
+    table_class = tables.DatasetAccessTable
+    table_pagination = False
+
+    def get_queryset(self):
+        qs = Dataset.objects.annotate(sample_count=Count('sample'))
+        qs = qs.select_related('primary_ref').prefetch_related('restricted_to')
+        qs = qs.only('dataset_id', 'primary_ref__short_reference', 'access',
+                     'scheme', 'primary_ref__reference_id')
+        qs = qs.order_by('pk')
+        return qs
+
+
 class DatasetView(MapMixin, RecordView):
     model = models.Dataset
     template_name = 'glamr/dataset.html'
