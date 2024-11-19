@@ -2087,7 +2087,9 @@ class AdvFilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
         # get_context_data(), but just to cover the inordinary, call it here
         # again:
         self.set_filter()
-        return self.conf.get_queryset()
+        qs = self.conf.get_queryset()
+        qs = exclude_private_data(qs, self.request.user)
+        return qs
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
