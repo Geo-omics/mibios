@@ -40,7 +40,7 @@ class AddUserForm(forms.Form):
         data = self.cleaned_data['emails']
         data = data.split()
         if not data:
-            raise RuntimeError('BORK empty')
+            raise ValidationError('input field is empty')
 
         errors = []
         for item in data:
