@@ -554,6 +554,7 @@ class GenericModelMixin:
         'omics.taxonabundance',
         'ncbi_taxonomy.taxname',
         'ncbi_taxonomy.taxnode',
+        'umrad.uniref100',
     )
     """ app label + model names of models allowed in generic views """
 
