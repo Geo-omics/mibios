@@ -20,7 +20,17 @@ def check_dataset_access(app_configs, **kwargs):
     qs = Dataset.objects.only('access').prefetch_related('restricted_to')
     good = []
     bad = []
-    for obj in qs:
+
+    try:
+        qs_list = list(qs)
+    except Exception as e:
+        return [checks.Warning(
+            f'Unable to check Dataset.access consistency: {e}',
+            hint='apply all migrations, ensure you have a DB connection',
+            id='glamr.W011',
+        )]
+
+    for obj in qs_list:
         groupids = sorted((i.pk for i in obj.restricted_to.all())) or [0]
         if groupids == obj.access:
             good.append(obj)
@@ -57,7 +67,17 @@ def check_sample_access(app_configs, **kwargs):
     qs = qs.prefetch_related('dataset__restricted_to')
     good = []
     bad = []
-    for obj in qs:
+
+    try:
+        qs_list = list(qs)
+    except Exception as e:
+        return [checks.Warning(
+            f'Unable to check Sample.access consistency: {e}',
+            hint='apply all migrations, ensure you have a DB connection',
+            id='glamr.W012',
+        )]
+
+    for obj in qs_list:
         groupids = sorted((i.pk for i in obj.dataset.restricted_to.all()))
         if not groupids:
             groupids = [0]
