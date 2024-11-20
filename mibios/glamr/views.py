@@ -12,7 +12,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
 from django.db import OperationalError, connection
-from django.db.models import Count, Field, Prefetch, URLField
+from django.db.models import Count, Exists, Field, OuterRef, Prefetch, URLField
 from django.http import Http404, HttpResponse
 from django.urls import reverse
 from django.utils.functional import cached_property, classproperty
@@ -193,22 +193,34 @@ class ExportMixin(ExportBaseMixin):
         """
         if export_option is self.EXPORT_TABLE:
             return self.get_queryset()
+        else:
+            # Try for related data export (or get 404 if this fails), other
+            # more intricate options would need to be implemented by inheriting
+            # views.
+            remote_field = self.get_export_remote_field(export_option)
+            f = {remote_field.name + '__in': self.get_queryset()}
+            return remote_field.model.objects.filter(**f)
 
-        # Try for related data export, other more intricate options would need
-        # to be implemented by inheriting views.
+    def get_export_remote_field(self, export_option):
+        """
+        Get remote field of the to-be-exported reverse to-many relation.
+
+        export_option:
+            Expected to be the field name of a to-many relation.
+
+        Raises 404 for illegal export options, since those may come in via the
+        GET query string.
+        """
         try:
-            # try exporting related data
-            field = \
-                self.model._meta.get_field(export_option)
+            field = self.model._meta.get_field(export_option)
         except FieldDoesNotExist:
             raise Http404(f'export option not implemented: {export_option}')
-        else:
-            if (relmodel := field.related_model) is None:
-                # not a relation
-                raise Http404(f'invalid export option: {export_option}')
 
-            f = {field.remote_field.name + '__in': self.get_queryset()}
-            return relmodel.objects.filter(**f)
+        if field.related_model is None:
+            # not a relation
+            raise Http404(f'invalid export option: {export_option}')
+
+        return field.remote_field
 
     def get_export_table(self):
         """
@@ -239,7 +251,7 @@ class ExportMixin(ExportBaseMixin):
         """
         yield from self.get_export_table().as_values()
 
-    def get_export_href_data(self, option):
+    def get_export_link(self, option):
         """
         Get URL and href text for a given export option
 
@@ -255,16 +267,20 @@ class ExportMixin(ExportBaseMixin):
             link_txt += ' (this table)'
             is_active = True
         else:
-            try:
-                field = self.model._meta.get_field(option)
-            except FieldDoesNotExist:
-                raise ValueError(f'unsupported export option value: {option}')
-            if not field.one_to_many or field.many_to_many:
-                raise ValueError(f'field {field} is not *-to-many')
-            link_txt = field.related_name \
-                or field.related_model._meta.verbose_name_plural
+            remote_field = self.get_export_remote_field(option)
+            link_txt = remote_field.remote_field.related_name \
+                or remote_field.model._meta.verbose_name_plural
 
-            is_active = self.get_export_queryset(option).exists()
+            # Check if any export data would exist
+            rel_data = remote_field.model.objects.filter(
+                **{remote_field.name: OuterRef('pk')}
+            )
+            is_active = (
+                self.get_queryset()
+                .annotate(has_rel_data=Exists(rel_data))
+                .filter(has_rel_data=True)
+                .exists()
+            )
 
             if not settings.INTERNAL_DEPLOYMENT:
                 # currently impractical, use too much resources
@@ -283,7 +299,7 @@ class ExportMixin(ExportBaseMixin):
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['export_options'] = [
-            self.get_export_href_data(i)
+            self.get_export_link(i)
             for i in self.export_options
         ]
         return ctx
