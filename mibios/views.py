@@ -624,10 +624,9 @@ class Values2CSVGenerator:
         exc_type, exc_value, exc_traceback = sys.exc_info()
         if exc_type is not None:
             log.error(
-                f'Export aborted! cause: {exc_type.__class__.__name__}: '
-                f'{exc_value} / full)\n'
-                f'A traceback follows.  If additionally a full traceback is'
-                f'printed to stdout/err, then this indicated a bug\nin mibios/'
+                f'Export aborted! cause: {exc_type.__name__}: {exc_value}\n'
+                f'A traceback follows.  If additionally a full traceback is '
+                f'printed to stdout/err, then this indicates a bug in mibios/'
                 f'glamr.  Absense of the extra stack trace indicates that WSGI'
                 f' aborted the export, possibly for client disconnection.'
             )
