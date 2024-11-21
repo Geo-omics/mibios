@@ -351,9 +351,14 @@ class FKCacheBin(dict):
             get_fk = attrgetter(self.attname)
         else:
             # values list queryset
-            get_fk = itemgetter(
-                queryset.get_output_field_names().index(self.field_name)
-            )
+            try:
+                pos = queryset.get_output_field_names().index(self.field_name)
+            except ValueError:
+                # field_name is not in list, try attname
+                pos = queryset.get_output_field_names().index(self.attname)
+
+            get_fk = itemgetter(pos)
+            del pos
 
         missing = set()
         for i in queryset:
@@ -508,7 +513,7 @@ class BaseIterable:
         """
         The iterator/generator yielding the data.
 
-        inheriting classes must implement this
+        Must be provided by implementing class.
         """
         raise NotImplementedError
 
