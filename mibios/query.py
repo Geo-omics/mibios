@@ -642,6 +642,18 @@ class QuerySet(models.QuerySet):
         self._rev_rel_count_fields = []
         self._manager = manager
 
+    def peek(self):
+        """ The original __repr__() method of Django querysets """
+        return super().__repr__()
+
+    def __repr__(self):
+        """ Replacement that doesn't hit the DB """
+        if self._result_cache is None:
+            info = '(not evaluated)'
+        else:
+            info = f'length={len(self)}'
+        return f'{type(self).__name__}/{self.model.__name__}:{info}'
+
     @classmethod
     def pd_type(cls, field):
         """
