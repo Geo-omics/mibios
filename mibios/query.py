@@ -474,7 +474,7 @@ class BaseIterable:
     Alternative iterable implementation for large table data export.
 
     To be used by our Queryset.iterate().  These iterators are to be used only
-    once.
+    once.  Results are always ordered by primary key.
     """
     DEFAULT_CHUNK_SIZE = 20000
 
@@ -497,7 +497,7 @@ class BaseIterable:
     def __iter__(self):
         # Attach the iterator as attribute to allow easier introspection.
         # Allow this to happen only once per object lifetime to reduce possible
-        # confusing.
+        # confusion.
         if self._it is None:
             self._it = self._iter()
         else:
@@ -586,6 +586,7 @@ class ValuesListIterable(BaseIterable):
 
     @staticmethod
     def _rm_pk(row):
+        """ helper to remove PK from a list row """
         del row[0]  # PK is always first elem if we have to remove it
         return row
 
@@ -601,20 +602,21 @@ class ValuesListIterable(BaseIterable):
         while True:
             chunk = qs.filter(pk__gt=last_pk)[:chunk_size]
 
-            if cache:
-                # chunk is replaced, type is list now
-                chunk = cache.update_values_list(chunk)
-
             # For non-empty chunk get last PK before they are removed.  Must
             # also avoid negative indexing in no-cache case where chunk is
             # queryset, so calculate last row via length.
             if chunk_length := len(chunk):
                 last_pk = chunk[chunk_length - 1][pk_pos]
 
-            if hide_pk:
-                # if we get here, then pk_pos is always 0
-                # chunk = ((i[slice(1, None)] for i in chunk))
-                chunk = ((rm_pk(row) for row in chunk))
+            if cache:
+                # chunk is replaced, type is list now (was tuple)
+                chunk = cache.update_values_list(chunk)
+                if hide_pk:
+                    # rm PK from list
+                    chunk = ((rm_pk(row) for row in chunk))
+            elif hide_pk:
+                # rm PK from tuple (get new tuple via slicing)
+                chunk = ((row[slice(1, None)] for row in chunk))
 
             yield from chunk
 
