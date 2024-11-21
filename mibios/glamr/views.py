@@ -1194,6 +1194,8 @@ class AbundanceGeneView(ModelTableMixin, BaseMixin, SingleTableView):
     Views genes for a sample/something combo
 
     Can export genes in fasta format
+
+    DEPRECATED
     """
     template_name = 'glamr/abundance_genes.html'
     model = Gene
