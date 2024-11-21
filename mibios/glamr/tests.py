@@ -9,8 +9,11 @@ How to get test  coverage:
 python3 -m coverage run --branch --source=./mibios ./manage.py test
 python3 -m coverage html -d cov_html
 
-How to create or re-create the test fixture run the AAALoadMetaDataTests test
+To create or re-create the test fixture run the AAALoadMetaDataTests test
 first.
+
+Whole site testing suggestion:
+linkchecker [--user=<user>] -r <2|3> -F text --no-robots <url>
 """
 import logging
 import re
