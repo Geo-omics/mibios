@@ -457,3 +457,32 @@ class DeepLinkTests(TestDataMixin, TestCase):
 @tag('longrun')
 class VeryDeepLinkTests(DeepLinkTests):
     MAX_DEPTH = 3
+
+
+class QuerySetIterateTests(TestDataMixin, TestCase):
+    def test_model_iterate(self):
+        qs = Sample.objects.all()
+        kw_picks = [
+            dict(chunk_size=1000),
+            dict(cache=True),
+            dict(cache=False),
+        ]
+        for kwargs in kw_picks:
+            with self.subTest(iterate_kwargs=kwargs):
+                list(qs.iterate(**kwargs))
+
+    def test_values_list_iterate(self):
+        qss = {
+            'all_cols': Sample.objects.values_list(),
+            'with_pk': Sample.objects.values_list('pk', 'sample_id'),
+            'no_pk': Sample.objects.values_list('sample_id', 'dataset'),
+        }
+        kw_picks = [
+            dict(chunk_size=1000),
+            dict(cache=True),
+            dict(cache=False),
+        ]
+        for qs in qss.keys():
+            for kwargs in kw_picks:
+                with self.subTest(iterate_kwargs=kwargs, queryset=qs):
+                    list(qss[qs].iterate(**kwargs))
