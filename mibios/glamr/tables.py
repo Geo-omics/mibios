@@ -311,6 +311,9 @@ class FileTable(OmicsFileTable):
 
 
 class FunctionAbundanceTable(Table):
+    """
+    DEPRECATED ?
+    """
     related_genes = Column(
         linkify=lambda record:
             reverse(
