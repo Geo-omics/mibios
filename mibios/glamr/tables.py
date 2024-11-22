@@ -339,7 +339,13 @@ class ReadAbundanceTable(Table):
         exclude = ['id']
 
     def customize_queryset(self, qs):
-        if not self.is_for_export():
+        if self.is_for_export():
+            if isinstance(qs, ChainedQuerySet):
+                if qs.fk_field is self._meta.model._meta.get_field('sample'):
+                    # use sample+ref uniq constraint index, so existing order
+                    # by ref_id
+                    qs.iterate_sortkey = 'ref_id'
+        else:
             # For normal HTML table get the function names, don't need or want
             # those for export
             qs = qs.prefetch_related('ref__function_names')

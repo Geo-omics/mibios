@@ -194,6 +194,12 @@ class ExportMixin(ExportBaseMixin):
             # more intricate options would need to be implemented by inheriting
             # views.
             remote_field = self.get_export_remote_field(export_option)
+            if self.model is Sample:
+                return remote_field.model.objects.all().split_by_fk(
+                    remote_field,
+                    self.get_queryset(),
+                )
+
             f = {remote_field.name + '__in': self.get_queryset()}
             return remote_field.model.objects.filter(**f)
 
