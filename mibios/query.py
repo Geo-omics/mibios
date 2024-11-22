@@ -1146,8 +1146,14 @@ class ChainedQuerySet:
     def values_list(self, *args, **kwargs):
         return self._apply_queryset_method('values_list', *args, **kwargs)
 
+    def only(self, *fields):
+        return self._apply_queryset_method('only', *fields)
+
     def prefetch_related(self, *args, **kwargs):
         return self._apply_queryset_method('prefetch_related', *args, **kwargs)
+
+    def select_related(self, *fields):
+        return self._apply_queryset_method('select_related', *fields)
 
     def count(self):
         """
