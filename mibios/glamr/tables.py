@@ -371,7 +371,7 @@ class ReadAbundanceTable(Table):
         """
         field_names = []
         for i in super().get_export_fields():
-            if i == 'ref_id':
+            if i == 'ref' or i == 'ref_id':
                 # adds a join, but almost each row will have a distinct uniref,
                 # so probably better than prefetch/caching
                 field_names.append('ref__accession')
