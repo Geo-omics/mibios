@@ -186,10 +186,6 @@ class ExportMixin(ExportBaseMixin):
     def get_export_queryset(self, export_option):
         """
         Get the queryset corresponding to given export option.
-
-        The returned queryset needs to have all filters applied so it's
-        accurate when exist() is run on it, but is not expected to have
-        table-specific columns or annotations set yet.
         """
         if export_option is self.EXPORT_TABLE:
             return self.get_queryset()
@@ -240,7 +236,7 @@ class ExportMixin(ExportBaseMixin):
         except (AttributeError, KeyError):
             # other views or model not listed
             tab_cls = table_factory(qs.model, table=tables.Table)
-        return tab_cls(data=qs)
+        return tab_cls(data=qs, view=self)
 
     def get_values(self):
         """

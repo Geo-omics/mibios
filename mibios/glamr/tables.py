@@ -82,10 +82,10 @@ class Table(Table0):
         Use this method to branch into optimized code for paginated HTML vs.
         whole dataset export.
         """
-        try:
-            return self.view.export_check() is not None
-        except Exception:
-            # not a view with ExportMixin
+        if hasattr(self.view, 'check_export_request'):
+            # View is ExportMixin
+            return self.view.check_export_request()
+        else:
             return False
 
     def get_extra_excludes(self):
