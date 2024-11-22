@@ -2,12 +2,13 @@ from django.urls import reverse
 from django.utils.html import escape, format_html, mark_safe
 
 from django_tables2 import Column, ManyToManyColumn, Table as Table0
+from django_tables2.data import TableData
 
 from mibios.glamr import models as glamr_models
 from mibios.ncbi_taxonomy.models import TaxNode
 from mibios.omics import models as omics_models
 from mibios.omics.tables import FileTable as OmicsFileTable
-from mibios.query import QuerySet
+from mibios.query import ChainedQuerySet, QuerySet
 
 from . import HORIZONTAL_ELLIPSIS
 from .utils import get_record_url
@@ -48,8 +49,13 @@ class Table(Table0):
 
         if data is None:
             data = self._meta.model.objects.all()
+        elif isinstance(data, ChainedQuerySet):
+            data = ChainedTableData(data)
 
-        data = self.customize_queryset(data)
+        if isinstance(data, TableData):
+            data.data = self.customize_queryset(data.data)
+        else:
+            data = self.customize_queryset(data)
 
         super().__init__(data=data, exclude=exclude, **kwargs)
 
@@ -134,7 +140,7 @@ class Table(Table0):
         Adapting super().as_values() with iterate() and force_str on all
         values
         """
-        if not isinstance(self.data.data, QuerySet):
+        if not isinstance(self.data.data, (QuerySet, ChainedQuerySet)):
             return super().as_values(exclude_columns=exclude_columns)
 
         columns = self._get_export_columns(exclude_columns=exclude_columns)
@@ -644,3 +650,28 @@ class SampleTable(Table):
 
     def render_collection_timestamp(self, record):
         return record.format_collection_timestamp()
+
+
+class ChainedTableData(TableData):
+    """
+    django_table2's TableData that works with ChainedQuerySet data
+    """
+    @property
+    def ordering(self):
+        return ('pk',)
+
+    @staticmethod
+    def validate(data):
+        return isinstance(data, ChainedQuerySet)
+
+    def order_by(self, aliases):
+        """
+        This is called by Table.__init__(), we don't do anything here
+        """
+        pass
+
+    def __len__(self):
+        """
+        Our data should only be iterated over, shouldn't need to know length.
+        """
+        raise NotImplementedError
