@@ -189,19 +189,23 @@ class ExportMixin(ExportBaseMixin):
         """
         if export_option is self.EXPORT_TABLE:
             return self.get_queryset()
-        else:
-            # Try for related data export (or get 404 if this fails), other
-            # more intricate options would need to be implemented by inheriting
-            # views.
-            remote_field = self.get_export_remote_field(export_option)
-            if self.model is Sample:
+
+        # Try for related data export (or get 404 if this fails), other
+        # more intricate options would need to be implemented by inheriting
+        # views.
+        remote_field = self.get_export_remote_field(export_option)
+
+        match self.model._meta.model_name, export_option:
+            case 'sample', 'functional_abundance':
                 return remote_field.model.objects.all().split_by_fk(
                     remote_field,
                     self.get_queryset(),
+                    iterate_kw=dict(chunk_size=200000),
                 )
 
-            f = {remote_field.name + '__in': self.get_queryset()}
-            return remote_field.model.objects.filter(**f)
+            case _:
+                f = {remote_field.name + '__in': self.get_queryset()}
+                return remote_field.model.objects.filter(**f)
 
     def get_export_remote_field(self, export_option):
         """

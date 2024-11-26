@@ -47,6 +47,9 @@ class Table(Table0):
             exclude += ((i for i in self._meta.model.get_internal_fields()
                          if i not in exclude))
 
+        self.export_sortkey = None
+        """ c.f. order_by, set via customize_queryset() """
+
         if data is None:
             data = self._meta.model.objects.all()
         elif isinstance(data, ChainedQuerySet):
@@ -165,7 +168,7 @@ class Table(Table0):
 
         self.data.data = (self.data.data
                           .values_list(*select_names)
-                          .iterate(cache=True))
+                          .iterate(cache=True, sortkey=self.export_sortkey))
 
         yield headers
         yield from self.as_values_bottom(columns)
@@ -344,7 +347,11 @@ class ReadAbundanceTable(Table):
                 if qs.fk_field is self._meta.model._meta.get_field('sample'):
                     # use sample+ref uniq constraint index, so existing order
                     # by ref_id
-                    qs.iterate_sortkey = 'ref_id'
+                    self.export_sortkey = 'ref_id'
+            elif hasattr(self.view, 'obj_model'):
+                if self.view.obj_model._meta.model_name == 'sample':
+                    # assume ToManyListview with sample as object
+                    self.export_sortkey = 'ref_id'
         else:
             # For normal HTML table get the function names, don't need or want
             # those for export
@@ -416,8 +423,18 @@ class TaxonAbundanceTable(Table):
         order_by = ['-tpm']
 
     def customize_queryset(self, qs):
-        qs = qs.select_related('taxon')
-        qs = qs.only('sample_id', 'taxon__taxid', 'taxon__rank', 'tpm')
+        qs = qs.select_related('taxon', 'sample')
+        qs = qs.only('sample_id', 'sample__sample_id', 'sample__sample_name',
+                     'taxon__taxid', 'taxon__rank', 'taxon__name', 'tpm')
+
+        if self.is_for_export():
+            if isinstance(qs, ChainedQuerySet):
+                if qs.fk_field is self._meta.model._meta.get_field('sample'):
+                    # use sample+tax uniq constraint index, so existing order
+                    # by taxon_id
+                    # NOTE: splitting queries by sample this seems slower than
+                    # the alternative (regular qs with iterate())
+                    self.export_sortkey = 'taxon_id'
         return qs
 
     def render_taxon(self, value):

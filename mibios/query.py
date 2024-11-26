@@ -1056,8 +1056,8 @@ class QuerySet(models.QuerySet):
         else:
             return ValuesListIterable(self, cache, chunk_size, sortkey)
 
-    def split_by_fk(self, fk_field, subquery):
-        return ChainedQuerySet(self, fk_field, subquery)
+    def split_by_fk(self, fk_field, subquery, iterate_kw=None):
+        return ChainedQuerySet(self, fk_field, subquery, iterate_kw=iterate_kw)
 
 
 class ChainedQuerySet:
@@ -1073,7 +1073,7 @@ class ChainedQuerySet:
     queries in order to take advantange of indexes and avoiding sequence scan
     on very large tables..
     """
-    def __init__(self, queryset, fk_field, subqueryset):
+    def __init__(self, queryset, fk_field, subqueryset, iterate_kw=None):
         model = queryset.model
         if isinstance(fk_field, str):
             fk_field = model._meta.get_field(fk_field)
@@ -1091,10 +1091,13 @@ class ChainedQuerySet:
         if fk_field.related_model is not subqueryset.model:
             raise ValueError('related model does not match subquery\'s model')
 
+        if iterate_kw is None:
+            iterate_kw = {}
+
         self.model = model
         self.base_qs = queryset
         self.fk_field = fk_field
-        self.iterate_sortkey = None
+        self.iterate_kw = iterate_kw
         self.subqueryset = subqueryset
 
     def _clone(self):
@@ -1105,8 +1108,8 @@ class ChainedQuerySet:
             self.base_qs._chain(),
             self.fk_field,
             self.subqueryset._chain(),
+            iterate_kw=self.iterate_kw,
         )
-        obj.iterate_sortkey = self.iterate_sortkey
         return obj
 
     def _apply_queryset_method(self, meth, *args, **kwargs):
@@ -1139,8 +1142,9 @@ class ChainedQuerySet:
 
         kwargs are passed to each Queryset.iterate().
         """
-        kwargs.setdefault('sortkey', self.iterate_sortkey)
-        it = ((qs.iterate(**kwargs) for qs in self.get_split_querysets()))
+        it_kw = dict(self.iterate_kw)
+        it_kw.update(kwargs)
+        it = ((qs.iterate(**it_kw) for qs in self.get_split_querysets()))
         return chain.from_iterable(it)
 
     def values_list(self, *args, **kwargs):
