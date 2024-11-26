@@ -907,12 +907,12 @@ class SearchFormMixin:
         ]
 
         search_model = self.search_model or self.model
-        if search_model in [self.ANY_MODEL, None]:
-            ctx['search_model'] = None
-            ctx['search_model_name'] = self.ANY_MODEL_URL_PART
-        else:
+        if search_model in self.model_class.values():
             ctx['search_model'] = search_model
             ctx['search_model_name'] = search_model._meta.model_name
+        else:
+            ctx['search_model'] = None
+            ctx['search_model_name'] = self.ANY_MODEL_URL_PART
         return ctx
 
 
