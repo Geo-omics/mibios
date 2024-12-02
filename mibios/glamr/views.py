@@ -1768,6 +1768,10 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
         return ctx
 
 
+class PipelinesView(TemplateView):
+    template_name = 'glamr/pipelines.html'
+
+
 class ReferenceView(RecordView):
     """
     Display fields in roughly in bibliographic order.

@@ -43,6 +43,7 @@ urlpatterns = [
     path('about/', views.AboutView.as_view(), name='about'),
     path('about/history/', views.AboutHistoryView.as_view(), name='about-history'),  # noqa: E501
     path('contact/', views.ContactView.as_view(), name='contact'),
+    path('data-analyzes/', views.PipelinesView.as_view(), name='pipelines'),
     path('dataset/<int:set_no>/samples/', views.SampleListView.as_view(), name='dataset_sample_list'),  # noqa: E501
     path('dataset/access/', views.DatasetAccessView.as_view(), name='dataset_access'),  # noqa: E501
     re_path(rf'dataset/{kpat}/$', views.DatasetView.as_view(), name='dataset'),  # noqa: E501
