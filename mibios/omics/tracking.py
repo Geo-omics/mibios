@@ -1,10 +1,10 @@
 from enum import Enum
+from functools import cached_property
 from importlib import import_module
 import inspect
 import sys
 
 from django.db.transaction import atomic
-from django.utils.functional import cached_property
 
 from .models import SampleTracking
 

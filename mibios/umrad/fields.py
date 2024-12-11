@@ -1,8 +1,8 @@
+from functools import cached_property
 from pathlib import Path
 
 from django.core.exceptions import ValidationError
 from django.db.models import Field, CharField
-from django.utils.functional import cached_property
 
 
 def path_exists_validator(value):

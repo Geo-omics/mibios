@@ -1,6 +1,8 @@
 """
 GLAMR-specific modeling
 """
+from functools import cached_property
+
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.contrib.contenttypes.fields import GenericForeignKey, \
@@ -15,7 +17,6 @@ from django.db import models
 from django.db.models import Index
 from django.urls import reverse
 from django.utils.dateparse import parse_datetime, parse_date, parse_time
-from django.utils.functional import cached_property
 
 from mibios import __version__ as mibios_version
 from mibios.omics.models import AbstractDataset, AbstractSample

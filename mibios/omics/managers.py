@@ -4,7 +4,7 @@ Module for data load managers
 from collections import defaultdict
 from contextlib import ExitStack
 from datetime import date
-from functools import partial
+from functools import cached_property, partial
 from itertools import groupby, islice
 from logging import getLogger
 import os
@@ -18,7 +18,6 @@ import traceback
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db.transaction import atomic, set_rollback
-from django.utils.functional import cached_property
 from django.utils.module_loading import import_string
 
 from mibios import __version__ as version

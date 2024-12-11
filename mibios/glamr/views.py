@@ -1,3 +1,4 @@
+from functools import cached_property
 from itertools import groupby
 from logging import getLogger
 import pprint
@@ -15,7 +16,7 @@ from django.db import OperationalError, connection
 from django.db.models import Count, Exists, Field, OuterRef, Prefetch, URLField
 from django.http import Http404, HttpResponse
 from django.urls import reverse
-from django.utils.functional import cached_property, classproperty
+from django.utils.functional import classproperty
 from django.utils.html import format_html
 from django.views.decorators.cache import cache_control, cache_page
 from django.views.generic import DetailView

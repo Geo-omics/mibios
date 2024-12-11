@@ -1,5 +1,6 @@
+from functools import cached_property
+
 from django.db import models
-from django.utils.functional import cached_property
 
 from mibios.umrad.model_utils import ch_opt, fk_opt, fk_req, opt
 from mibios.umrad.model_utils import Model as UmradModel

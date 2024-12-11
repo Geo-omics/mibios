@@ -1,8 +1,8 @@
+from functools import cached_property
 import re
 
 from django.db.models import DecimalField
 from django.urls import reverse
-from django.utils.functional import cached_property
 from django.utils.html import format_html
 
 import django_tables2 as tables
