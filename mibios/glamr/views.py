@@ -1671,7 +1671,7 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
         return self.filter.qs.order_by("-sample_count")
 
     def get_queryset(self):
-        # use caching as this gets called multiple times (1ms each) (maps etc.)
+        # use caching as this gets called multiple times (4ms each) (maps etc.)
         return self._queryset
 
     def get_context_data(self, **ctx):
