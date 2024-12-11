@@ -1468,7 +1468,9 @@ class RecordView(BaseMixin, DetailView):
             except AttributeError:
                 # this is the m2m field
                 rel_attr = i.name
-            qs = getattr(self.object, rel_attr).all()[:self.max_to_many]
+            qs = getattr(self.object, rel_attr).all()
+            qs = exclude_private_data(qs)
+            qs = qs[:self.max_to_many]
             data.append((name, model_name, qs, i))
 
         return data
@@ -1485,7 +1487,9 @@ class RecordView(BaseMixin, DetailView):
             except AttributeError:
                 # this is the m2m field
                 rel_attr = f.name
-            value = getattr(self.object, rel_attr).count()
+            qs = getattr(self.object, rel_attr).all()
+            value = exclude_private_data(qs).count()
+            del qs
             is_blank = (value == 0)  # Let's not show zeros
         elif f.one_to_one:
             # 1-1 fields don't have a verbose name
