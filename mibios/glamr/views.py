@@ -796,6 +796,7 @@ class MapMixin():
             'collection_timestamp', 'sample_id', 'biosample',
         ]
         qs = self.get_sample_queryset()
+        qs = exclude_private_data(qs)
         qs = qs.exclude(longitude=None)
         qs = qs.exclude(latitude=None)
         qs = qs.prefetch_related('dataset', 'dataset__primary_ref')
