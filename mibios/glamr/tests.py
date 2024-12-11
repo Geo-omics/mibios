@@ -415,7 +415,12 @@ class SampleTest(TestDataMixin, TestCase):
 
 
 class DeepLinkTests(TestDataMixin, TestCase):
+    """
+    Test reachable, internal links starting from frontpage up to certain depth
+    """
     MAX_DEPTH = 2
+    """ if 1, then only check the given URL, if 2 then check all links on given
+    page. """
 
     href_pat = re.compile(r'<a [^>]*href="([/?][^"]+)"')
     """ pattern for local links """
@@ -450,6 +455,9 @@ class DeepLinkTests(TestDataMixin, TestCase):
             self.do_test_for_url(next_url, depth + 1, parent=url)
 
     def test_from_frontpage(self):
+        """
+        test all pages reachable fron frontpage up to hard-coded depth
+        """
         self.urls_tested = set()
         self.urls_too_deep = set()
         self.do_test_for_url(reverse('frontpage'), depth=1, parent=None)
@@ -459,6 +467,12 @@ class DeepLinkTests(TestDataMixin, TestCase):
 
 @tag('longrun')
 class VeryDeepLinkTests(DeepLinkTests):
+    """
+    Test more URLs
+
+    At depth 2: ~1400 URLs in 6 minutes
+    At depth 3: ~8100 URLs more
+    """
     MAX_DEPTH = 3
 
 
