@@ -209,10 +209,15 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
     )
 
     def load(self, *args, **kwargs):
+        """
+        Load Dataset records from the datasets/studies google sheet
+        """
         # avoid circular import:
         self.staff_group_name = import_string('mibios.glamr.accounts.STAFF_GROUP_NAME')  # noqa:E501
         self.skipped = []
         super().load(*args, **kwargs)
+        if connections['default'].vendor == 'postgresql':
+            self.model.objects.update_access()
         skipped_ids = [getattr(i, 'dataset_id', None) for i in self.skipped]
         qs = self.filter(dataset_id__in=skipped_ids)
         if qs.exists():
@@ -523,6 +528,8 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
             for key, field_list in get_sample_blocklist().items()
         }
         self.load(**kwargs)
+        if connections['default'].vendor == 'postgresql':
+            self.model.objects.update_access()
         flag = SampleTracking.Flag.METADATA
         for i in self._saved_samples:
             tr, new = SampleTracking.objects.get_or_create(sample=i, flag=flag)
