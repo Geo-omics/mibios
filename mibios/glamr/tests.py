@@ -417,7 +417,7 @@ class SampleTest(TestDataMixin, TestCase):
 class DeepLinkTests(TestDataMixin, TestCase):
     MAX_DEPTH = 2
 
-    href_pat = re.compile(r'<a href="([/?][^"]+)"')
+    href_pat = re.compile(r'<a [^>]*href="([/?][^"]+)"')
     """ pattern for local links """
 
     def do_test_for_url(self, url, depth, parent):
