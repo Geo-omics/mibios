@@ -193,6 +193,8 @@ class PathField(Field):
         elif self.root is None:
             return str(value)
         else:
+            if not isinstance(value, Path):
+                value = Path(value)
             return str(value.relative_to(self.root))
 
     def value_to_string(self, obj):
