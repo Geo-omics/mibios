@@ -434,17 +434,19 @@ class DeepLinkTests(TestDataMixin, TestCase):
             return
 
         self.urls_tested.add(url)
-        success = False
         with self.subTest(url=url, parent=parent):
             r = self.client.get(url)
             self.assertEqual(r.status_code, 200)
-            success = True
-
-        if not success:
-            return
-
-        if b'<!doctype html>' not in r.content[:50]:
-            return
+            if r.streaming:
+                # streaming response, check it's not empty and stop
+                for data in r.streaming_content:
+                    self.assertGreater(len(data), 0)
+                    break
+                self.num_streaming += 1
+                return
+            else:
+                # check there some sort of html response and check links below
+                self.assertTrue(b'<!doctype html>' in r.content[:50])
 
         for next_url in self.href_pat.findall(r.content.decode()):
             if next_url.startswith('?'):
@@ -456,12 +458,14 @@ class DeepLinkTests(TestDataMixin, TestCase):
 
     def test_from_frontpage(self):
         """
-        test all pages reachable fron frontpage up to hard-coded depth
+        test all internal URLs reachable from frontpage up to MAX_DEPTH depth
         """
         self.urls_tested = set()
         self.urls_too_deep = set()
+        self.num_streaming = 0
         self.do_test_for_url(reverse('frontpage'), depth=1, parent=None)
-        print(f'\nnumber of URLs tested: {len(self.urls_tested)}')
+        print(f'\nnumber of URLs tested: {len(self.urls_tested)} '
+              f'(streaming: {self.num_streaming})')
         print(f'not tested but at next depth: {len(self.urls_too_deep)}')
 
 
@@ -470,10 +474,19 @@ class VeryDeepLinkTests(DeepLinkTests):
     """
     Test more URLs
 
-    At depth 2: ~1400 URLs in 6 minutes
-    At depth 3: ~8100 URLs more
+    At depth 2: ~100 URLs in 1:30 mins
+    At depth 3: ~1500 URLs in 6 minutes
+    At depth 4: ~11,000 URLs
     """
     MAX_DEPTH = 3
+
+
+@tag('longrun')
+class SuperDeepLinkTests(DeepLinkTests):
+    """
+    Test even more URLs
+    """
+    MAX_DEPTH = 4
 
 
 class QuerySetIterateTests(TestDataMixin, TestCase):
