@@ -1033,7 +1033,12 @@ class File(Model):
     @property
     def relpath(self):
         """ The path relative to the common path prefix """
-        return self.path.relative_to(self.root)
+        if self.root:
+            return self.path.relative_to(self.root)
+        elif self.path.is_absolute():
+            raise ValueError('path is absolute abnd no root configured')
+        else:
+            return self.path
 
     @property
     def relpublic(self):
@@ -1042,12 +1047,15 @@ class File(Model):
 
         This property may be exposed on a public page.
 
-        Returns None if no public path is set or if the common prefix is not
-        configured.
+        Returns None if no public path is set.
         """
-        if self.public_root is None or self.public is None:
-            return None
-        return self.public.relative_to(self.public_root)
+        if self.public_root:
+            return self.public.relative_to(self.public_root)
+        elif self.public and self.public.is_absolute():
+            raise ValueError('public path is absolute and no root configured')
+        else:
+            # is a rel path or None
+            return self.public
 
     def compute_public_path(self):
         """

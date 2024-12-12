@@ -62,9 +62,8 @@ GLOBUS_FILE_APP_URL_BASE = None
 """ root Globus url for file app, publicly shared directory """
 
 PUBLIC_DATA_ROOT = None
-""" path to publicly accessible directory on staging server, this needs to be
-set even on other deployments so that relative paths to the public files can be
-computed """
+""" path to root of publicly accessible directory tree on staging server, leave
+at None on other deployments """
 
 OMICS_CHECKOUT_FILE = None
 """ path to the file checkout listing """

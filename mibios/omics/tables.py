@@ -30,14 +30,14 @@ class FileTable(Table):
 
     def render_download_url(self, value, record):
         if record.public:
-            path = record.public.relative_to(File.get_public_prefix())
-            if value:
-                return format_html('<a href="{}">{}</a>', value, path)
-            else:
-                return f'{path} (unavailable)'
+            path = record.relpublic
         else:
-            path = record.path.relative_to(File.get_path_prefix())
-            return str(path)
+            path = record.relpath
+
+        if value:
+            return format_html('<a href="{}">{}</a>', value, path)
+        else:
+            return f'{"" if record.public else "*"}{path}'
 
     def order_download_url(self, queryset, is_descending):
         qs = queryset.annotate(path0=Coalesce('public', 'path'))

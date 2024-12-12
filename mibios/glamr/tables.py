@@ -294,6 +294,7 @@ class DBInfoTable(Table):
 
 
 class FileTable(OmicsFileTable):
+    """ List files belonging to a sample """
     class Meta:
         model = omics_models.File
         fields = ['download_url', 'filetype', 'size', 'modtime']
