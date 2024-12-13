@@ -95,14 +95,14 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type='text/markdown',
     url='https://sites.google.com/a/umich.edu/the-schmidt-lab/home',
-    python_requires='>=3.10',
+    python_requires='>=3.11',
     install_requires=[
         'biopython~=1.80',
         'defusedxml~=0.7',
-        'Django~=3.2.0',
+        'Django~=4.2.0',
         'django-crispy-forms~=1.14',
         'django-extensions~=3.2.0',
-        'django-filter>=22.1',  # the debian pkg spells python3-django-filters!
+        'django-filter~=23.0',  # the debian pkg spells python3-django-filters!
         'djangorestframework~=3.14.0',
         'django-tables2~=2.4.0',
         'matplotlib~=3.6.0',
@@ -110,7 +110,7 @@ setuptools.setup(
         'psycopg2~=2.9.0',
         'xlrd~=1.2',
         'zipstream~=1.1.0',
-        'pygraphviz',
+        'pygraphviz~=1.0',
     ],
     packages=setuptools.find_packages(),
     package_data=get_package_data(),
