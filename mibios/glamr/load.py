@@ -318,7 +318,7 @@ class SampleInputSpec(CSV_Spec):
         # Check that the spec account for all field we think should get loaded
         # from the file:
         fields_accounted_for = set((i[1] for i in specs))
-        fields_accounted_for.add('access')  # set/updated in load_meta()
+        fields_accounted_for.add('access')  # set/updated in load()
         required = [  # fields from AbstractSample that we want to check for
             'sample_id', 'sample_name', 'sample_type', 'has_paired_data',
             'sra_accession', 'amplicon_target', 'fwd_primer', 'rev_primer',
@@ -350,7 +350,7 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
         with transaction.atomic():
             Reference.loader.load()
             Dataset.loader.load()
-            self.load_meta()
+            self.load()
             self.update_from_pipeline_registry(quiet=True, skip_on_error=True)
             if dry_run:
                 transaction.set_rollback(True)
@@ -520,7 +520,7 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
     )
 
     @atomic_dry
-    def load_meta(self, **kwargs):
+    def load(self, **kwargs):
         """ samples meta data """
         self._saved_samples = []
         post_save.connect(self.on_save, sender=self.model)
@@ -528,7 +528,7 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
             key: [i for i in field_list if i != 'omics']
             for key, field_list in get_sample_blocklist().items()
         }
-        self.load(**kwargs)
+        super().load(**kwargs)
         if connections['default'].vendor == 'postgresql':
             self.model.objects.update_access()
         flag = SampleTracking.Flag.METADATA

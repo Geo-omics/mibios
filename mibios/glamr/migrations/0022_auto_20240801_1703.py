@@ -1,10 +1,10 @@
 """
 Generated originally by Django 3.2.19 on 2024-08-01 21:03
 
-Data migration added.  The data migrations imay make some assumptions that hold
+Data migration added.  The data migrations may make some assumptions that hold
 for test or production data as of writing.  After the migration decimal values
 may have trailing zeros remaining if the field migrated from DecimalField to
-FreeDecimalField.  A Sample.loader.load_meta() should fix that.
+FreeDecimalField.  A Sample.loader.load() should fix that.
 """
 from functools import partial
 
