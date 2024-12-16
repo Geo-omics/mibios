@@ -318,6 +318,7 @@ class SampleInputSpec(CSV_Spec):
         # Check that the spec account for all field we think should get loaded
         # from the file:
         fields_accounted_for = set((i[1] for i in specs))
+        fields_accounted_for.add('access')  # set/updated in load_meta()
         required = [  # fields from AbstractSample that we want to check for
             'sample_id', 'sample_name', 'sample_type', 'has_paired_data',
             'sra_accession', 'amplicon_target', 'fwd_primer', 'rev_primer',
