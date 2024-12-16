@@ -1,8 +1,10 @@
-from datetime import datetime
+from contextlib import ExitStack
+from datetime import datetime, timedelta
 from logging import getLogger
 from pathlib import Path
 import re
 from subprocess import PIPE, Popen, TimeoutExpired
+import sys
 from time import time
 
 from django.conf import settings
@@ -1182,43 +1184,153 @@ class File(Model):
         return f'{self.get_filetype_display()} for {self.sample}'
 
     @classmethod
-    def make_omics_pipeline_checkout(cls, outpath=None):
+    def update_omics_pipeline_checkout(cls, current=None, dry_run=True):
         """
         Compile and save list of timestamped pipeline output files
 
-        This is a utility for development and testing purpose.
+        This is a utility for development and testing purpose until the omics
+        pipeline/snakemake learns how to writes such a file.  The purpose is to
+        avoid reading partially written pipeline output files in a robust way
+        when running load_omics_data().
+
+        current:
+            Path-like to checkout text file.  This file will be appended to if
+            not in fry_run mode.
+
+        dry_run:
+            If True, then write output to stdout.  If False, then append to the
+            current file.  Other values are interpreted as path-like to which
+            the new data is written (appended, too.)
         """
         root = cls.get_path_prefix()
+        LOCK = settings.OMICS_DATA_ROOT / '.snakemake/locks/0.output.lock'
         Sample = cls._meta.get_field('sample').related_model
-        with open(outpath, 'w') as ofile:
-            for i in Sample.loader.exclude(analysis_dir=None):
-                for j in cls.Type:
-                    try:
-                        path = i.get_omics_file(j).path
-                    except ValueError:
-                        if j not in cls.PATH_TAILS:
-                            # type is not in File.PATH_TAILS
-                            continue
-                        else:
-                            raise
 
-                    try:
-                        st = path.stat()
-                    except OSError:
-                        # e.g. file not found
+        if current is None:
+            current = settings.OMICS_CHECKOUT_FILE
+
+        if cls.pipeline_checkout is None:
+            cls.load_pipeline_checkout(current)
+
+        # 1. get existing file to mtime mapping
+        old_data = cls.pipeline_checkout
+        print(f'Previously known files: {len(old_data)}')
+
+        # 2. get omics sample data
+        sample_data = []
+        with Sample.loader.get_omics_import_file().open() as ifile:
+            got_header = False
+            for line in ifile:
+                row = line.split('\t', maxsplit=5)
+                sample_id, _, _, sample_type, sample_dir, *_ = row
+                if not got_header:
+                    if sample_id != 'SampleID':
+                        raise RuntimeError(f'unexpected header in: {line}')
+                    if sample_type != 'sample_type':
+                        raise RuntimeError(f'unexpected header in: {line}')
+                    if sample_dir != 'sample_dir':
+                        raise RuntimeError(f'unexpected header in: {line}')
+                    got_header = True
+                    continue
+
+                if sample_dir.startswith('data/omics/'):
+                    sample_data.append((sample_id, sample_type, sample_dir))
+        print(f'Samples registered in pipeline: {len(sample_data)}')
+
+        # 3. Read snakemake output lock file
+        locked_files = set()
+        with open(LOCK) as ifile:
+            for line in ifile:
+                locked_files.add(line.rstrip('\n'))
+
+        # 4. check file stats
+        data = {}
+        num_same = num_new = num_updated = num_too_recent = num_locked = 0
+        now = datetime.now().astimezone()
+        one_day = timedelta(days=1)
+        for sid, styp, sdir in sample_data:
+            for j in cls.Type:
+                sample = Sample(
+                    sample_id=sid,
+                    sample_type=styp,
+                    analysis_dir=sdir,
+                )
+                try:
+                    path = sample.get_omics_file(j).path
+                except ValueError:
+                    if j not in cls.PATH_TAILS:
+                        # type is not in File.PATH_TAILS
                         continue
+                    else:
+                        raise
 
-                    relpath = path.relative_to(root)
-                    dt = datetime.fromtimestamp(st.st_mtime).astimezone()
-                    ofile.write(f'{dt}\t{relpath}\n')
+                try:
+                    st = path.stat()
+                except OSError:
+                    # e.g. file not found, permissions
+                    continue
+
+                path = path.relative_to(root)
+                dt = datetime.fromtimestamp(st.st_mtime).astimezone()
+
+                use_dt = True
+                if path in old_data:
+                    if path in data:
+                        # faulty sample data
+                        raise RuntimeError(f'dupe: {path}')
+
+                    if old_data[path] < dt:
+                        num_updated += 1
+                        print(f'{old_data[path]} -> {dt} {path}',
+                              file=sys.stderr)  # DEBUG
+                    else:
+                        # is up-to-date
+                        num_same += 1
+                        use_dt = False
+                else:
+                    num_new += 1
+
+                if (now - dt) < one_day:
+                    num_too_recent += 1
+                    use_dt = False
+
+                if path in locked_files:
+                    num_locked += 1
+                    use_dt = False
+
+                if use_dt:
+                    data[path] = dt
+
+        print(f'up-to-date: {num_same}')
+        print(f'newer time: {num_updated}')
+        print(f'  new file: {num_new}')
+        print(f'too recent: {num_too_recent}')
+        print(f'    locked: {num_locked}')
+
+        # 4. write out data
+        with ExitStack() as estack:
+            if dry_run is True:
+                outpath = None
+                ofile = sys.stdout
+            else:
+                outpath = current if dry_run is False else dry_run
+                ofile = estack.enter_context(open(outpath, 'a'))
+                print(f'Saving as {ofile.name} ...', end='', flush=True)
+
+            for path, dt in data.items():
+                ofile.write(f'{dt}\t{path}\n')
+        if outpath:
+            print('[OK]')
 
     @classmethod
-    def load_pipeline_checkout(cls, path=settings.OMICS_CHECKOUT_FILE):
+    def load_pipeline_checkout(cls, path=None):
         """
         helper to import the omics pipeline good output files listing
 
         This sets and populates a dict mapping paths to last modified datetime.
         """
+        if path is None:
+            path = settings.OMICS_CHECKOUT_FILE
         files = {}
         with open(path) as ifile:
             for line in ifile:

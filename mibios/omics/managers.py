@@ -661,7 +661,9 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
 
 class SampleLoader(MetaDataLoader):
     """ Loader manager for Sample """
-    def get_omics_import_file(self):
+
+    @classmethod
+    def get_omics_import_file(cls):
         """ get the omics data import log """
         basedir = settings.OMICS_DATA_ROOT / 'data' / 'import_logs'
         # log file name begins with date YYYYMMDD:
