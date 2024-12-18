@@ -13,7 +13,7 @@ from django.contrib.postgres.indexes import GinIndex, GistIndex
 from django.contrib.postgres.search import SearchVectorField
 from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.core.validators import URLValidator
-from django.db import models
+from django.db import connection, models
 from django.db.models import Index
 from django.urls import reverse
 from django.utils.dateparse import parse_datetime, parse_date, parse_time
@@ -419,6 +419,14 @@ class Dataset(IDMixin, AbstractDataset):
 
         return s
 
+    def _do_insert(self, manager, using, fields, returning_fields, raw):
+        if connection.vendor != 'postgresql':
+            # saving access fails on sqlite
+            # TODO: replace this with DB-defined defaults in Django 5.0
+            fields = [i for i in fields if not i.name == 'access']
+        ret = super()._do_insert(manager, using, fields, returning_fields, raw)
+        return ret
+
     def display_simple(self):
         """
         Get string for display without reference
@@ -666,6 +674,14 @@ class Sample(IDMixin, AbstractSample):
             if self.sample_id and settings.INTERNAL_DEPLOYMENT:
                 value = f'{value} ({self.sample_id})'
         return value or self.sample_id or super().__str__()
+
+    def _do_insert(self, manager, using, fields, returning_fields, raw):
+        if connection.vendor != 'postgresql':
+            # saving access fails on sqlite
+            # TODO: replace this with DB-defined defaults in Django 5.0
+            fields = [i for i in fields if not i.name == 'access']
+        ret = super()._do_insert(manager, using, fields, returning_fields, raw)
+        return ret
 
     @cached_property
     def private(self):
