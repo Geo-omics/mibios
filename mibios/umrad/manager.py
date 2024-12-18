@@ -998,28 +998,18 @@ class BaseLoader(MibiosBaseManager):
 
         return partial(prep_choice_value, self)
 
-    def split_m2m_value(self, value, row=None, sep=None):
+    def split_m2m_value(self, value, row=None, sep=';'):
         """
         Pre-processor to split list-field values
-
-        sep:
-            If this is None, then commas or semi-colons are recognized as
-            separators.  A ValueError is raised if a comma and semi-colon bot
-            appear in the value.
 
         This will additionally strip leading or trailing white-space, ignore
         extra separators (meaning blanks can not appear as a listed value), and
         sort and remove duplicates.  If you don't want this use the
-        split_m2m_value_simple() method.
+        split_m2m_value_simple() method or pre-process the values.
         """
         if value is None:
             return []
 
-        if sep is None:
-            if ',' in value and ';' in value:
-                raise ValueError('ambigious separators')
-            value = value.replace(',', ';')
-            sep = ';'
         items = (val for i in value.split(sep) if (val := i.strip()))
         return sorted(set(items))
 
