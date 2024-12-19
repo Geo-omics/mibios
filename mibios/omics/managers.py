@@ -1259,7 +1259,7 @@ class FileManager(Manager):
         Sample = self.model._meta.get_field('sample').related_model
 
         self.model.load_pipeline_checkout()
-        print(f'Found {len(self.model.pipeline_checkout)} file in pipeline '
+        print(f'Found {len(self.model.pipeline_checkout)} files in pipeline '
               f'checkout')
 
         existing_objs = {

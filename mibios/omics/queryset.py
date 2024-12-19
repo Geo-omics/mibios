@@ -96,7 +96,12 @@ class SampleQuerySet(QuerySet):
         return self._manager.load_omics_data(samples=self)
 
     def ur100_accession_crawler(self, outname=None, verbose=False):
-        """ Extract UniRef100 accessions from omics data """
+        """
+        Extract UniRef100 accessions from omics data
+
+        This can be used to create smallish test databases, by passing the
+        saved file to UniRef100.loader.load(selection_from='path/to/file').
+        """
         if not outname:
             outname = 'ur100.accessions.txt'
 
