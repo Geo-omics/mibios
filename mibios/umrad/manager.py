@@ -257,7 +257,7 @@ class QuerySet(BulkCreateWrapperMixin, MibiosQuerySet):
             BATCH_SIZE = 250000
 
         res = []
-        for i in range(0, len(id_list) - 1, BATCH_SIZE):
+        for i in range(0, len(id_list), BATCH_SIZE):
             f = {f'{field_name}__in': id_list[i:i + BATCH_SIZE]}
             part = self.filter(**f).values_list(field_name, 'pk')
             res += part
