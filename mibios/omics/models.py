@@ -340,7 +340,7 @@ class AbstractSample(Model):
         return self.__class__.loader.filter(pk=self.pk).get_ready()
 
     def load_omics_data(self):
-        """ Convenience methodto load the sample's omics data """
+        """ Convenience method to load the sample's omics data """
         return self.__class__.loader.load_omics_data(samples=[self])
 
 

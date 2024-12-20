@@ -994,7 +994,7 @@ class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
 
         if is_duplicate:
             # is a row for merged taxid (duplicate)
-            raise SkipRow('is duplicate for merged taxid', log=False)
+            raise SkipRow('merged taxid, tpm added to other record', log=False)
         else:
             # zero as temp placeholder
             return 0.0
