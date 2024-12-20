@@ -614,6 +614,12 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
                              'must run in update mode')
         super().load_sample(sample, *args, file=file, update=True, **kwargs)
 
+    @atomic_dry
+    def unload_tpm_sample(self, sample):
+        num = self.filter(sample=sample).update(tpm=None, rpkm=None)
+        print(f'{sample.sample_id}: tpm+rpkm erased for {num} '
+              f'{self.model._meta.model_name}')
+
 
 class SampleLoader(MetaDataLoader):
     """ Loader manager for Sample """

@@ -1821,6 +1821,12 @@ class SampleTracking(Model):
         # but I should re-think the surrounding design .
         return jobcls.for_sample(self.sample, tracking=self)
 
+    def undo(self):
+        """
+        Unload the data loaded by our job and delete this tracking item.
+        """
+        self.job.run_undo()
+
 
 class Sample(AbstractSample):
     """

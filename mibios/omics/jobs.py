@@ -44,6 +44,7 @@ class LoadUR1Abund(Job):
     sample_types = [Sample.TYPE_METAGENOME]
     required_files = [File.Type.FUNC_ABUND]
     run = ReadAbundance.loader.load_sample
+    undo = ReadAbundance.loader.unload_sample
 
 
 class LoadUR1TPM(Job):
@@ -52,6 +53,7 @@ class LoadUR1TPM(Job):
     sample_types = [Sample.TYPE_METAGENOME]
     required_files = [File.Type.FUNC_ABUND_TPM]
     run = ReadAbundance.loader.load_tpm_sample
+    undo = ReadAbundance.loader.unload_tpm_sample
 
 
 class LoadTaxAbund(Job):

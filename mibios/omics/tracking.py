@@ -6,6 +6,8 @@ import sys
 
 from django.db.transaction import atomic
 
+from mibios.umrad.utils import atomic_dry
+
 from .models import SampleTracking
 
 
@@ -20,6 +22,7 @@ class Job:
     sample_types = None
     required_files = None
     run = None
+    undo = None
 
     def __init__(self, sample, tracking=None):
         """
@@ -117,6 +120,24 @@ class Job:
         self.status(use_cache=False)
 
         return retval
+
+    @atomic_dry
+    def run_undo(self):
+        """
+        Undo the effect of run()
+
+        This will also delete the tracking instance from the DB.
+        """
+        if self.undo is None:
+            raise NotImplementedError(
+                'The Job.undo attribute must be set to a callable that takes '
+                'the sample as argument.'
+            )
+
+        self.undo(self.sample)
+        if self.tracking is not None:
+            self.tracking.delete()
+        self._status = None
 
     @classmethod
     def for_sample(cls, sample, tracking=None):
