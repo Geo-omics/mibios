@@ -50,49 +50,16 @@ def resolve_glob(path, pat):
 class SampleLoadMixin:
     """ Mixin for Loader class that loads per-sample files """
 
-    load_flag_attr = None
-    """ may be specified by implementing class """
-
     sample = None
     """ sample is set by load_sample() for use in per-field helper methods """
 
     @atomic_dry
-    def load_sample(self, sample, template=None, sample_filter=None,
-                    done_ok=True, redo=False, undo=False, **kwargs):
-
-        if undo and redo:
-            raise ValueError('Option undo is incompatible with option redo.')
-
-        if undo and kwargs.get('update'):
-            raise ValueError('Option undo is incompatible with option update.')
-
+    def load_sample(self, sample, template=None, sample_filter=None, **kwargs):
         if template is None:
             template = {'sample': sample}
 
         if sample_filter is None:
             sample_filter = template
-
-        if 'flag' in kwargs:
-            flag = kwargs.pop('flag')
-            if flag is None:
-                # explicit override / no flag check/set
-                pass
-        else:
-            flag = self.load_flag_attr
-
-        if flag:
-            update = kwargs.get('update', False)
-            done = getattr(sample, flag)
-            if done and done_ok and not redo:
-                # nothing to do
-                return
-
-            if done and not done_ok:
-                raise RuntimeError(f'already loaded: {flag}->{sample}')
-
-            if done and redo and not update:
-                # have to delete records for sample
-                self.undo(sample, sample_filter, flag)
 
         if 'file' not in kwargs:
             kwargs.update(file=self.get_file(sample))
@@ -100,34 +67,23 @@ class SampleLoadMixin:
         self.sample = sample
         self.load(template=template, **kwargs)
         # ensure subsequent calls of manager methods never get wrong sample:
+        # FIXME: this is a stupid design
         self.sample = None
 
-        if flag:
-            setattr(sample, flag, True)
-            sample.save()
-
-    @atomic
-    def unload_sample(self, sample, sample_filter=None, flag=None):
+    @atomic_dry
+    def unload_sample(self, sample, sample_filter=None):
         """
         Delete all objects related to the given sample
 
         This is to undo the effect of load_sample().  Override this method if a
         more delicate operation is needed.
         """
-        if flag is None:
-            flag = getattr(self, 'load_flag_attr')
-        if flag is None:
-            raise ValueError('load progress flag needs to be provided')
-
         if sample_filter is None:
             sample_filter = {'sample': sample}
 
         print('Deleting... ', end='', flush=True)
         dels = self.model.objects.filter(**sample_filter).delete()
         print(dels, '[OK]')
-
-        setattr(sample, flag, False)
-        sample.save()
 
 
 class TaxNodeMixin:
