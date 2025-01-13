@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from textwrap import dedent
 
 from django.conf import settings
 from django.db.transaction import atomic
@@ -24,7 +25,9 @@ from mibios.ncbi_taxonomy.models import (
 )
 from mibios.umrad.models import UniRef100
 from mibios.umrad.manager import BulkLoader, Manager, MetaDataLoader
-from mibios.umrad.utils import CSV_Spec, atomic_dry, InputFileError, SkipRow
+from mibios.umrad.utils import (
+    CSV_Spec, atomic_dry, InputFileError, SkipRow, ModelSpec,
+)
 
 from . import get_sample_model
 from .utils import call_each, get_fasta_sequence, get_sample_blocklist
@@ -128,6 +131,195 @@ class TaxNodeMixin:
             print(f'Found {self.deleted_count} rows with deleted taxids. '
                   f'TaxNode field set to None.')
         del self.merged, self.merged_count, self.deleted, self.deleted_count
+
+
+class BinLoader(SampleLoadMixin, BulkLoader):
+    def get_file(self, sample=None):
+        # CSV_Spec.setup() needs this to be implemented, return None is fine
+        # here.
+        return None
+
+    def load_sample(self, sample, **kwargs):
+        spec = ModelSpec(rows=self.get_rows(sample))
+        with atomic:
+            super().load_sample(sample, spec=spec, **kwargs)
+            self.load_binning(sample)
+
+    def get_spec_columns(self):
+        """
+        Return ordered field names, the fields to be populated by load_sample.
+        """
+        field_names = []
+        for i in self.model._meta.get_fields():
+            if i.auto_created and i.is_relation:
+                # skip reverse relations, i.e. fields declared in other models
+                # Unsure how robust this test is, beware!
+                continue
+            if i.get_internal_type() == 'AutoField':
+                # skip the auto-increment field
+                continue
+            if i.name == 'contigs':
+                # skip, as it would break _update_m2m due to 2-field accession
+                continue
+            field_names.append(i.name)
+        return field_names
+
+    def get_rows(self, sample):
+        """
+        Generate rows for load_sample()
+        """
+        data = {}
+        # 1. read coverage for each bin
+        # Since FieldFile.open() does not return a file handle a readline() to
+        # get the header followed by iterating over the rows as below won't
+        # work as the the FieldFile machinery will make the row iteration start
+        # all over with the header being the first line read.  So below will
+        # just open() the str-path old fashionedly.
+        file = sample.get_omics_file('BIN_COV').file_pipeline
+        with open(file.path) as ifile:
+            header = ifile.readline().strip().split('\t')
+            NAME_POS = header.index('Genome')
+            REL_ABUND_POS = header.index('Relative Abundance (%)')
+            MEAN_POS = header.index('Mean')
+            TR_MEAN_POS = header.index('Trimmed Mean')
+            BASES_POS = header.index('Covered Bases')
+            VAR_POS = header.index('Variance')
+            LEN_POS = header.index('Length')
+            COUNT_POS = header.index('Read Count')
+            RPB_POS = header.index('Reads per base')
+            RPKM_POS = header.index('RPKM')
+            TPM_POS = header.index('TPM')
+
+            for line in ifile:
+                row = line.strip().split('\t')
+                if (name := row[NAME_POS]) == 'unmapped':
+                    continue
+
+                data[name] = {
+                    'percent_abund': row[REL_ABUND_POS],
+                    'mean_depth': row[MEAN_POS],
+                    'trimmed_mead_depth': row[TR_MEAN_POS],
+                    'covered_bases': row[BASES_POS],
+                    'variance': row[VAR_POS],
+                    'length': row[LEN_POS],
+                    'read_count': row[COUNT_POS],
+                    'reads_per_base': row[RPB_POS],
+                    'rpkm': row[RPKM_POS],
+                    'tpm': row[TPM_POS],
+                }
+
+        # 2. read taxa for bins that have a classification
+        for filetype in ('BIN_CLASS_ARC', 'BIN_CLASS_BAC'):
+            file = sample.get_omics_file(filetype).file_pipeline
+            with open(file.path) as ifile:
+                header = ifile.readline().strip().split('\t')
+                NAME_POS = header.index('user_genome')
+                TAXON_POS = header.index('classification')
+
+                for line in ifile:
+                    row = line.strip().split('\t')
+                    if rec := data.get(row[NAME_POS], None):
+                        if 'taxon' in rec:
+                            raise InputFileError(f'duplicate classifi? {line}')
+                        rec['taxon'] = row[TAXON_POS]
+                    else:
+                        # not a rep bin
+                        pass
+
+        # 3. read checkm stats for bins that have it
+        file = sample.get_omics_file('BIN_CHECKM').file_pipeline
+        with open(file.path) as ifile:
+            header = ifile.readline().strip().split('\t')
+            NAME_POS = header.index('Bin Id')
+            COMPL_POS = header.index('Completeness')
+            CONTAM_POS = header.index('Contamination')
+            HETEROG_POS = header.index('Strain heterogeneity')
+
+            for line in ifile:
+                row = line.strip().split('\t')
+                if rec := data.get(row[NAME_POS], None):
+                    rec['completeness'] = row[COMPL_POS]
+                    rec['contamination'] = row[CONTAM_POS]
+                    rec['heterogeneity'] = row[HETEROG_POS]
+                else:
+                    # not a rep bin
+                    pass
+
+        # 4. Create tuples with all values
+        fields = [
+            self.model._meta.get_field(i)
+            for i in self.get_spec_columns()
+        ]
+        for name, record in data.items():
+            record['name'] = name
+            record['sample'] = sample.sample_id
+            # order values as fields were declared in model, missing taxa or
+            # checkm stats get a blank inserted
+            yield tuple((
+                record.get(field.name, None if field.null else '')
+                for field in fields
+            ))
+
+    @atomic_dry
+    def load_binning(self, sample, **kwargs):
+        """ Load the Bin<->Contig relation """
+        print('Retrieving bins...', end='', flush=True)
+        bins = {i.name: i for i in sample.bin_set.all()}
+        print(f' {len(bins)} [OK]')
+        print('Retrieving contigs...', end='', flush=True)
+        contigs = {i.contig_no: i for i in sample.contig_set.all()}
+        print(f' {len(contigs)} [OK]')
+
+        file = sample.get_omics_file('BIN_CONTIG')
+        print('Converting RDS file ...', end='', flush=True)
+        with tempfile.TemporaryDirectory() as tmpd:
+            tmpd = Path(tmpd)
+            rscript = dedent(f"""
+            data = readRDS('{file.file_pipeline.path}')
+            write.csv(data, '{tmpd}/binning.csv', quote=FALSE, row.names=FALSE)
+            """)
+            subprocess.run(['Rscript', '--vanilla', '-e', rscript], check=True)
+            print(' [OK]')
+
+            print('Reading binning data...', end='', flush=True)
+            data = []
+            with open(tmpd / 'binning.csv') as ifile:
+                head = ifile.readline().strip().split(',')
+                contig_pos = head.index('contig')
+                bin_pos = head.index('new_bin_name')
+                for line in ifile:
+                    row = line.strip().split(',')
+                    contig = row[contig_pos]
+                    if contig == 'bad bin':
+                        continue
+                    bin_name = row[bin_pos]
+                    contig_no = contig.removeprefix(f'{sample.sample_id}_')
+                    try:
+                        contig_no = int(contig_no)
+                    except ValueError:
+                        raise InputFileError(f'bad contig id: {contig}')
+                    if not bin_name.startswith(f'{sample.sample_id}_'):
+                        raise InputFileError(f'bad bin id: {contig}')
+
+                    if bin_name not in bins:
+                        # not a drep representative, or otherwise not loaded
+                        continue
+
+                    if contig_no not in contigs:
+                        raise InputFileError(f'unknown contig: {contig}')
+
+                    data.append((bins[bin_name], contigs[contig_no]))
+            print(f' {len(data)} [OK]')
+
+        Through = self.model._meta.get_field('contigs').remote_field.through
+        if sample.bin_set.exclude(contigs=None).exists():
+            print('Deleting existing Bin<->Contig links for update...', end='',
+                  flush=True)
+            delinfo, _ = Through.objects.filter(bin__sample=sample).delete()
+            print(f'{delinfo} [OK]')
+
+        objs = ((Through(bin=bin, contig=contig) for bin, contig in data))
+        self.bulk_create_wrapper(Through.objects.bulk_create)(objs)
 
 
 class CompoundAbundanceLoader(BulkLoader, SampleLoadMixin):

@@ -127,32 +127,6 @@ class AbstractSample(Model):
             if i.name.endswith(('_ok', '_loaded'))
         ]
 
-    def load_bins(self):
-        if not self.binning_ok:
-            with atomic():
-                Bin.import_sample_bins(self)
-                self.binning_ok = True
-                self.save()
-        if self.binning_ok and not self.checkm_ok:
-            with atomic():
-                CheckM.import_sample(self)
-                self.checkm_ok = True
-                self.save()
-
-    @atomic
-    def delete_bins(self):
-        with atomic():
-            qslist = [self.binmax_set, self.binmet93_set, self.binmet97_set,
-                      self.binmet99_set]
-            for qs in qslist:
-                print(f'{self}: deleting {qs.model.method} bins ...', end='',
-                      flush=True)
-                counts = qs.all().delete()
-                print('\b\b\bOK', counts)
-            self.binning_ok = False
-            self.checkm_ok = False  # was cascade-deleted
-            self.save()
-
     def get_metagenome_path(self):
         """
         Get path to data analysis / pipeline results
@@ -532,325 +506,40 @@ class AmpliconAnalysisUnit(Model):
 
 
 class Bin(Model):
+    """ Metagenomic assembly bin """
     history = None
+    name = models.TextField(max_length=20, unique=True)
     sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
-    number = models.PositiveIntegerField()
-    checkm = models.OneToOneField('CheckM', **fk_opt)
+    contigs = models.ManyToManyField('Contig', related_name='bins')
 
-    method = None  # set by inheriting model
+    # GTDB classification
+    taxon = models.TextField(max_length=100)
 
-    class Meta:
-        abstract = True
-        unique_together = (
-            ('sample', 'number'),
-        )
-
-    def __str__(self):
-        return f'{self.sample.accession} {self.method} #{self.number}'
-
-    @classmethod
-    def get_concrete_models(cls):
-        """
-        Return list of all concrete bin sub-classes/models
-        """
-        # The recursion stops at the first non-abstract models, so this may not
-        # make sense in a multi-table inheritance setting.
-        children = cls.__subclasses__()
-        if children:
-            ret = []
-            for i in children:
-                ret += i.get_concrete_models()
-            return ret
-        else:
-            # method called on a non-parent
-            if cls._meta.abstract:
-                return []
-            else:
-                return [cls]
-
-    @classmethod
-    def get_class(cls, method):
-        """
-        Get the concrete model for give binning method
-        """
-        if cls.method is not None:
-            return super().get_class(method)
-
-        for i in cls.get_concrete_models():
-            if i.method == method:
-                return i
-
-        raise ValueError(f'not a valid binning type/method: {method}')
-
-    @classmethod
-    def import_all(cls):
-        """
-        Import all binning data
-
-        This class method can be called on the abstract parent Bin class and
-        will then import data for all binning types.  Or it can be called on an
-        concrete model/class and then will only import data for the
-        corresponding binning type.
-        """
-        if not cls._meta.abstract:
-            raise RuntimeError(
-                'method can not be called by concrete bin subclass'
-            )
-        for i in get_sample_model().objects.all():
-            cls.import_sample_bins(i)
-
-    @classmethod
-    def import_sample_bins(cls, sample):
-        """
-        Import all types of bins for given sample
-        """
-        if sample.binning_ok:
-            log.info(f'{sample} has bins loaded already')
-            return
-
-        if cls._meta.abstract:
-            # Bin parent class only
-            with atomic():
-                noerr = True
-                for klass in cls.get_concrete_models():
-                    res = klass.import_sample_bins(sample)
-                    noerr = bool(res) and noerr
-                if noerr:
-                    sample.binning_ok = True
-                    sample.save()
-                return
-
-        # Bin subclasses only
-        files = list(cls.bin_files(sample))
-        if not files:
-            log.warning(f'no {cls.method} bins found for {sample}')
-            return None
-
-        for i in sorted(files):
-            res = cls._import_bins_file(sample, i)
-            if not res:
-                log.warning(f'got empty cluster from {i} ??')
-
-        return len(files)
-
-    @classmethod
-    def _import_bins_file(cls, sample, path):
-        _, num, _ = path.name.split('.')
-        try:
-            num = int(num)
-        except ValueError as e:
-            raise RuntimeError(f'Failed parsing filename {path}: {e}')
-
-        obj = cls.objects.create(sample=sample, number=num)
-        cids = []
-        with path.open() as f:
-            for line in f:
-                if not line.startswith('>'):
-                    continue
-                cids.append(line.strip().lstrip('>'))
-
-        qs = Contig.objects.filter(sample=sample, contig_id__in=cids)
-        kwargs = {cls._meta.get_field('members').remote_field.name: obj}
-        qs.update(**kwargs)
-        log.info(f'{obj} imported: {len(cids)} contigs')
-        return len(cids)
-
-
-class BinMAX(Bin):
-    method = 'MAX'
-
-    @classmethod
-    def bin_files(cls, sample):
-        """
-        Generator over bin file paths
-        """
-        pat = f'{sample.accession}_{cls.method}_bins.*.fasta'
-        path = settings.OMICS_DATA_ROOT / 'BINS' / 'MAX_BIN'
-        return path.glob(pat)
-
-    class Meta:
-        verbose_name = 'MaxBin'
-        verbose_name_plural = 'MaxBin bins'
-
-
-class BinMetaBat(Bin):
-
-    class Meta(Bin.Meta):
-        abstract = True
-
-    @classmethod
-    def bin_files(cls, sample):
-        """
-        Generator over bin file paths
-        """
-        pat = f'{sample.accession}_{cls.method}_bins.*'
-        path = settings.OMICS_DATA_ROOT / 'BINS' / 'METABAT'
-        return path.glob(pat)
-
-
-class BinMET93(BinMetaBat):
-    method = 'MET_P97S93E300'
-
-    class Meta:
-        verbose_name = 'MetaBin 97/93'
-        verbose_name_plural = 'MetaBin 97/93 bins'
-
-
-class BinMET97(BinMetaBat):
-    method = 'MET_P99S97E300'
-
-    class Meta:
-        verbose_name = 'MetaBin 99/97'
-        verbose_name_plural = 'MetaBin 99/97 bins'
-
-
-class BinMET99(BinMetaBat):
-    method = 'MET_P99S99E300'
-
-    class Meta:
-        verbose_name = 'MetaBin 99/99'
-        verbose_name_plural = 'MetaBin 99/99 bins'
-
-
-class CheckM(Model):
-    """
-    CheckM results for a bin
-    """
-    history = None
-    translation_table = models.PositiveSmallIntegerField(
-        verbose_name='Translation table',
+    # CheckM
+    completeness = models.DecimalField(
+        max_digits=5, decimal_places=2,
     )
-    gc_std = models.FloatField(verbose_name='GC std')
-    ambiguous_bases = models.PositiveIntegerField(
-        verbose_name='# ambiguous bases',
+    contamination = models.DecimalField(
+        max_digits=5, decimal_places=2,
     )
-    genome_size = models.PositiveIntegerField(verbose_name='Genome size')
-    longest_contig = models.PositiveIntegerField(verbose_name='Longest contig')
-    n50_scaffolds = models.PositiveIntegerField(verbose_name='N50 (scaffolds)')
-    mean_scaffold_len = models.FloatField(verbose_name='Mean scaffold length')
-    num_contigs = models.PositiveIntegerField(verbose_name='# contigs')
-    num_scaffolds = models.PositiveIntegerField(verbose_name='# scaffolds')
-    num_predicted_genes = models.PositiveIntegerField(
-        verbose_name='# predicted genes',
+    heterogeneity = models.DecimalField(
+        max_digits=5, decimal_places=2,
+        verbose_name='strain heterogeneity',
     )
-    longest_scaffold = models.PositiveIntegerField(
-        verbose_name='Longest scaffold',
-    )
-    gc = models.FloatField(verbose_name='GC')
-    n50_contigs = models.PositiveIntegerField(verbose_name='N50 (contigs)')
-    coding_density = models.FloatField(verbose_name='Coding density')
-    mean_contig_length = models.FloatField(verbose_name='Mean contig length')
 
-    class Meta:
-        verbose_name = 'CheckM'
-        verbose_name_plural = 'CheckM records'
+    # abundance
+    percent_abund = models.FloatField()
+    mean_depth = models.FloatField()
+    trimmed_mead_depth = models.FloatField()
+    covered_bases = models.IntegerField()
+    variance = models.FloatField()
+    length = models.IntegerField()
+    read_count = models.IntegerField()
+    reads_per_base = models.FloatField()
+    rpkm = models.FloatField()
+    tpm = models.FloatField()
 
-    @classmethod
-    def import_all(cls):
-        for i in get_sample_model().objects.all():
-            if i.checkm_ok:
-                log.info(f'sample {i}: have checkm stats, skipping')
-                continue
-            cls.import_sample(i)
-
-    @classmethod
-    @atomic
-    def import_sample(cls, sample):
-        bins = {}
-        stats_file = sample.get_checkm_stats_path()
-        if not stats_file.exists():
-            log.warning(f'{sample}: checkm stats do not exist: {stats_file}')
-            return
-
-        for binid, obj in cls.from_file(stats_file):
-            # parse binid, is like: Sample_42895_MET_P99S99E300_bins.6
-            part1, _, num = binid.partition('.')  # separate number part
-            parts = part1.split('_')
-            sample_name = '_'.join(parts[:2])
-            meth = '_'.join(parts[2:-1])  # rest but without the "_bins"
-
-            try:
-                num = int(num)
-            except ValueError as e:
-                raise ValueError(f'Bad bin id in stats: {binid}, {e}')
-
-            if sample_name != sample.accession:
-                raise ValueError(
-                    f'Bad sample name in stats: {binid} -- expected: '
-                    f'{sample.accession}'
-                )
-
-            try:
-                binclass = Bin.get_class(meth)
-            except ValueError as e:
-                raise ValueError(f'Bad method in stats: {binid}: {e}') from e
-
-            try:
-                binobj = binclass.objects.get(sample=sample, number=num)
-            except binclass.DoesNotExist as e:
-                raise RuntimeError(
-                    f'no bin with checkm bin id: {binid} file: {stats_file}'
-                ) from e
-
-            binobj.checkm = obj
-
-            if binclass not in bins:
-                bins[binclass] = []
-
-            bins[binclass].append(binobj)
-
-        for binclass, bobjs in bins.items():
-            binclass.objects.bulk_update(bobjs, ['checkm'])
-
-        sample.checkm_ok = True
-        sample.save()
-
-    @classmethod
-    def from_file(cls, path):
-        """
-        Create instances from given bin_stats.analyze.tsv file.
-
-        Should normally be only called from CheckM.import_sample().
-        """
-        ret = []
-        with path.open() as fh:
-            for line in fh:
-                bin_key, data = line.strip().split('\t')
-                data = data.lstrip('{').rstrip('}').split(', ')
-                obj = cls()
-                for item in data:
-                    key, value = item.split(': ', maxsplit=2)
-                    key = key.strip("'")
-                    for i in cls._meta.get_fields():
-                        if i.is_relation:
-                            continue
-                        # assumes correclty assigned verbose names
-                        if i.verbose_name == key:
-                            field = i
-                            break
-                    else:
-                        raise RuntimeError(
-                            f'Failed parsing {path}: no matching field for '
-                            f'{key}, offending line is:\n{line}'
-                        )
-
-                    try:
-                        value = field.to_python(value)
-                    except ValidationError as e:
-                        message = (f'Failed parsing field "{key}" on line:\n'
-                                   f'{line}\n{e.message}')
-                        raise ValidationError(
-                            message,
-                            code=e.code,
-                            params=e.params,
-                        ) from e
-
-                    setattr(obj, field.attname, value)
-
-                obj.save()
-                ret.append((bin_key, obj))
-
-        return ret
+    loader = managers.BinLoader()
 
 
 class File(Model):
@@ -868,6 +557,12 @@ class File(Model):
         FUNC_ABUND_TPM = 5, 'functional abundance (TPM) [csv]'
         CONT_ABUND = 6, 'contig abundance [csv]'
         CONT_LCA = 7, 'contig taxonomy [csv]'
+        BIN_COV = 8, 'bin abundance'
+        """ {sample}/bins/coverage_drep_bins.tsv """
+        BIN_CLASS_ARC = 9, 'GTDB Archaea bin classification'
+        BIN_CLASS_BAC = 10, 'GTDB Bacteria bin classification'
+        BIN_CHECKM = 11, 'CheckM results'
+        BIN_CONTIG = 12, 'binning results'
 
     file_pipeline = ReadOnlyFileField(upload_to=None,
                                       storage=storages['omics_pipeline'],
@@ -927,6 +622,11 @@ class File(Model):
         Type.FUNC_ABUND_TPM: '{sample.sample_id}_tophit_TPM.tsv',
         Type.CONT_ABUND: '{sample.sample_id}_contig_abund.tsv',
         Type.CONT_LCA: '{sample.sample_id}_contig_lca.tsv',
+        Type.BIN_COV: 'bins/coverage_drep_bins.tsv',
+        Type.BIN_CLASS_ARC: 'bins/GTDB/gtdbtk.ar53.summary.tsv',
+        Type.BIN_CLASS_BAC: 'bins/GTDB/gtdbtk.bac120.summary.tsv',
+        Type.BIN_CHECKM: 'bins/all_raw_bins/checkm.txt',
+        Type.BIN_CONTIG: 'bins/contig_bins.rds',
     }
     """ file location, relative to a sample's data dir """
 
@@ -1423,12 +1123,6 @@ class Contig(SequenceLike):
     tpm = models.FloatField(**opt)
     # lca from *_contig_lca.tsv
     lca = models.ForeignKey(TaxNode, **fk_opt)
-
-    # bin membership
-    bin_max = models.ForeignKey(BinMAX, **fk_opt, related_name='members')
-    bin_m93 = models.ForeignKey(BinMET93, **fk_opt, related_name='members')
-    bin_m97 = models.ForeignKey(BinMET97, **fk_opt, related_name='members')
-    bin_m99 = models.ForeignKey(BinMET99, **fk_opt, related_name='members')
 
     loader = managers.ContigLoader()
 

@@ -616,6 +616,26 @@ class InputFileSpec:
         return {field.name: val for field, _, val in row_data}
 
 
+class ModelSpec(InputFileSpec):
+    """
+    Adapter to load prepared data
+
+    To be used with a loader that provides a get_spec_column() method.
+    """
+    def __init__(self, rows):
+        super().__init__(self)
+        self._rows = rows
+
+    def setup(self, loader):
+        """
+        Setup automatically all field declared in model.
+        """
+        super().setup(loader, column_specs=loader.get_spec_columns())
+
+    def iterrows(self):
+        return iter(self._rows)
+
+
 class CSVRowGenerator:
     """
     Generator over csv rows with cleanup
