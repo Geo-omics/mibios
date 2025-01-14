@@ -1,0 +1,47 @@
+{% extends "glamr/base.html" %}
+{% load static glamr_extras %}
+{% block content %}
+<h3>Function: {{ name }}</h3>
+
+<table>
+    <tr><th>Abundance</th><th>UniRef100</th><th>UniRef90</th><th>cross references</th></tr>
+    {% for ur90, ur100s, xrefs in data %}
+    <tr>
+        <td>
+            {% for i in ur100s %}
+            <li>
+                {% if i.sample_count %}
+                <a href="{% url 'record_abundance' model='uniref100' pk=i.pk %}">{{ i.sample_count }} sample{{i.sample_count|pluralize}}</a>
+                {% else %}(not detected){% endif %}
+            </li>
+            {% endfor %}
+            </ul>
+        </td>
+
+        <td><ul>
+            {% for i in ur100s %}
+            <li>
+                <a href="{% record_url i %}">{{ i.accession }}</a>
+            </li>
+            {% endfor %}
+            </ul>
+        </td>
+        <td>
+            {% if ur90 %}
+            <a href="{% url 'filter_result2' model='uniref100' %}?uniref90={{ur90}}">{{ur90}}</a>
+            {% else %}n/a{% endif %}
+        </td>
+
+        <td><ul>
+            {% for i in ur100s %}
+            {% for xref in i.function_refs.all %}
+            <a href="{% record_url xref %}">{{xref}}</a>
+            {% endfor %}
+            {% endfor %}
+            </ul>
+        </td>
+    </tr>
+    {% endfor %}
+</table>
+{% endblock %}
+
