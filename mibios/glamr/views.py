@@ -42,7 +42,7 @@ from mibios.omics.models import (
     SampleTracking,
 )
 from mibios.ncbi_taxonomy.models import TaxNode
-from mibios.umrad.models import FuncRefDBEntry, UniRef100
+from mibios.umrad.models import FunctionName, FuncRefDBEntry, UniRef100
 from mibios.umrad.utils import DefaultDict
 from mibios.omics.models import File, Gene
 from mibios.omics.views import RequiredSettingsMixin
@@ -542,6 +542,47 @@ class FilterMixin:
             ctx['filter_items'] = []
         if 'version_info' in ctx:
             ctx['version_info']['filter'] = self.filter.__class__.__name__
+        return ctx
+
+
+class FunctionView(TemplateView):
+    template_name = 'glamr/function.html'
+
+    def do_stuff(self):
+        try:
+            pk = int(self.kwargs['name'])
+        except ValueError:
+            kw = dict(entry=self.kwargs['name'])
+        else:
+            kw = dict(pk=pk)
+
+        try:
+            obj = FunctionName.objects.get(**kw)
+        except FunctionName.ObjectDoesNotExist:
+            raise Http404('no such function')
+
+        self.object = obj
+
+        urefs = UniRef100.objects.filter(function_names=obj)
+        urefs = urefs.prefetch_related('function_refs')
+        urefs = urefs.annotate(sample_count=Count('abundance'))
+        xrefs = FuncRefDBEntry.objects.filter(names=obj)
+        xrefs = xrefs.prefetch_related('unirefs')
+
+        urefs = sorted(urefs, key=lambda x: x.uniref90)
+        urefs = groupby(urefs, key=lambda x: x.uniref90)
+
+        data = []
+        for ur90, grp in urefs:
+            grp = list(grp)
+            grp_xrefs = [i.function_refs.all() for i in grp]
+            data.append((ur90, grp, grp_xrefs))
+
+        return data
+
+    def get_context_data(self, **ctx):
+        ctx['data'] = self.do_stuff()
+        ctx['name'] = self.object.entry
         return ctx
 
 

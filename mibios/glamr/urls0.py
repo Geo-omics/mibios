@@ -49,6 +49,7 @@ urlpatterns = [
     re_path(rf'reference/{kpat}/$', views.ReferenceView.as_view(), name='reference'),  # noqa: E501
     re_path(rf'sample/{kpat}/$', views.SampleView.as_view(), name='sample'),  # noqa: E501
     path('sample/<int:samp_no>/krona/', krona, name='krona'),
+    path('function/<str:name>/', views.FunctionView.as_view(), name='function'),  # noqa: E501
     path('data/', views.AvailableDataView.as_view(), name='available_data'),
     path('data/<str:model>/', views.TableView.as_view(), name='generic_table'),  # noqa: E501
     re_path(rf'data/(?P<model>\w+)/{kpat}/$', views.record_view, name='record'),  # noqa: E501
