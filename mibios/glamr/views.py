@@ -545,47 +545,6 @@ class FilterMixin:
         return ctx
 
 
-class FunctionView(TemplateView):
-    template_name = 'glamr/function.html'
-
-    def do_stuff(self):
-        try:
-            pk = int(self.kwargs['name'])
-        except ValueError:
-            kw = dict(entry=self.kwargs['name'])
-        else:
-            kw = dict(pk=pk)
-
-        try:
-            obj = FunctionName.objects.get(**kw)
-        except FunctionName.ObjectDoesNotExist:
-            raise Http404('no such function')
-
-        self.object = obj
-
-        urefs = UniRef100.objects.filter(function_names=obj)
-        urefs = urefs.prefetch_related('function_refs')
-        urefs = urefs.annotate(sample_count=Count('abundance'))
-        xrefs = FuncRefDBEntry.objects.filter(names=obj)
-        xrefs = xrefs.prefetch_related('unirefs')
-
-        urefs = sorted(urefs, key=lambda x: x.uniref90)
-        urefs = groupby(urefs, key=lambda x: x.uniref90)
-
-        data = []
-        for ur90, grp in urefs:
-            grp = list(grp)
-            grp_xrefs = [i.function_refs.all() for i in grp]
-            data.append((ur90, grp, grp_xrefs))
-
-        return data
-
-    def get_context_data(self, **ctx):
-        ctx['data'] = self.do_stuff()
-        ctx['name'] = self.object.entry
-        return ctx
-
-
 class GenericModelMixin:
     """
     Mixin to set model attribute from URL kwargs
@@ -1815,6 +1774,52 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
         return ctx
 
 
+class FunctionView(RecordView):
+    """
+    Shows compact info of records related to function name
+    """
+    model = FunctionName
+    template_name = 'glamr/function.html'
+
+    def get_object_lookups(self):
+        if 'natkey' in self.kwargs:
+            return super().get_object_lookups()
+        try:
+            pk = int(self.kwargs['name'])
+        except ValueError:
+            return dict(entry=self.kwargs['name'])
+        else:
+            return dict(pk=pk)
+
+    def gather_data(self):
+        obj = self.object
+        urefs = UniRef100.objects.filter(function_names=obj)
+        urefs = urefs.prefetch_related('function_refs', 'function_names')
+        urefs = urefs.annotate(sample_count=Count('abundance'))
+        xrefs = FuncRefDBEntry.objects.filter(names=obj)
+        xrefs = xrefs.prefetch_related('unirefs')
+
+        urefs = sorted(urefs, key=lambda x: x.uniref90)
+        urefs = groupby(urefs, key=lambda x: x.uniref90)
+
+        data = []
+        for ur90, grp in urefs:
+            grp = list(grp)
+            grp_xrefs = [i.function_refs.all() for i in grp]
+            for i in grp:
+                fns = list(i.function_names.all())
+                if len(fns) > 1:
+                    print(f'BORK {i=} {fns=}')
+            data.append((ur90, grp, grp_xrefs))
+
+        return data
+
+    def get_context_data(self, **ctx):
+        ctx['data'] = self.gather_data()
+        ctx['name'] = self.object.entry
+        return ctx
+
+
 class ReferenceView(RecordView):
     """
     Display fields in roughly in bibliographic order.
@@ -2244,6 +2249,7 @@ class UniRef100View(RecordView):
 
 record_view_registry = DefaultDict(
     dataset=DatasetView.as_view(),
+    functionname=FunctionView.as_view(),
     sample=SampleView.as_view(),
     reference=ReferenceView.as_view(),
     taxnode=TaxonView.as_view(),
