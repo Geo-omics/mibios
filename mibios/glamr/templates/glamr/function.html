@@ -4,8 +4,8 @@
 <h3>Function: {{ name }}</h3>
 
 <table>
-    <tr><th>Abundance</th><th>UniRef100</th><th>UniRef90</th><th>cross references</th></tr>
-    {% for ur90, ur100s, xrefs in data %}
+    <tr><th>Abundance</th><th>UniRef100</th><th>Other names</th><th>UniRef90</th><th>cross references</th></tr>
+    {% for ur90, ur100s, xrefs, alt_names in data %}
     <tr>
         <td>
             {% for i in ur100s %}
@@ -26,6 +26,14 @@
             {% endfor %}
             </ul>
         </td>
+
+        <td><ul>
+            {% for names in alt_names %}
+            <li>{%for i in names%}<a href="{%record_url i%}">{{i}}</a> {%endfor%}</li>
+            {% endfor %}
+            </ul>
+        </td>
+
         <td>
             {% if ur90 %}
             <a href="{% url 'filter_result2' model='uniref100' %}?uniref90={{ur90}}">{{ur90}}</a>
@@ -34,9 +42,11 @@
 
         <td><ul>
             {% for i in ur100s %}
+            <li>
             {% for xref in i.function_refs.all %}
             <a href="{% record_url xref %}">{{xref}}</a>
             {% endfor %}
+            </li>
             {% endfor %}
             </ul>
         </td>

@@ -1791,11 +1791,17 @@ class FunctionView(RecordView):
         else:
             return dict(pk=pk)
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        uref_qs = UniRef100.objects.annotate(sample_count=Count('abundance'))
+        pf = Prefetch('uniref100_set', queryset=uref_qs)
+        qs = qs.prefetch_related(pf, 'uniref100_set__function_names')
+        qs = qs.prefetch_related('uniref100_set__function_refs')
+        return qs
+
     def gather_data(self):
         obj = self.object
-        urefs = UniRef100.objects.filter(function_names=obj)
-        urefs = urefs.prefetch_related('function_refs', 'function_names')
-        urefs = urefs.annotate(sample_count=Count('abundance'))
+        urefs = obj.uniref100_set.all()
         xrefs = FuncRefDBEntry.objects.filter(names=obj)
         xrefs = xrefs.prefetch_related('unirefs')
 
@@ -1806,11 +1812,11 @@ class FunctionView(RecordView):
         for ur90, grp in urefs:
             grp = list(grp)
             grp_xrefs = [i.function_refs.all() for i in grp]
+            alt_names = []
             for i in grp:
-                fns = list(i.function_names.all())
-                if len(fns) > 1:
-                    print(f'BORK {i=} {fns=}')
-            data.append((ur90, grp, grp_xrefs))
+                other_names = [j for j in i.function_names.all() if j != obj]
+                alt_names.append(other_names)
+            data.append((ur90, grp, grp_xrefs, alt_names))
 
         return data
 
