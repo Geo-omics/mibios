@@ -48,6 +48,7 @@ from mibios.omics.models import File, Gene
 from mibios.omics.views import RequiredSettingsMixin
 from . import models, tables, GREAT_LAKES
 from .forms import QBuilderForm, QLeafEditForm, SearchForm
+from .forms import ExportFormatForm
 from .queryset import exclude_private_data
 from .search_fields import ADVANCED_SEARCH_MODELS, search_fields
 from .search_utils import get_suggestions, SearchResult
@@ -180,9 +181,30 @@ class ExportMixin(ExportBaseMixin):
         return True
 
     def get_format(self, fmt_name='tab'):
-        # TODO: this is here to set the format, as long as we lack format
-        # selection
-        return super().get_format(fmt_name=fmt_name)
+        """
+        Get the format from GET query string parameters
+        """
+        fcls = self.get_export_format_form_class(self.requested_export_option)
+        form = fcls(data=self.request.GET)
+        if not form.is_valid():
+            raise Http404('invalid GET query params for export format')
+
+        fmt = form.cleaned_data['export_format']
+        defl = form.cleaned_data['export_deflate']
+        fmt_code = f'{fmt}/{defl}' if defl else fmt
+
+        for code, suf, renderer in self.FORMATS:
+            if code == fmt_code:
+                return code, suf, renderer
+        raise Http404('unsupported export format')
+
+    def get_export_format_form_class(self, export_option=None):
+        """
+        Get the format form class.  Implementing views should override
+        this.  The default form is intended for tables, offers choice of
+        separator and choice of compression.
+        """
+        return ExportFormatForm.factory(view=self)
 
     def get_export_queryset(self, export_option):
         """
@@ -305,8 +327,10 @@ class ExportMixin(ExportBaseMixin):
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
+        # context for the download_links template, for each export option this
+        # is a triple of URL, descriptive text, and the unbound form:
         ctx['export_options'] = [
-            self.get_export_link(i)
+            (*self.get_export_link(i), self.get_export_format_form_class(i)())
             for i in self.export_options
         ]
         return ctx

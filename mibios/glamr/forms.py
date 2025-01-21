@@ -6,6 +6,7 @@ from django.forms.widgets import HiddenInput, Select, TextInput
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, ButtonHolder, Submit
 
+from mibios import QUERY_FORMAT
 from .models import Dataset
 from .search_fields import search_fields
 from .templatetags.glamr_extras import human_lookups
@@ -124,3 +125,85 @@ class QLeafEditForm(RenderMixin, QBuilderForm):
             humanized = ' -> '.join(names)
             lst.append((accessor, humanized))
         self.fields['key'].choices = lst
+
+
+class ExportFormatForm(forms.Form):
+    """
+    Form to pick download file formatting options
+
+    For use with glamr.views.ExportMixin.  This is similar in purpose but
+    evolved from mibios.forms.ExportFormatForm.
+    """
+    export_format = forms.ChoiceField(
+        widget=forms.RadioSelect(attrs={'class': None}),
+        # choices/initial set by constructor
+        label='file format',
+        required=False,
+    )
+    export_deflate = forms.ChoiceField(
+        widget=forms.RadioSelect(attrs={'class': None}),
+        # choices/initial set by constructor
+        label='compression format',
+        required=False,
+    )
+
+    @classmethod
+    def factory(cls, view, name=None, base=None, opts=None):
+        """
+        Return a form class to work with given ExportBaseMixin derived view.
+
+        This method can be called as super().factory() from a deriving class
+        and then will just add the parent attributes.
+        """
+        base = base or (cls, )
+        if opts is None:
+            opts = {}
+
+        # view.FORMATS is list of triplets (format, file suffix, renderer
+        # class) where format is a simple format string or format string and
+        # compression format separated by a slash.
+        fmt_choices = set()
+        defl_choices = set()
+        for fmt_code, _, _ in view.FORMATS:
+            file_code, _, defl_code = fmt_code.partition('/')
+            fmt_choices.add(file_code)
+            if defl_code:
+                defl_choices.add(defl_code)
+
+        default_fmt, _, default_defl = view.DEFAULT_FORMAT.partition('/')
+        fmt_opts = view.get_format_choices()
+        choices = fmt_opts['choices']
+        defaults = fmt_opts['defaults']
+
+        if len(choices['format']) > 1:
+            opts['format_choices'] = choices['format']
+            opts['default_format'] = defaults['format']
+        else:
+            opts['export_format'] = None
+
+        if len(choices['deflate']) > 1:
+            opts['deflate_choices'] = choices['deflate']
+            opts['default_deflate'] = defaults['deflate']
+        else:
+            opts['export_deflate'] = None
+
+        name = name or 'Auto' + cls.__name__
+        return type(name, base, opts)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if 'export_format' in self.fields:
+            self.fields['export_format'].choices = self.format_choices
+            self.fields['export_format'].initial = self.default_format
+        if 'export_deflate' in self.fields:
+            self.fields['export_deflate'].choices = self.deflate_choices
+            self.fields['export_deflate'].initial = self.default_deflate
+
+    def add_prefix(self, field_name):
+        """
+        API abuse to correctly set the HTML input attribute
+        """
+        # TODO still needed?
+        if field_name == 'format':
+            field_name = QUERY_FORMAT
+        return super().add_prefix(field_name)

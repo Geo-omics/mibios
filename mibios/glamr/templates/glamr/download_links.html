@@ -1,15 +1,46 @@
 {# Fragment to display download links #}
 {# The export_options context variable is set by ExportMixin #}
+{% load crispy_forms_tags %}
 
 {% if export_options is None %}
     {# no download links for you #}
 {% else %}
 
-<div class="m-2">
-Download:
-{% for url, info in export_options %}
-    {%if url%} [<a href="{{url}}">{{info}}</a>] {%else%} [{{info}}] {%endif%}
+<div class="m-2" id="dl-menu-parent">
+<script type="text/javascript">
+    function adjust_dl_url(src_id) {
+        let form = document.forms["dl-form-" + src_id];
+        let link = document.getElementById('dl-url-' + src_id);
+        let url = new URL(link.href);
+        let params = new URLSearchParams(url.search);
+        switch(src_id) {
+        {%for _, _, form in export_options%}
+            case {{forloop.counter}}:
+                {%for field_name in form.fields%}
+                params.set("{{field_name}}", form["{{field_name}}"].value);
+                {%endfor%}
+        {%endfor%}
+        }
+        url.search = params.toString();
+        link.href = url.toString();
+    };
+</script>
+<p>Download:
+{% for url, info, _ in export_options %}
+    {%if url%}
+    <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#dl-menu-{{forloop.counter}}" aria-expanded="false" aria-controls="dl-menu-{{forloop.counter}}">{{info}}</button>
+    {%else%} [{{info}}] {%endif%}
 {% endfor %}
+</p>
+{% for url, info, form in export_options %}
+    <div class="collapse" id="dl-menu-{{forloop.counter}}" data-bs-parent="#dl-menu-parent"><div class="card card-body">
+    direct download link: <a href="{{url}}" id="dl-url-{{forloop.counter}}">{{info}}</a>
+    <form id="dl-form-{{forloop.counter}}" onchange="adjust_dl_url({{forloop.counter}})">
+    {{ form|crispy }}
+    </form>
+    </div></div>
+{%endfor%}
+
 </div>
 
 {% endif %}

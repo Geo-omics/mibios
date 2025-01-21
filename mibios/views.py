@@ -768,7 +768,7 @@ class CSVTabRenderer(CSVRenderer):
 
 
 class CSVRendererZipped(CSVRenderer):
-    description = 'comma-separated text file, zipped'
+    description = ('comma-separated text file', 'zipped')
     content_type = 'application/zip'
 
     def __init__(self, response, filename):
@@ -792,12 +792,12 @@ class CSVRendererZipped(CSVRenderer):
 
 
 class CSVTabRendererZipped(CSVRendererZipped):
-    description = '<tab>-separated text file, zipped'
+    description = ('<tab>-separated text file', 'zipped')
     delimiter = '\t'
 
 
 class TextRendererZipped(BaseRenderer):
-    description = 'zipped text file'
+    description = ('text file', 'zipped')
     content_type = 'application/zip'
     streaming_support = False
 
@@ -822,7 +822,7 @@ class ExportBaseMixin:
     FORMATS = (
         ('csv', '.csv', CSVRenderer),
         ('tab', '.csv', CSVTabRenderer),
-        ('comma/zipped', '.csv.zip', CSVRendererZipped),
+        ('csv/zipped', '.csv.zip', CSVRendererZipped),
         ('tab/zipped', '.csv.zip', CSVTabRendererZipped),
     )
     DEFAULT_FORMAT = 'csv'
@@ -845,6 +845,43 @@ class ExportBaseMixin:
                 return i
         else:
             raise RuntimeError('no valid default export format defined')
+
+    def get_format_choices(self):
+        """ Return split choices and defaults for formating options """
+        f_opts = set()
+        c_opts = set()
+        for opt, _, render_cls in self.FORMATS:
+            f, _, c = opt.partition('/')
+            descr = render_cls.description
+            if isinstance(descr, tuple):
+                f_descr = render_cls.description[0]
+                c_descr = render_cls.description[1]
+            elif isinstance(descr, str):
+                f_descr = descr
+                if c:
+                    raise ValueError('description of deflate option missing')
+                else:
+                    c_descr = 'uncompressed'
+
+            f_opts.add((f, f_descr))
+            c_opts.add((c, c_descr))
+
+        f_default, _, c_default = self.DEFAULT_FORMAT.partition('/')
+        if f_default not in [i[0] for i in f_opts]:
+            raise ValueError('format default is not a valid choice')
+        if c_default not in [i[0] for i in c_opts]:
+            raise ValueError('deflate default is not a valid choice')
+
+        return {
+            'choices': {
+                'format': sorted(f_opts),
+                'deflate': sorted(c_opts),
+            },
+            'defaults': {
+                'format': f_default,
+                'deflate': c_default,
+            },
+        }
 
 
 class ExportMixin(ExportBaseMixin):
