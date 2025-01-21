@@ -102,7 +102,7 @@ class ExportFormatForm(forms.Form):
     )
 
     @classmethod
-    def factory(cls, view, name=None, base=None, opts=OrderedDict()):
+    def factory(cls, view, name=None, base=None, opts=None):
         """
         Return a form class to work with given ExportBaseMixin derived view.
 
@@ -115,6 +115,9 @@ class ExportFormatForm(forms.Form):
         """
         base = base or (cls, )
         query_dict = view.conf.as_query_dict()
+        if opts is None:
+            opts = {}
+
         opts['format_choices'] = [
             (i[0], i[2].description)
             for i in view.FORMATS
@@ -184,11 +187,13 @@ class ExportForm(ExportFormatForm):
     )
 
     @classmethod
-    def factory(cls, view, name=None, base=None, opts=OrderedDict()):
+    def factory(cls, view, name=None, base=None, opts=None):
         """
         Return a form class from the given ExportFormView
 
         """
+        if opts is None:
+            opts = {}
         fields = view.conf.fields
 
         if view.conf.show:
