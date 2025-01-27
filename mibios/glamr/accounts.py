@@ -285,6 +285,8 @@ def create_staff_group():
     grp, _ = Group.objects.get_or_create(name=STAFF_GROUP_NAME)
     perms = Permission.objects.filter(codename__in=STAFF_PERMISSIONS)
     grp.permissions.set(perms)
+    staff = User.objects.filter(is_staff=True, is_active=True)
+    grp.user_set.set(staff)
     return grp
 
 
