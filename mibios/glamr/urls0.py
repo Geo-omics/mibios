@@ -55,6 +55,7 @@ urlpatterns = [
     path('data/<str:model>/<int:pk>/abundance/', views.AbundanceView.as_view(), name='record_abundance'),  # noqa: E501
     path('data/<str:model>/<int:pk>/abundance/<str:sample>/genes/', views.AbundanceGeneView.as_view(), name='record_abundance_genes'),  # noqa: E501
     path('data/<str:obj_model>/<int:pk>/relations/<str:field>/', views.ToManyListView.as_view(), name='relations'),  # noqa: E501
+    path('download/<path:path>', views.FileDownloadView.as_view(), name='file_download'),  # noqa: E501
     path('search/', views.SearchView.as_view(), name='search_initial'),
     path('search/<str:model>/', views.SearchResultListView.as_view(), name='search_result'),  # noqa: E501
     path('filter/adv/<str:model>/', views.AdvFilteredListView.as_view(), name='filter_result'),  # noqa: E501

@@ -1,6 +1,7 @@
 from functools import cached_property
 from itertools import groupby
 from logging import getLogger
+from pathlib import Path
 import pprint
 import re
 
@@ -1639,6 +1640,52 @@ class DatasetView(MapMixin, RecordView):
                 pass
             fields.append(i)
         return fields
+
+
+class FileDownloadView(BaseMixin, View):
+    def get(self, request, *arg, **kwargs):
+        """
+        Delegate sending the file to mod_xsendfile
+
+        This will check that there is an Apache 2.4 server running but that
+        mod_xsendfile is up and configured correctly is only assumed.  The
+        XSendFilePath directive does not seem to work as documented, so we will
+        set the X-Sendfile header to an absolute path, relying on a configured
+        settings.XSENDFILE_ROOT which must correspond to where the web server
+        is set up to find the files.
+
+        Once we respond there is no way to verify that the file was actually
+        send.
+
+        See also https://tn123.org/mod_xsendfile/
+        """
+        if settings.HTTPD_FILESTORAGE_ROOT is None:
+            raise Http404('direct download not configured')
+        else:
+            root = Path(settings.XSENDFILE_ROOT)
+
+        path = kwargs['path']
+        try:
+            file = File.objects.get(path=path)
+        except File.DoesNotExist:
+            # FIXME: remove test code
+            # raise Http404('invalid path')
+            path = root / path
+            print(f'not a registered file: {path}')
+        else:
+            path = root / file.relpath
+
+        if request.META['SERVER_SOFTWARE'].startswith('Apache/2.4'):
+            # An error message is put into the response that may be seen by a
+            # user in case mod_xsendfile is not loaded.  Other observed errors
+            # are simple 404s from the httpd.
+            resp = HttpResponse('x-sendfile failed or is not set up')
+            resp['X-Sendfile'] = str(path)
+            resp['Content-Type'] = 'text/plain'
+            resp['Content-Disposition'] = f'attachment; filename="{path.name}"'
+            return resp
+
+        raise Http404('direct download not supported')
 
 
 class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):

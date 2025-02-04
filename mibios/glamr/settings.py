@@ -56,3 +56,7 @@ ENABLE_TEST_VIEWS = False
 # Set to True to activate an unauthenticated admin interface, only to be used
 # in restricted environments please
 ENABLE_OPEN_ADMIN = False
+
+# To enable file download via mod_xsendfile, set this to correspond to the
+# httpd's XSenfFilePath directive.
+HTTPD_FILESTORAGE_ROOT = None
