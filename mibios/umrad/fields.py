@@ -190,12 +190,12 @@ class PathField(Field):
     def get_prep_value(self, value):
         if value is None:
             return value
-        elif self.root is None:
-            return str(value)
-        else:
-            if not isinstance(value, Path):
-                value = Path(value)
-            return str(value.relative_to(self.root))
+
+        if not isinstance(value, Path):
+            value = Path(value)
+        if value.is_absolute() and self.root is not None:
+            value = value.relative_to(self.root)
+        return str(value)
 
     def value_to_string(self, obj):
         return self.get_prep_value(self.value_from_object(obj))
