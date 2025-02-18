@@ -5,6 +5,17 @@ import mibios.omics.models
 import mibios.umrad.fields
 
 
+try:
+    file_path_root = mibios.omics.models.File.get_path_prefix
+except AttributeError:
+    file_path_root = None
+
+try:
+    file_public_root = mibios.omics.models.File.get_public_prefix
+except AttributeError:
+    file_public_root = None
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -15,11 +26,11 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='file',
             name='path',
-            field=mibios.umrad.fields.PathField(root=mibios.omics.models.File.get_path_prefix, unique=True),
+            field=mibios.umrad.fields.PathField(root=file_path_root, unique=True),
         ),
         migrations.AlterField(
             model_name='file',
             name='public',
-            field=mibios.umrad.fields.PathField(blank=True, null=True, root=mibios.omics.models.File.get_public_prefix),
+            field=mibios.umrad.fields.PathField(blank=True, null=True, root=file_public_root),
         ),
     ]

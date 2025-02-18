@@ -8,6 +8,17 @@ import mibios.omics.models
 import mibios.umrad.fields
 
 
+try:
+    file_path_root = mibios.omics.models.File.get_path_prefix
+except AttributeError:
+    file_path_root = None
+
+try:
+    file_public_root = mibios.omics.models.File.get_public_prefix
+except AttributeError:
+    file_public_root = None
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -20,8 +31,8 @@ class Migration(migrations.Migration):
             name='File',
             fields=[
                 ('id', mibios.models.AutoField(primary_key=True, serialize=False)),
-                ('path', mibios.umrad.fields.PathField(max_length=200, root=mibios.omics.models.File.get_path_prefix, unique=True)),
-                ('public', mibios.umrad.fields.PathField(blank=True, max_length=200, null=True, root=mibios.omics.models.File.get_public_prefix)),
+                ('path', mibios.umrad.fields.PathField(max_length=200, root=file_path_root, unique=True)),
+                ('public', mibios.umrad.fields.PathField(blank=True, max_length=200, null=True, root=file_public_root)),
                 ('filetype', models.PositiveSmallIntegerField(choices=[(1, 'metagenomic assembly, fasta format'), (2, 'metatranscriptome assembly, fasta format'), (3, 'functional abundance, csv format'), (4, 'taxonomic abundance, csv format'), (5, 'functional abundance (TPM) [csv]')], verbose_name='file type')),
                 ('size', models.PositiveBigIntegerField()),
                 ('md5sum', models.CharField(blank=True, max_length=32, verbose_name='MD5 sum')),

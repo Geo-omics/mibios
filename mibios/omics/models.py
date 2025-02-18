@@ -9,6 +9,7 @@ from time import time
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.files.storage import storages
 from django.db import models
 from django.db.transaction import atomic
 
@@ -867,12 +868,6 @@ class CheckM(Model):
 class File(Model):
     """ An omics product file, analysis pipeline result """
 
-    def get_path_prefix():
-        return settings.OMICS_PIPELINE_DATA
-
-    def get_public_prefix():
-        return settings.PUBLIC_DATA_ROOT
-
     class Type(models.IntegerChoices):
         METAG_ASM = 1, 'metagenomic assembly, fasta format'
         """ e.g. samp_14/assembly/megahit_noNORM/final.contigs.renamed.fa """
@@ -884,16 +879,16 @@ class File(Model):
         """ *_lca_abund_summarized.tsv """
         FUNC_ABUND_TPM = 5, 'functional abundance (TPM) [csv]'
 
-    path = PathField(
-        root=get_path_prefix,
-        unique=True,
-    )
-    public = PathField(
-        root=get_public_prefix,
-        blank=True,
-        # null corresponds to file not published
-        null=True,
-    )
+
+    file_pipeline = models.FileField(upload_to=None,
+                                     storage=storages['omics_pipeline'],
+                                     **ch_opt)
+    file_local = models.FileField(upload_to=None,
+                                  storage=storages['local_public'],
+                                  **ch_opt)
+    file_globus = models.FileField(upload_to=None,
+                                   storage=storages['globus_public'],
+                                   **ch_opt)
     filetype = models.PositiveSmallIntegerField(
         choices=Type.choices,
         verbose_name='file type',
@@ -919,9 +914,19 @@ class File(Model):
                 name='%(app_label)s_%(class)s_sample_ftype_unique',
             ),
             models.UniqueConstraint(
-                fields=['public'],
-                condition=~models.Q(public=None),  # blank is okay
-                name='%(app_label)s_%(class)s_public_path_unique',
+                fields=['file_pipeline'],
+                condition=~models.Q(file_pipeline=''),  # blank is okay
+                name='%(app_label)s_%(class)s_file_pipline_unique',
+            ),
+            models.UniqueConstraint(
+                fields=['file_local'],
+                condition=~models.Q(file_local=''),  # blank is okay
+                name='%(app_label)s_%(class)s_file_local_unique',
+            ),
+            models.UniqueConstraint(
+                fields=['file_globus'],
+                condition=~models.Q(file_globus=''),  # blank is okay
+                name='%(app_label)s_%(class)s_file_globus_unique',
             ),
         ]
 
@@ -935,11 +940,7 @@ class File(Model):
     """ file location, relative to a sample's data dir """
 
     def __str__(self):
-        return f'{self.relpath}'
-
-    def __fspath__(self):
-        """ implement os.PathLike """
-        return str(self.path)
+        return str(self.file_pipeline)
 
     _stat = None
     """ attribute holding cached stat_result, cf. File.stat() """
@@ -951,9 +952,6 @@ class File(Model):
         if not from_cache or self._stat is None:
             self._stat = self.path.stat()
         return self._stat
-
-    path_validator = PathPrefixValidator(settings.OMICS_DATA_ROOT / 'data' / 'omics')  # noqa:E501
-    public_validator = PathPrefixValidator(settings.PUBLIC_DATA_ROOT)  # noqa:E501
 
     def full_clean(self):
         # Auto set size, modtime.  This needs to happen before running

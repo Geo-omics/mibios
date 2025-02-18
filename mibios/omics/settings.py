@@ -54,6 +54,7 @@ INTERNAL_DEPLOYMENT = False
 
 OMICS_PIPELINE_ROOT = Path('/nosuchdirectory')
 OMICS_PIPELINE_DATA = OMICS_PIPELINE_ROOT / 'data' / 'omics'
+GLOBUS_STORAGE_ROOT = Path('/nosuchdirectory')
 
 KRONA_CACHE_DIR = './krona-cache'
 
@@ -75,3 +76,18 @@ FILESTORAGE_URL = None
 
 OMICS_CHECKOUT_FILE = None
 """ path to the file checkout listing """
+
+STORAGES = {
+    'staticfiles': {
+        'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+    },
+    'omics_pipeline': {
+        'BACKEND': 'mibios.omics.storage.OmicsPipelineStorage',
+    },
+    'local_public': {
+        'BACKEND': 'mibios.omics.storage.LocalPublicStorage',
+    },
+    'globus_public': {
+        'BACKEND': 'mibios.omics.storage.GlobusPublicStorage',
+    },
+}
