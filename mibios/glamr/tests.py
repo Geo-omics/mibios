@@ -269,8 +269,8 @@ class AAALoadMetaDataTests(TestCase):
         self.tmpd.cleanup()
 
     def test_load_all_meta_data(self):
-        if not settings.OMICS_DATA_ROOT.is_dir():
-            self.skipTest(f'{settings.OMICS_DATA_ROOT=} does not exist')
+        if not settings.OMICS_PIPELINE_ROOT.is_dir():
+            self.skipTest(f'{settings.OMICS_PIPELINE_ROOT=} does not exist')
 
         if not settings.GLAMR_META_ROOT.is_dir():
             self.skipTest(f'{settings.GLAMR_META_ROOT=} does not exist')

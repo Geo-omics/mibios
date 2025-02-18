@@ -48,6 +48,8 @@ model_graph_urls = [
     path('model-graphs/<str:app_name>/', views.ModelGraphView.as_view(), name='app_schema'),  # noqa:E501
 ]
 
+media_url = (settings.MEDIA_URL or 'doesnotexist').strip('/')
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', views.FrontPageView.as_view(), name='top'),
@@ -62,7 +64,7 @@ urlpatterns = [
     # path('test/', TestView.as_view(), name='test'),
     path('archive/', include(archive_urls)),
     path('api/', include(rest_router.urls)),
-    path(settings.MEDIA_URL.lstrip('/') + 'imported/<int:year>/<str:name>',
+    path(media_url + '/imported/<int:year>/<str:name>',
          views.ImportFileDownloadView.as_view(), name='import_file_download'),
     path('log/<int:import_file_pk>/', views.LogView.as_view(), name='log'),
     path('', include(model_graph_urls)),

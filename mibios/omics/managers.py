@@ -627,7 +627,7 @@ class SampleLoader(MetaDataLoader):
     @classmethod
     def get_omics_import_file(cls):
         """ get the omics data import log """
-        basedir = settings.OMICS_DATA_ROOT / 'data' / 'import_logs'
+        basedir = settings.OMICS_PIPELINE_ROOT / 'data' / 'import_logs'
         # log file name begins with date YYYYMMDD:
         basename = '_sample_status.tsv'
         most_recent_date = ''
@@ -1243,7 +1243,7 @@ class FileManager(Manager):
                 ) from e
 
             obj = self.model(
-                path=settings.OMICS_DATA_ROOT / sample.analysis_dir / tail,
+                path=settings.OMICS_PIPELINE_DATA / sample.analysis_dir / tail,
                 public=None,
                 filetype=filetype,
                 sample=sample,
@@ -1259,7 +1259,7 @@ class FileManager(Manager):
         Sample = self.model._meta.get_field('sample').related_model
 
         self.model.load_pipeline_checkout()
-        print(f'Found {len(self.model.pipeline_checkout)} file in pipeline '
+        print(f'Found {len(self.model.pipeline_checkout)} files in pipeline '
               f'checkout')
 
         existing_objs = {

@@ -2,6 +2,7 @@
 settings for the mibios.omics app
 """
 from os import environ
+from pathlib import Path
 
 from mibios.ops.settings import *  # noqa:F403
 
@@ -51,7 +52,8 @@ DATABASES = get_db_settings()
 # leave it at False for public-facing deployments
 INTERNAL_DEPLOYMENT = False
 
-OMICS_DATA_ROOT = Path()  # noqa:F405
+OMICS_PIPELINE_ROOT = Path('/nosuchdirectory')
+OMICS_PIPELINE_DATA = OMICS_PIPELINE_ROOT / 'data' / 'omics'
 
 KRONA_CACHE_DIR = './krona-cache'
 
@@ -64,6 +66,12 @@ GLOBUS_FILE_APP_URL_BASE = None
 PUBLIC_DATA_ROOT = None
 """ path to root of publicly accessible directory tree on staging server, leave
 at None on other deployments """
+
+FILESTORAGE_ROOT = None
+""" path to local filestorage for webapp use """
+
+FILESTORAGE_URL = None
+""" base URL for files; cf. MEDIA_URL """
 
 OMICS_CHECKOUT_FILE = None
 """ path to the file checkout listing """

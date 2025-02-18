@@ -1651,18 +1651,18 @@ class FileDownloadView(BaseMixin, View):
         mod_xsendfile is up and configured correctly is only assumed.  The
         XSendFilePath directive does not seem to work as documented, so we will
         set the X-Sendfile header to an absolute path, relying on a configured
-        settings.XSENDFILE_ROOT which must correspond to where the web server
-        is set up to find the files.
+        settings.HTTPD_FILESTORAGE_ROOT which must correspond to where the web
+        server is set up to find the files.
 
         Once we respond there is no way to verify that the file was actually
         send.
 
         See also https://tn123.org/mod_xsendfile/
         """
-        if settings.HTTPD_FILESTORAGE_ROOT is None:
+        if not settings.HTTPD_FILESTORAGE_ROOT or not settings.FILESTORAGE_URL:
             raise Http404('direct download not configured')
         else:
-            root = Path(settings.XSENDFILE_ROOT)
+            root = Path(settings.HTTPD_FILESTORAGE_ROOT)
 
         path = kwargs['path']
         try:

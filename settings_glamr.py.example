@@ -82,9 +82,8 @@ from mibios.glamr.settings import *  # noqa:F403
 # IMPORT_LOG_DIR = '/path/to/import_logs/'
 
 ### Settings for omics data loading
-# OMICS_DATA_ROOT = Path('/some/where/GLAMR')
-# OMICS_DATA_VERSION = 'JAN_2022'
-# AMPLICON_PIPELINE_BASE = '/some/path/'
+# OMICS_PIPELINE_ROOT = Path('/some/where/GLAMR')
+# OMICS_PIPELINE_DATA = OMICS_PIPELINE_ROOT / 'data' / 'omics'
 ### Settings for glamr data loading
 # GLAMR_META_ROOT = Path('/path/to/GLAMR-Metadata')
 

@@ -100,7 +100,8 @@ class AbstractSample(Model):
 
     analysis_dir = models.TextField(
         **opt,
-        help_text='path to results of analysis, relative to OMICS_DATA_ROOT',
+        help_text='path to results of analysis, relative to '
+        'OMICS_PIPELINE_DATA',
     )
     # mapping data / header items from bbmap output:
     read_count = models.PositiveIntegerField(
@@ -171,7 +172,7 @@ class AbstractSample(Model):
 
         DEPRECATED - use get_omics_file()
         """
-        path = settings.OMICS_DATA_ROOT / 'data' / 'omics' / 'metagenomes' \
+        path = settings.OMICS_PIPELINE_DATA / 'metagenomes' \
             / self.sample_id
         now = time()
         for i in path.iterdir():
@@ -867,7 +868,7 @@ class File(Model):
     """ An omics product file, analysis pipeline result """
 
     def get_path_prefix():
-        return settings.OMICS_DATA_ROOT / 'data' / 'omics'
+        return settings.OMICS_PIPELINE_DATA
 
     def get_public_prefix():
         return settings.PUBLIC_DATA_ROOT
@@ -1195,7 +1196,7 @@ class File(Model):
 
         current:
             Path-like to checkout text file.  This file will be appended to if
-            not in fry_run mode.
+            not in dry_run mode.
 
         dry_run:
             If True, then write output to stdout.  If False, then append to the
@@ -1203,7 +1204,7 @@ class File(Model):
             the new data is written (appended, too.)
         """
         root = cls.get_path_prefix()
-        LOCK = settings.OMICS_DATA_ROOT / '.snakemake/locks/0.output.lock'
+        LOCK = settings.OMICS_PIPELINE_ROOT / '.snakemake/locks/0.output.lock'
         Sample = cls._meta.get_field('sample').related_model
 
         if current is None:
@@ -1234,6 +1235,7 @@ class File(Model):
                     continue
 
                 if sample_dir.startswith('data/omics/'):
+                    sample_dir = sample_dir.removeprefix('data/omics/')
                     sample_data.append((sample_id, sample_type, sample_dir))
         print(f'Samples registered in pipeline: {len(sample_data)}')
 
@@ -1720,7 +1722,7 @@ class RNACentral(Model):
         (27, 'vault_RNA'),
         (28, 'Y_RNA'),
     )
-    INPUT_FILE = (settings.OMICS_DATA_ROOT / 'NCRNA' / 'RNA_CENTRAL'
+    INPUT_FILE = (settings.OMICS_PIPELINE_DATA / 'NCRNA' / 'RNA_CENTRAL'
                   / 'rnacentral_clean.fasta.gz')
 
     accession = AccessionField()

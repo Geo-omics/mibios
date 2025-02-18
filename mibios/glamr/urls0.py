@@ -9,6 +9,7 @@ url declarations for the mibios.glamr app
 # still makes sense.
 from functools import partial
 
+from django.conf import settings
 from django.contrib.auth import views as auth_views
 from django.http.response import Http404
 from django.urls import include, path, re_path
@@ -26,6 +27,8 @@ from .admin import admin_site
 
 kpat = r'(pk:(?P<pk>[\d]+)|(?P<natkey>[\w:-]+))'
 """ accession/primary key pattern for RecordView """
+
+download_url = (settings.FILESTORAGE_URL or 'doesnotexist').strip('/')
 
 
 def disable_url(*args, **kwargs):
@@ -55,7 +58,7 @@ urlpatterns = [
     path('data/<str:model>/<int:pk>/abundance/', views.AbundanceView.as_view(), name='record_abundance'),  # noqa: E501
     path('data/<str:model>/<int:pk>/abundance/<str:sample>/genes/', views.AbundanceGeneView.as_view(), name='record_abundance_genes'),  # noqa: E501
     path('data/<str:obj_model>/<int:pk>/relations/<str:field>/', views.ToManyListView.as_view(), name='relations'),  # noqa: E501
-    path('download/<path:path>', views.FileDownloadView.as_view(), name='file_download'),  # noqa: E501
+    path(download_url + '/<path:path>', views.FileDownloadView.as_view(), name='file_download'),  # noqa: E501
     path('search/', views.SearchView.as_view(), name='search_initial'),
     path('search/<str:model>/', views.SearchResultListView.as_view(), name='search_result'),  # noqa: E501
     path('filter/adv/<str:model>/', views.AdvFilteredListView.as_view(), name='filter_result'),  # noqa: E501
@@ -84,7 +87,6 @@ urlpatterns = [
     path('omics/', include(omics_urls)),
     path('', include(mibios_urls.model_graph_urls))
 ]
-
 
 # The default template names are without path, so take up the global name space
 # and mibios' templates may take precedence if mibios is listed first in

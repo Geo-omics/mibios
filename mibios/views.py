@@ -1305,6 +1305,9 @@ class ImportFileDownloadView(CuratorRequiredMixin, View):
     Reply to file download request with X-Sendfile headed response
     """
     def get(self, request, *args, **kwargs):
+        if not settings.MEDIA_URL:
+            raise Http404('direct download not configured')
+
         path = 'imported/' + str(kwargs['year']) + '/' + kwargs['name']
         try:
             file = ImportFile.objects.get(file=path)

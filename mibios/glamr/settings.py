@@ -46,9 +46,13 @@ MESSAGE_TAGS = {
     message_constants.ERROR: 'alert-danger',
 }
 
+MEDIA_ROOT = None
+MEDIA_URL = None
+
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'frontpage'
 LOGOUT_REDIRECT_URL = 'frontpage'
+FILESTORAGE_URL = '/download/'
 
 # Set to True to enable URLs for testing
 ENABLE_TEST_VIEWS = False
