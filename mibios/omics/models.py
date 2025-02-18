@@ -1242,12 +1242,14 @@ class File(Model):
         with open(LOCK) as ifile:
             for line in ifile:
                 locked_files.add(line.rstrip('\n'))
+        print(f'File records in lock file: {len(locked_files)}')
 
         # 4. check file stats
         data = {}
         num_same = num_new = num_updated = num_too_recent = num_locked = 0
         now = datetime.now().astimezone()
         one_day = timedelta(days=1)
+        warn_os_error = True
         for sid, styp, sdir in sample_data:
             for j in cls.Type:
                 sample = Sample(
@@ -1269,6 +1271,8 @@ class File(Model):
                 except OSError:
                     # e.g. file not found, permissions
                     continue
+                else:
+                    warn_os_error = False
 
                 path = path.relative_to(root)
                 dt = datetime.fromtimestamp(st.st_mtime).astimezone()
@@ -1306,6 +1310,9 @@ class File(Model):
         print(f'  new file: {num_new}')
         print(f'too recent: {num_too_recent}')
         print(f'    locked: {num_locked}')
+
+        if sample_data and warn_os_error:
+            print('WARNING: no files could be access, check storage mount etc')
 
         # 4. write out data
         with ExitStack() as estack:
