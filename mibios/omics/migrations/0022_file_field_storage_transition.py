@@ -50,9 +50,9 @@ def migrate_files_fwd(apps, schema_editor):
         # below will give relative values.
         raise ValueError('Expecting PathField.root to be None for migration')
     for obj in qs:
-        obj.file_pipeline.name = str(obj.path)
+        obj.file_pipeline.name = str(obj.path).removeprefix('data/omics/')
         if obj.public:
-            obj.file_globus.name = str(obj.public)
+            obj.file_globus.name = str(obj.public).removeprefix('data/omics/')
     File.objects.bulk_update(qs, ['file_pipeline', 'file_globus'])
 
 
@@ -64,9 +64,9 @@ def migrate_files_rev(apps, schema_editor):
     File = apps.get_model('omics', 'File')
     qs = File.objects.all()
     for obj in qs:
-        obj.path = obj.file_pipeline.name
+        obj.path = 'data/omics/' + obj.file_pipeline.name
         if obj.file_globus:
-            obj.public = obj.file_globus.name
+            obj.public = 'data/omics/' + obj.file_globus.name
     File.objects.bulk_update(qs, ['path', 'public'])
 
 
