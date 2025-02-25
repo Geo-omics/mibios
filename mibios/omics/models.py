@@ -15,7 +15,7 @@ from django.db.transaction import atomic
 
 from mibios.data import TableConfig
 from mibios.ncbi_taxonomy.models import TaxNode
-from mibios.umrad.fields import AccessionField, PathField, PathPrefixValidator
+from mibios.umrad.fields import AccessionField
 from mibios.umrad.model_utils import (
     digits, opt, ch_opt, fk_req, fk_opt, uniq_opt, Model,
 )
@@ -25,7 +25,7 @@ from mibios.umrad.utils import ProgressPrinter
 
 from . import managers, get_sample_model, sra
 from .amplicon import get_target_genes, quick_analysis, quick_annotation
-from .fields import DataPathField
+from .fields import DataPathField, ReadOnlyFileField
 from .queryset import FileQuerySet, SampleQuerySet
 from .utils import get_fasta_sequence
 
@@ -879,10 +879,9 @@ class File(Model):
         """ *_lca_abund_summarized.tsv """
         FUNC_ABUND_TPM = 5, 'functional abundance (TPM) [csv]'
 
-
-    file_pipeline = models.FileField(upload_to=None,
-                                     storage=storages['omics_pipeline'],
-                                     **ch_opt)
+    file_pipeline = ReadOnlyFileField(upload_to=None,
+                                      storage=storages['omics_pipeline'],
+                                      **ch_opt)
     file_local = models.FileField(upload_to=None,
                                   storage=storages['local_public'],
                                   **ch_opt)
@@ -1023,150 +1022,114 @@ class File(Model):
         if errors:
             raise ValidationError(errors)
 
-    @property
-    def root(self):
-        return self._meta.get_field('path').root
+    def is_public(self):
+        """
+        Convenience method telling if a file is public or restricted
 
-    @property
-    def public_root(self):
-        return self._meta.get_field('public').root
+        Returns True for files belonging to public datasets/samples.
 
-    @property
-    def relpath(self):
-        """ The path relative to the common path prefix """
-        if self.root:
-            return self.path.relative_to(self.root)
-        elif self.path.is_absolute():
-            raise ValueError('path is absolute abnd no root configured')
+        This may hit the database to retrieve the file's sample.
+        """
+        return self.sample.is_public()
+
+    def compute_local_path(self):
+        """
+        Return what the local storage path **should** be.
+
+        Would return empty str for files not to be published via local storage.
+
+        The POLICY is to publish to local storage all files of non-public
+        samples and metagenomic assemblies for public samples.  Files keep
+        their original name and relative path.
+        """
+        if self.is_public():
+            if self.filetype != self.Type.METAG_ASM:
+                return ''
+        return self.file_pipeline.name
+
+    def compute_globus_path(self):
+        """
+        Return what the globus/public path **should** be.
+
+        Would return empty str for files not to be published via globus.
+
+        The current POLICY is to publish all tracked files from a public sample
+        under their original name and relative path.
+        """
+        if self.is_public():
+            return self.file_pipeline.name
         else:
-            return self.path
+            return ''
 
-    @property
-    def relpublic(self):
+    def set_file_local(self, save=True):
+        """ Automatically set value for file_local field """
+        changed = self.update_storage('file_local')
+        if changed and save:
+            self.save()
+
+    def set_file_globus(self, save=True):
+        """ Automatically set value for file_globus field """
+        changed = self.update_storage('file_globus')
+        if changed and save:
+            self.save()
+
+    def update_storage(self, field_name, force_name=None, dry_run=False):
         """
-        The public path relative to the common path prefix
+        Ensure file's existence in storage follows policy.
 
-        This property may be exposed on a public page.
+        force_name: Override policy with this name, only for testing/debugging.
+        dry_run bool: Only print what would be done, for dev/debug.
 
-        Returns None if no public path is set.
+        Returns True if anything changed, False otherwise.  The instance will
+        not be saved.  Raises exception if underlying storage operation fails.
+        In such an error case the field-file's name attribute is not reset and
+        may differ from the original and what's stored at the DB.
         """
-        if self.public_root:
-            return self.public.relative_to(self.public_root)
-        elif self.public and self.public.is_absolute():
-            raise ValueError('public path is absolute and no root configured')
+        if field_name == 'file_local':
+            new_name = self.compute_local_path()
+        elif field_name == 'file_globus':
+            new_name = self.compute_globus_path()
         else:
-            # is a rel path or None
-            return self.public
+            raise ValueError('illegal field_name')
 
-    def compute_public_path(self):
-        """
-        Return what the public path **should** be.
+        if force_name:
+            new_name = force_name
 
-        Would return None for files not to be published.
+        file = getattr(self, field_name)
 
-        The hereby implemented POLICY is to publish all tracked files not from
-        a private sample under their original name and relative path.
-        """
-        # Uncomment this to unpublish all files
-        # return None
-        if self.sample.dataset.private is False:
-            return self.public_root / self.relpath
-        else:
-            return None
+        if file.name == new_name:
+            # no change
+            # TODO: check at least?
+            return False
 
-    def manage_public_path(self):
-        """
-        Manage the public path
+        old_name = file.name
 
-        This method will set the public field according to policy.  The policy
-        itself is not implemented in here but via compute_public_path().  This
-        method will ensure the published file exist in the public space in the
-        filesystem.  It will set the public field, the file instance is not
-        saved however, the caller has to save it.
-
-        Returns a status tuple of booleans indicating any change of the public
-        field value: (old path unlinked, new path set).  A status of (True,
-        True) means an existing public path got changed.
-
-        Call this from File.objects.update_public_path() as that does some
-        additional safety checks.
-        """
-        old = self.public
-        self.public = self.compute_public_path()
-        if self.public == old:
-            if self.public:
-                if self.public.is_file():
-                    # all good
-                    pass
+        if file:
+            if new_name:
+                # move existing file
+                file.name = new_name
+                if dry_run:
+                    print(f'[dryrun] moving ({field_name}) {old_name}->{file}')
                 else:
-                    # should be a rare case
-                    print(f'[WARNING] fix missing file: {self.public}', end='', flush=True)  # noqa:E501
-                    self._hardlink()
-                    print('[OK]')
+                    file.storage.move(old_name, file)
             else:
-                # file remains unpublished
-                pass
-            # no changes
-            return (False, False)
-        elif old is None:
-            if self.public.exists():
-                print(f'[NOTICE] file already exits: {self.public}')
-            else:
-                self._hardlink()
-            # a new File
-            return (False, True)
+                # delete
+                if dry_run:
+                    print(f'[dryrun] delete ({field_name}) {file}')
+                else:
+                    file.delete(save=False)
         else:
-            # e.g. policy change
-            if old.is_file():
-                self._unlink(old)
+            # new file
+            file.name = new_name
+            if dry_run:
+                print(f'[dryrun] link/copy ({field_name}) {file}')
             else:
-                print(f'[NOTICE] file already gone: {old}')
-            if self.public:
-                self._hardlink()
-                # change
-                return (True, True)
-            else:
-                # unpublished
-                return (True, False)
+                file.storage.link_or_copy(self.file_pipeline, file)
 
-    def _hardlink(self):
-        """ helper to hardlink public file against internal """
-        public = self.public
-        target = self.path
-        if not public.is_relative_to(self.public_root):
-            # another safety guard
-            raise RuntimeError('unsave operation suspected')
+        if dry_run:
+            file.name = old_name
 
-        public.parent.mkdir(parents=True, exist_ok=True)
-        public.hardlink_to(target)
-
-    def _unlink(self, oldpath):
-        """
-        Helper to remove a file from the public space
-
-        Cleans up any resulting empty directories.
-        """
-        # some rail guards:
-        if not oldpath.is_relative_to(self.public_root):
-            raise RuntimeError('unsave operation suspected')
-        if oldpath == self.public:
-            raise RuntimeError('unsave operation suspected')
-        if oldpath.stat().st_nlink == 1:
-            raise RuntimeError(f'does not have further hardlinks: {oldpath}')
-
-        oldpath.unlink()
-        parent = oldpath.parent
-        while parent.is_relative_to(self.public_root):
-            if parent == self.public_root:
-                # keep the root
-                break
-            try:
-                parent.rmdir()
-            except OSError:
-                # e.g. is not empty
-                break
-
-            parent = parent.parent
+        return True
 
     @property
     def download_url(self):
