@@ -411,11 +411,19 @@ class Dataset(IDMixin, AbstractDataset):
             # remove last word and add [...]
             scheme = ' '.join(scheme.split(' ')[:-1]) + '[\u2026]'
 
+        annotations = []
+
         s = ' - '.join(filter(None, [scheme, ref])) or self.short_name \
             or super().__str__()
 
         if settings.INTERNAL_DEPLOYMENT:
-            s = f'{s} ({self.dataset_id})'
+            annotations.append(self.dataset_id)
+
+        if not self.is_public():
+            annotations.append('non-public')
+
+        if annotations:
+            s = f'{s} ({", ".join(annotations)})'
 
         return s
 
@@ -678,11 +686,17 @@ class Sample(IDMixin, AbstractSample):
         ]
 
     def __str__(self):
-        value = self.sample_name or self.biosample or ''
-        if value:
-            if self.sample_id and settings.INTERNAL_DEPLOYMENT:
-                value = f'{value} ({self.sample_id})'
-        return value or self.sample_id or super().__str__()
+        value = self.sample_name or self.biosample or self.sample_id
+        annotations = []
+        if settings.INTERNAL_DEPLOYMENT:
+            annotations.append(self.sample_id)
+
+        if not self.is_public():
+            annotations.append('non-public')
+
+        if annotations:
+            value = f'{value} ({", ".join(annotations)})'
+        return value
 
     def _do_insert(self, manager, using, fields, returning_fields, raw):
         if connection.vendor != 'postgresql':
