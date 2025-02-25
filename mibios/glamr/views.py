@@ -798,7 +798,7 @@ class MapMixin():
             'collection_timestamp', 'sample_id', 'biosample',
         ]
         qs = self.get_sample_queryset()
-        qs = exclude_private_data(qs)
+        qs = exclude_private_data(qs, self.request.user)
         qs = qs.exclude(longitude=None)
         qs = qs.exclude(latitude=None)
         qs = qs.prefetch_related('dataset', 'dataset__primary_ref')
@@ -1471,7 +1471,7 @@ class RecordView(BaseMixin, DetailView):
                 # this is the m2m field
                 rel_attr = i.name
             qs = getattr(self.object, rel_attr).all()
-            qs = exclude_private_data(qs)
+            qs = exclude_private_data(qs, self.request.user)
             qs = qs[:self.max_to_many]
             data.append((name, model_name, qs, i))
 
@@ -1490,7 +1490,7 @@ class RecordView(BaseMixin, DetailView):
                 # this is the m2m field
                 rel_attr = f.name
             qs = getattr(self.object, rel_attr).all()
-            value = exclude_private_data(qs).count()
+            value = exclude_private_data(qs, self.request.user).count()
             del qs
             is_blank = (value == 0)  # Let's not show zeros
         elif f.one_to_one:
