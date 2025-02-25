@@ -479,6 +479,15 @@ class Dataset(IDMixin, AbstractDataset):
     def get_samples_url(self):
         return reverse('dataset_sample_list', args=[self.get_set_no()])
 
+    def is_public(self):
+        """ Tell if instance is public """
+        try:
+            return 0 in self.access
+        except TypeError:
+            # self.access is None or str / sqlite3
+            # may incur DB query
+            return not self.restricted_to.exists()
+
 
 class Reference(IDMixin, Model):
     """
@@ -686,6 +695,15 @@ class Sample(IDMixin, AbstractSample):
     @cached_property
     def private(self):
         return self.dataset.private
+
+    def is_public(self):
+        """ Tell if instance is public """
+        try:
+            return 0 in self.access
+        except TypeError:
+            # self.access is None or str / sqlite3
+            # may incur DB query
+            return not self.database.restricted_to.exists()
 
     @classmethod
     def get_internal_fields(cls):
