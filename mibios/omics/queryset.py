@@ -1,4 +1,4 @@
-from itertools import chain
+from itertools import chain, product
 import os
 from pathlib import Path
 from urllib.parse import quote_plus
@@ -42,6 +42,35 @@ class FileQuerySet(QuerySet):
                 }
                 ctx['extra_navigation'] = [item]
         return ctx
+
+    def update_storage(self, local=True, globus=True, dry_run=False):
+        """
+        Set file fields and ensure files are in storage.
+
+        dry_run: If True, only report what would be done.
+        """
+        field_names = []
+        if local:
+            field_names.append('file_local')
+        if globus:
+            field_names.append('file_globus')
+        if not field_names:
+            return
+
+        changed_objs = set()
+        for obj, field_name in product(self, field_names):
+            changed = obj.update_storage(field_name, dry_run=dry_run)
+            if changed:
+                changed_objs.add(obj)
+
+        print(f'Updating {len(changed_objs)} omics.File objects ...', end='',
+              flush=True)
+        if not dry_run:
+            self.model.objects.bulk_update(changed_objs, field_names)
+        if dry_run:
+            print('[dryrun]')
+        else:
+            print('[OK]')
 
 
 class SampleQuerySet(QuerySet):
