@@ -12,18 +12,23 @@ from mibios.umrad.manager import QuerySet
 class FileQuerySet(QuerySet):
     def extra_context(self):
         """
-        Get additional view/template context
+        Get additional view/template context to add Globus directory link for
+        file listings
 
-        Call in View.get_context_data() as e.g.
-        if hasattr(self.object_list, 'extra_context'):
-            ctx.update(self.object_list.extra_context())
+        To be called by View.get_context_data() as e.g.
+
+            if hasattr(self.object_list, 'extra_context'):
+                ctx.update(self.object_list.extra_context())
         """
         ctx = {}
         if globus_base := settings.GLOBUS_FILE_APP_URL_BASE:
             # the files' directories, split into parts:
             # FIXME: this does an additional DB query, unecessary but no idea
             # how to avoid (still an issue?)
-            paths = [i.relpublic.parts[:-1] for i in self if i.relpublic]
+            paths = [
+                Path(i.file_globus.name).parts[:-1]
+                for i in self if i.file_globus
+            ]
             if paths:
                 common_parts = []
                 for parts in zip(*paths):
