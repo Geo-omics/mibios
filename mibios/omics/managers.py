@@ -16,7 +16,6 @@ import tempfile
 import traceback
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
 from django.db.transaction import atomic, set_rollback
 from django.utils.module_loading import import_string
 
@@ -1252,123 +1251,6 @@ class FileManager(Manager):
             if only_new:
                 raise RuntimeError(f'File object already exists: {obj}')
         return obj
-
-    @atomic_dry
-    def full_update(self):
-        """ for transitional use """
-        Sample = self.model._meta.get_field('sample').related_model
-
-        self.model.load_pipeline_checkout()
-        print(f'Found {len(self.model.pipeline_checkout)} files in pipeline '
-              f'checkout')
-
-        existing_objs = {
-            (i.sample.sample_id, i.filetype): i
-            for i in self.all().select_related('sample')
-        }
-        print(f'Already have {len(existing_objs)} files in DB')
-
-        expected = []
-        print('Scanning samples...', end='', flush=True)
-        for i in Sample.objects.all():
-            if i.sample_type == Sample.TYPE_METAGENOME:
-                if i.contig_fasta_loaded:
-                    expected.append((i, self.model.Type.METAG_ASM))
-                if i.read_abundance_loaded:
-                    expected.append((i, self.model.Type.FUNC_ABUND))
-                if i.tax_abund_ok:
-                    expected.append((i, self.model.Type.TAX_ABUND))
-        print('[OK]')
-        print(f'Expecting about {len(expected)} files per sample status...')
-
-        count_new = 0
-        for sample, filetype in expected:
-            if obj := existing_objs.get((sample.sample_id, filetype), None):
-                pass
-            else:
-                obj = self.get_instance(sample, filetype, only_new=True)
-                is_new = True
-
-            obj.full_clean()
-
-            try:
-                obj.verify_with_pipeline()
-            except ValidationError as e:
-                print(f'checkout verification failed: {obj}: {e} ', end='')
-                if is_new:
-                    print(' [not saved]')
-                else:
-                    print(' [but we\'re keeping it?!]')
-                continue
-            else:
-                if is_new:
-                    obj.save()
-                    count_new += 1
-
-        print(f'...of those {count_new} are new')
-
-        print('Updating public filesystem paths...')
-        try:
-            rm, changed, new = self.update_public_paths()
-        except KeyboardInterrupt:
-            print('\n(aborting changes to public files)')
-        else:
-            print(f'      new: {new}')
-            print(f'  removed: {rm}')
-            print(f'  changed: {changed}')
-        print('[All done]')
-
-    @atomic_dry
-    def update_public_paths(self):
-        # check settings
-        root = settings.PUBLIC_DATA_ROOT
-        if 'public' not in root.parts and 'public-test' not in root.parts:
-            raise RuntimeError('PUBLIC_DATA_ROOT setting does not look right')
-
-        if not root.exists():
-            raise RuntimeError(f'PUBLIC_DATA_ROOT does not exist: {root}')
-
-        input(f'PLEASE CONFIRM you intend to make changes to '
-              f'{settings.PUBLIC_DATA_ROOT} !!! ')
-
-        removed_count = 0
-        changed_count = 0
-        set_new_count = 0
-        for obj in self.all():
-            removed_old, set_new = obj.manage_public_path()
-            need_save = True
-            if removed_old and set_new:
-                changed_count += 1
-            elif removed_old:
-                removed_count += 1
-            elif set_new:
-                set_new_count += 1
-            else:
-                # unchanged
-                need_save = False
-            obj.full_clean()
-            if need_save:
-                obj.save()
-
-        return removed_count, changed_count, set_new_count
-
-    def check_for_public_orphans(self):
-        """
-        Check for any stray files or directories under the public root
-        """
-        public = {i.public: i for i in self.model.objects.exclude(public=None)}
-        for root, dirs, files in os.walk(settings.PUBLIC_DATA_ROOT):
-            root = Path(root)
-            if not dirs and not files:
-                if root == settings.PUBLIC_DATA_ROOT:
-                    # this can be empty
-                    pass
-                else:
-                    print(f'empty directory: {root})')
-            for i in files:
-                file = root / i
-                if file not in public:
-                    print(f'orphan: {file}')
 
 
 class SampleTrackingManager(Manager):

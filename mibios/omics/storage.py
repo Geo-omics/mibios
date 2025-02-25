@@ -77,7 +77,7 @@ class FileOpsMixin:
         """
         Check for any stray files or directories in storage
 
-        Will unexpected content to print to stdout.
+        Will print unexpected content to stdout.
         """
         location = Path(self.location)
         valid_paths = set((i.path for i in self.get_all_files()))
@@ -96,8 +96,8 @@ class FileOpsMixin:
 
     def prune_empty_dir(self, parent):
         """
-        Walk up a direcory tree, removing any empty directories, stop at a
-        non-empty directory.
+        Remove empty directories, iterating over their otherwise empty parents
+        (below the storage location) and remove those too.
 
         parent: Instance of Path, the parent directory of a file that was just
         deleted.
@@ -118,7 +118,7 @@ class FileOpsMixin:
 
     def delete(self, name):
         """
-        Replacement for FileSystemStorage.delete() which also deletes empty
+        Replacement for FileSystemStorage.delete() which also pruning empty
         parent directories.
         """
         super().delete(name)

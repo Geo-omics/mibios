@@ -192,6 +192,7 @@ class AbstractSample(Model):
         return File.objects.get_instance(self, filetype)
 
     def get_fq_paths(self):
+        # DEPRECATED
         base = settings.OMICS_DATA_ROOT / 'READS'
         fname = f'{self.accession}_{{infix}}.fastq.gz'
         return {
@@ -200,6 +201,7 @@ class AbstractSample(Model):
         }
 
     def get_checkm_stats_path(self):
+        # DEPRECATED
         return (settings.OMICS_DATA_ROOT / 'BINS' / 'CHECKM'
                 / f'{self.accession}_CHECKM' / 'storage'
                 / 'bin_stats.analyze.tsv')
@@ -1130,16 +1132,6 @@ class File(Model):
             file.name = old_name
 
         return True
-
-    @property
-    def download_url(self):
-        """ direct download URLs """
-        if settings.GLOBUS_DIRECT_URL_BASE and self.relpublic:
-            # cf. https://docs.globus.org/globus-connect-server/v5.4/https-access-collections/  # noqa:E501
-            base = settings.GLOBUS_DIRECT_URL_BASE.rstrip('/')
-            return f'{base}/{self.relpublic}?download'
-        else:
-            return None
 
     @property
     def description(self):
