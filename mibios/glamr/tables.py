@@ -295,20 +295,31 @@ class DBInfoTable(Table):
 
 class FileTable(OmicsFileTable):
     """ List files belonging to a sample """
+    name_url = Column(
+        empty_values=(),  # trigger render_FOO()
+    )
+
     class Meta:
         model = omics_models.File
-        fields = ['download_url', 'filetype', 'size', 'modtime']
-        exclude = ['is_public']
+        fields = ['name_url', 'filetype', 'size', 'modtime']
+        sequence = ['name_url', 'filetype', 'size', 'modtime']
+        exclude = ['file_pipeline', 'file_local', 'file_globus']
 
-    def render_download_url(self, value, record):
-        if record.public:
-            name = record.public.name
-            if value:
-                return format_html('<a href="{}">{}</a>', value, name)
-            else:
-                return f'{name} (unavailable)'
+    def render_name_url(self, record):
+        if record.file_globus:
+            file = record.file_globus
+        elif record.file_local:
+            file = record.file_local
         else:
-            return '(unavailable)'
+            file = record.file_pipeline
+
+        try:
+            url = file.url
+        except ValueError:
+            # raised by the storage, not configured for downloads
+            return f'{file.name} (not available)'
+        else:
+            return format_html('<a href="{}">{}</a>', url, file.name)
 
 
 class FunctionAbundanceTable(Table):

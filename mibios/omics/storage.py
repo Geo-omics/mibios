@@ -40,7 +40,7 @@ class FileOpsMixin:
         dst = Path(file.path)
         dst.parent.mkdir(parents=True, exist_ok=True)
         src.rename(dst)
-        self.remove_empty_dir(src.parent)
+        self.prune_empty_dir(src.parent)
 
     def link_or_copy(self, source, destination):
         """
@@ -94,7 +94,7 @@ class FileOpsMixin:
                 if str(file) not in valid_paths:
                     print(f'orphan: {file}')
 
-    def remove_empty_dir(self, parent):
+    def prune_empty_dir(self, parent):
         """
         Walk up a direcory tree, removing any empty directories, stop at a
         non-empty directory.
@@ -105,7 +105,7 @@ class FileOpsMixin:
         root = Path(self.location)
         while parent.is_relative_to(root):  # guard rail
             if parent == root:
-                # always keep the root
+                # never remove the root
                 break
 
             try:
@@ -122,7 +122,7 @@ class FileOpsMixin:
         parent directories.
         """
         super().delete(name)
-        self.remove_empty_dir(Path(self.path(name)).parent)
+        self.prune_empty_dir(Path(self.path(name)).parent)
 
 
 class OmicsPipelineStorage(FileSystemStorage):

@@ -1,7 +1,6 @@
-from django.db.models.functions import Coalesce
 from django.utils.html import format_html
 
-from django_tables2 import A, Column, Table
+from django_tables2 import Column, Table
 
 from mibios.glamr.utils import get_record_url
 
@@ -13,39 +12,31 @@ class FileTable(Table):
     """
     Table of files, for internal display
     """
-    download_url = Column(
+    file_pipeline = Column(
         verbose_name='File',
-        order_by='sample__dataset, sample',
+        order_by='sample__dataset, sample, file_pipeline',
+    )
+    file_local = Column(
+        verbose_name='direct download',
+        linkify=lambda value: value.url if value else None,
         empty_values=(),  # triggers render_FOO()
     )
-    is_public = Column(
-        accessor=A('public'),
-        verbose_name='Public?',
-        empty_values=(),
+    file_globus = Column(
+        verbose_name='via Globus',
+        linkify=lambda value: value.url if value else None,
+        empty_values=(),  # triggers render_FOO()
     )
 
     class Meta:
         model = File
-        fields = ['download_url', 'is_public', 'filetype', 'size', 'modtime']
+        fields = ['file_pipeline', 'file_local', 'file_globus', 'filetype',
+                  'size', 'modtime']
 
-    def render_download_url(self, value, record):
-        if record.public:
-            path = record.relpublic
-        else:
-            path = record.relpath
+    def render_file_local(self, value, record):
+        return 'yes' if value else 'no'
 
-        if value:
-            return format_html('<a href="{}">{}</a>', value, path)
-        else:
-            return f'{"" if record.public else "*"}{path}'
-
-    def order_download_url(self, queryset, is_descending):
-        qs = queryset.annotate(path0=Coalesce('public', 'path'))
-        qs = qs.order_by('sample', ('-' if is_descending else '') + 'path0')
-        return (qs, True)
-
-    def render_is_public(self, value, record):
-        return 'yes' if record.public else 'no'
+    def render_file_globus(self, value, record):
+        return 'yes' if value else 'no'
 
 
 class SampleTrackingTable(Table):
