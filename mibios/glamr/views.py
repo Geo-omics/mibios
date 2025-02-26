@@ -1666,14 +1666,11 @@ class FileDownloadView(BaseMixin, View):
 
         path = kwargs['path']
         try:
-            file = File.objects.get(path=path)
+            file = File.objects.get(file_local=path)
         except File.DoesNotExist:
-            # FIXME: remove test code
-            # raise Http404('invalid path')
-            path = root / path
-            print(f'not a registered file: {path}')
+            raise Http404('file not found')
         else:
-            path = root / file.relpath
+            path = root / file.file_local.name
 
         if request.META['SERVER_SOFTWARE'].startswith('Apache/2.4'):
             # An error message is put into the response that may be seen by a
