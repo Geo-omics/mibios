@@ -142,7 +142,7 @@ class LocalPublicStorage(FileOpsMixin, FileSystemStorage):
     webapp.
     """
     def __init__(self, **kwargs):
-        kwargs.setdefault('location', settings.FILESTORAGE_ROOT)
+        kwargs.setdefault('location', settings.LOCAL_STORAGE_ROOT)
         kwargs.setdefault('base_url', settings.FILESTORAGE_URL)
         super().__init__(**kwargs)
 

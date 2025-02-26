@@ -55,6 +55,8 @@ INTERNAL_DEPLOYMENT = False
 OMICS_PIPELINE_ROOT = Path('/nosuchdirectory')
 OMICS_PIPELINE_DATA = OMICS_PIPELINE_ROOT / 'data' / 'omics'
 GLOBUS_STORAGE_ROOT = Path('/nosuchdirectory')
+""" path to root of publicly accessible directory tree on staging server, leave
+at None on other deployments """
 
 KRONA_CACHE_DIR = './krona-cache'
 
@@ -64,11 +66,7 @@ GLOBUS_DIRECT_URL_BASE = None
 GLOBUS_FILE_APP_URL_BASE = None
 """ root Globus url for file app, publicly shared directory """
 
-PUBLIC_DATA_ROOT = None
-""" path to root of publicly accessible directory tree on staging server, leave
-at None on other deployments """
-
-FILESTORAGE_ROOT = None
+LOCAL_STORAGE_ROOT = None
 """ path to local filestorage for webapp use """
 
 FILESTORAGE_URL = None
