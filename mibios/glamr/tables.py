@@ -295,17 +295,18 @@ class DBInfoTable(Table):
 
 class FileTable(OmicsFileTable):
     """ List files belonging to a sample """
-    name_url = Column(
+    file = Column(
+        order_by='file_pipeline',
         empty_values=(),  # trigger render_FOO()
     )
 
     class Meta:
         model = omics_models.File
-        fields = ['name_url', 'filetype', 'size', 'modtime']
-        sequence = ['name_url', 'filetype', 'size', 'modtime']
+        fields = ['file', 'filetype', 'size', 'modtime']
+        sequence = ['file', 'filetype', 'size', 'modtime']
         exclude = ['file_pipeline', 'file_local', 'file_globus']
 
-    def render_name_url(self, record):
+    def render_file(self, record):
         if record.file_globus:
             file = record.file_globus
         elif record.file_local:
