@@ -1665,12 +1665,13 @@ class FileDownloadView(BaseMixin, View):
             raise Http404('direct download not configured')
 
         path = kwargs['path']
+        qs = File.objects.exclude_private(request.user)
         try:
-            file = File.objects.get(file_local=path)
+            file = qs.get(file_local=path)
         except File.DoesNotExist:
             raise Http404('file not found')
-        else:
-            path = root / file.file_local.name
+
+        path = root / file.file_local.name
 
         if request.META['SERVER_SOFTWARE'].startswith('Apache/2.4'):
             # An error message is put into the response that may be seen by a

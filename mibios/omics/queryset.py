@@ -8,6 +8,8 @@ from django.utils.module_loading import import_string
 
 from mibios.umrad.manager import QuerySet
 
+from . import get_sample_model
+
 
 class FileQuerySet(QuerySet):
     def extra_context(self):
@@ -76,6 +78,11 @@ class FileQuerySet(QuerySet):
             print('[dryrun]')
         else:
             print('[OK]')
+
+    def exclude_private(self, credentials=None):
+        Sample = get_sample_model()
+        samples = Sample.objects.exclude_private(credentials)
+        return self.filter(sample__in=samples)
 
 
 class SampleQuerySet(QuerySet):
@@ -192,3 +199,8 @@ class SampleQuerySet(QuerySet):
             for i in sorted(accns):
                 ofile.write(f'{i}\n')
         print(f'UniRef100 accessions written to {outname}')
+
+    def exclude_private(self, credentials=None):
+        # this is a no-op in omics, as FileQueryset depends on it.  Inheriting
+        # classes implement it as needed.
+        return self
