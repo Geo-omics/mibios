@@ -5,6 +5,9 @@ from django.apps import apps
 from django.conf import settings
 from django.core.files.storage import FileSystemStorage
 from django.db.models.fields.files import FieldFile
+from django.urls import reverse
+from django.urls.exceptions import NoReverseMatch
+from django.utils.functional import cached_property
 
 
 class ReadOnlyFieldFile(FieldFile):
@@ -143,8 +146,21 @@ class LocalPublicStorage(FileOpsMixin, FileSystemStorage):
     """
     def __init__(self, **kwargs):
         kwargs.setdefault('location', settings.LOCAL_STORAGE_ROOT)
-        kwargs.setdefault('base_url', settings.FILESTORAGE_URL)
         super().__init__(**kwargs)
+
+    @cached_property
+    def base_url(self):
+        if self._base_url:
+            return super().base_url
+
+        PLACEHOLDER = 'PLACEHOLDER'
+        try:
+            base_url = reverse('file_download', args=(PLACEHOLDER,))
+        except NoReverseMatch:
+            base_url = None
+        else:
+            base_url = base_url.removesuffix(PLACEHOLDER + '/')
+        return base_url
 
     def get_all_files(self):
         File = apps.get_model('omics', 'File')

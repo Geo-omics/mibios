@@ -1659,10 +1659,10 @@ class FileDownloadView(BaseMixin, View):
 
         See also https://tn123.org/mod_xsendfile/
         """
-        if not settings.HTTPD_FILESTORAGE_ROOT or not settings.FILESTORAGE_URL:
-            raise Http404('direct download not configured')
-        else:
+        if settings.HTTPD_FILESTORAGE_ROOT and settings.FILE_DOWNLOAD_URL:
             root = Path(settings.HTTPD_FILESTORAGE_ROOT)
+        else:
+            raise Http404('direct download not configured')
 
         path = kwargs['path']
         try:

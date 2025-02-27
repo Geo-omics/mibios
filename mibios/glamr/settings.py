@@ -52,7 +52,9 @@ MEDIA_URL = None
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'frontpage'
 LOGOUT_REDIRECT_URL = 'frontpage'
-FILESTORAGE_URL = '/download/'
+
+# base URL for 'file_download'
+FILE_DOWNLOAD_URL = '/download/'
 
 # Set to True to enable URLs for testing
 ENABLE_TEST_VIEWS = False

@@ -69,9 +69,6 @@ GLOBUS_FILE_APP_URL_BASE = None
 LOCAL_STORAGE_ROOT = None
 """ path to local filestorage for webapp use """
 
-FILESTORAGE_URL = None
-""" base URL for files; cf. MEDIA_URL """
-
 OMICS_CHECKOUT_FILE = None
 """ path to the file checkout listing """
 

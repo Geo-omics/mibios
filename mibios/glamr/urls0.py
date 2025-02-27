@@ -28,7 +28,10 @@ from .admin import admin_site
 kpat = r'(pk:(?P<pk>[\d]+)|(?P<natkey>[\w:-]+))'
 """ accession/primary key pattern for RecordView """
 
-download_url = (settings.FILESTORAGE_URL or 'doesnotexist').strip('/')
+# Ensure the download_url is a str even if the setting is None so that url
+# config can work unconditionally.  The view must apropiately honor any
+# such non-configuration.
+download_url = (settings.FILE_DOWNLOAD_URL or 'doesnotexist').strip('/')
 
 
 def disable_url(*args, **kwargs):
