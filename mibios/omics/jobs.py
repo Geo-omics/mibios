@@ -19,12 +19,10 @@ class LoadMetaGAssembly(Job):
 
 
 class LoadContigAbund(Job):
-    # FIXME: do we still want this data in the DB?
-    enabled = False
-    flag = ...
+    flag = SampleTracking.Flag.CABUND
     after = [LoadMetaGAssembly]
     sample_types = [Sample.TYPE_METAGENOME]
-    required_files = ...  # *_contig_abund.tsv
+    required_files = [File.Type.CONT_ABUND]
     run = Contig.loader.load_abundance
 
 

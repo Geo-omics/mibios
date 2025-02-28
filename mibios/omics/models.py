@@ -880,6 +880,7 @@ class File(Model):
         TAX_ABUND = 4, 'taxonomic abundance, csv format'
         """ *_lca_abund_summarized.tsv """
         FUNC_ABUND_TPM = 5, 'functional abundance (TPM) [csv]'
+        CONT_ABUND = 6, 'contig abundance [csv]'
 
     file_pipeline = ReadOnlyFileField(upload_to=None,
                                       storage=storages['omics_pipeline'],
@@ -937,6 +938,7 @@ class File(Model):
         Type.TAX_ABUND: '{sample.sample_id}_lca_abund_summarized.tsv',
         Type.FUNC_ABUND: '{sample.sample_id}_tophit_report',
         Type.FUNC_ABUND_TPM: '{sample.sample_id}_tophit_TPM.tsv',
+        Type.CONT_ABUND: '{sample.sample_id}_contig_abund.tsv',
     }
     """ file location, relative to a sample's data dir """
 
@@ -1713,6 +1715,7 @@ class SampleTracking(Model):
         UR1ABUND = 'UAB', 'reads/UR100 abundance loaded'
         UR1TPM = 'TPM', 'reads/UR100/TPM loaded'
         TAXABUND = 'TAB', 'taxa abundance loaded'
+        CABUND = 'CAB', 'contig abundance loaded'
 
     flag = models.CharField(max_length=3, choices=Flag.choices)
     sample = models.ForeignKey(
