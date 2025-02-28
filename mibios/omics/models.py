@@ -943,86 +943,48 @@ class File(Model):
     def __str__(self):
         return str(self.file_pipeline)
 
-    _stat = None
-    """ attribute holding cached stat_result, cf. File.stat() """
-
-    def stat(self, from_cache=True):
+    def check_stat(self):
         """
-        Get stat for file under path and cache the result
+        Check field files' existence and size and modtime.
+
+        Checks that a file behind file_pipeline exists and auto-fill size and
+        modtime if needed.  For the other file fields size and modtime are
+        validated.
+
+        May raise ValidationError.
         """
-        if not from_cache or self._stat is None:
-            self._stat = self.path.stat()
-        return self._stat
+        for i in ('file_pipeline', 'file_local', 'file_globus'):
+            self.check_stat_field(i)
 
-    def full_clean(self):
-        # Auto set size, modtime.  This needs to happen before running
-        # full_clean() and needs a valid path, so that's validated first (and
-        # then later in super().full_clean() again).  Also prefix-validate
-        # path, public at instance level with validators outside of the field
-        # to avoid leaking settings into migrations.
-        errors = {}
-
+    def check_stat_field(self, field_name):
+        field_file = getattr(self, field_name)
+        if not field_file:
+            if field_name == 'file_pipeline':
+                raise ValidationError({field_name: 'field is blank'})
+            return
         try:
-            path = self._meta.get_field('path').clean(self.path, self)
-        except ValidationError as e:
-            errors = e.update_error_dict(errors)
-        else:
-            # tests that only make sense if path is valid:
-            try:
-                self.path_validator(path)
-            except ValidationError as e:
-                errors = e.update_error_dict(errors)
+            stat = Path(field_file.path).stat()
+        except OSError as e:
+            raise ValidationError({field_name: f'Failed to get stat: {e}'})
 
-            # Usually self._stat is not populated yet, or we want to re-check a
-            # file pulled from the DB, so run stat() here on the cleaned path
-            # (as self.path may be relative, etc.)
-            try:
-                self._stat = path.stat()
-            except OSError as e:
-                ve = ValidationError({'path': f'stat call failed: {e}'})
-                errors = ve.update_error_dict(errors)
-            else:
-                size = self.stat().st_size
-                modtime = datetime.fromtimestamp(self.stat().st_mtime) \
-                                  .astimezone()
-                if self.pk is None:
-                    self.size = size
-                    self.modtime = modtime
-                else:
-                    errs = {}
-                    if self.size != size:
-                        errs['size'] = (
-                            f'size changed -- expected: {self.size}, actually:'
-                            f' {size}'
-                        )
+        size = stat.st_size
+        modtime = datetime.fromtimestamp(stat.st_mtime).astimezone()
 
-                    if self.modtime != modtime:
-                        errs['modtime'] = (
-                            f'modtime changed -- expected: {self.modtime}, '
-                            f'actually: {modtime}'
-                        )
-                    if errs:
-                        ve = ValidationError(errs)
-                        errors = ve.update_error_dict(errors)
+        errs = {}
+        if self.size is None and field_name == 'file_pipeline':
+            self.size = size
+        elif self.size != size:
+            errs['size'] = (
+                f'size changed -- expected: {self.size}, actually: {size}'
+            )
 
-        try:
-            public = self._meta.get_field('public').clean(self.public, self)
-        except ValidationError as e:
-            errors = e.update_error_dict(errors)
-        else:
-            if public:
-                try:
-                    self.public_validator(public)
-                except ValidationError as e:
-                    errors = e.update_error_dict(errors)
-
-        try:
-            super().full_clean()
-        except ValidationError as e:
-            errors = e.update_error_dict(errors)
-
-        if errors:
-            raise ValidationError(errors)
+        if self.modtime is None and field_name == 'file_pipeline':
+            self.modtime = modtime
+        elif self.modtime != modtime:
+            errs['modtime'] = (
+                f'modtime changed -- expected: {self.modtime}, '
+                f'actually: {modtime}'
+            )
 
     def is_public(self):
         """
@@ -1306,7 +1268,7 @@ class File(Model):
         cls = self.__class__
         if cls.pipeline_checkout is None:
             cls.load_pipeline_checkout()
-        mtime = cls.pipeline_checkout.get(self.relpath, None)
+        mtime = cls.pipeline_checkout.get(Path(self.file_pipeline.name), None)
         if mtime is None:
             raise ValidationError('file not in pipeline checkout')
         if not self.modtime:

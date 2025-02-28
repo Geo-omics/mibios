@@ -1244,8 +1244,7 @@ class FileManager(Manager):
                 ) from e
 
             obj = self.model(
-                path=settings.OMICS_PIPELINE_DATA / sample.analysis_dir / tail,
-                public=None,
+                file_pipeline=str(Path(sample.analysis_dir, tail)),
                 filetype=filetype,
                 sample=sample,
             )

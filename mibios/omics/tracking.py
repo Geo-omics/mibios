@@ -74,6 +74,9 @@ class Job:
         sample as positional argument and tracks the success in the sample
         tracking table.
 
+        As part of running the job, this also tracks the files used and add a
+        sampletracking entry.
+
         This will not check certain pre-conditions, e.g. one should call e.g.
         is_ready() beforehand.
         """
@@ -86,11 +89,11 @@ class Job:
 
         for i in self.files:
             # may raise ValidationError
-            i.full_clean()
+            i.check_stat_field('file_pipeline')
             i.verify_with_pipeline()
 
         if len(self.files) == 1:
-            kw['file'] = self.files[0].path
+            kw['file'] = self.files[0].file_pipeline.path
         elif len(self.files) > 1:
             # SampleLoadMixin etc only expect (and currently only have need
             # for one file per job) one file with the file kw args
@@ -101,6 +104,7 @@ class Job:
         for i in self.files:
             # may raise ValidationError
             # TODO: test that this will actually catch file changes
+            i.check_stat_field('file_pipeline')
             i.full_clean()
             i.save()
 
@@ -170,10 +174,11 @@ class Job:
 
     @cached_property
     def files(self):
-        if self.required_files is None:
-            return []
-
-        return [self.sample.get_omics_file(i) for i in self.required_files]
+        """
+        Get list of files required for the job
+        """
+        file_types = self.required_files or []
+        return [self.sample.get_omics_file(i) for i in file_types]
 
     def status(self, use_cache=True):
         """
@@ -208,7 +213,13 @@ class Job:
             if waiting:
                 state[Status.WAITING] = waiting
 
-            if missing := [i for i in self.files if not i.path.exists()]:
+            missing = [
+                i for i in self.files
+                # FIXME? this does not detect broken symlinks
+                if not i.file_pipeline.name
+                or not i.file_pipeline.storage.exists(i.file_pipeline.name)
+            ]
+            if missing:
                 state[Status.MISSING] = missing
 
             if not state:
