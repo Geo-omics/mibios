@@ -765,6 +765,8 @@ class SampleLoader(MetaDataLoader):
                     )
                     continue
 
+                analysis_dir = analysis_dir.removeprefix('data/omics/')
+
                 updateable = ['analysis_dir']
                 change_set = []
                 for attr in updateable:
