@@ -990,6 +990,8 @@ class File(Model):
                 f'modtime changed -- expected (modulo TZ): {self.modtime}, '
                 f'actually: {modtime}'
             )
+        if errs:
+            raise ValidationError(errs)
 
     def is_public(self):
         """
