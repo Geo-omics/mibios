@@ -4,6 +4,7 @@ from importlib import import_module
 import inspect
 import sys
 
+from django.core.exceptions import ValidationError
 from django.db.transaction import atomic
 
 from mibios.umrad.utils import atomic_dry
@@ -87,10 +88,7 @@ class Job:
 
         kw = {}
 
-        for i in self.files:
-            # may raise ValidationError
-            i.check_stat_field('file_pipeline')
-            i.verify_with_pipeline()
+        self.pre_check_files()
 
         if len(self.files) == 1:
             kw['file'] = self.files[0].file_pipeline.path
@@ -101,12 +99,7 @@ class Job:
 
         retval = type(self).run(self.sample, **kw)
 
-        for i in self.files:
-            # may raise ValidationError
-            # TODO: test that this will actually catch file changes
-            i.check_stat_field('file_pipeline')
-            i.full_clean()
-            i.save()
+        self.post_check_files()
 
         if self.tracking is None:
             self.tracking = SampleTracking(
@@ -179,6 +172,48 @@ class Job:
         """
         file_types = self.required_files or []
         return [self.sample.get_omics_file(i) for i in file_types]
+
+    def pre_check_files(self):
+        """
+        Check files before running the job
+        """
+        errors = {}
+        for i in self.files:
+            try:
+                i.check_stat_field('file_pipeline')
+            except ValidationError as e:
+                errors = e.update_error_dict(errors)
+            try:
+                i.verify_with_pipeline()
+            except ValidationError as e:
+                errors = e.update_error_dict(errors)
+        if errors:
+            raise ValidationError(errors)
+
+    def post_check_files(self):
+        """
+        Check files after running job
+
+        1. Checks that files didn't changes while processing
+        2. saves file records to database
+        """
+        errors = {}
+        for i in self.files:
+            try:
+                # TODO: test that this will actually catch file changes
+                i.check_stat_field('file_pipeline')
+            except ValidationError as e:
+                errors = e.update_error_dict(errors)
+            try:
+                i.full_clean()
+            except ValidationError as e:
+                errors = e.update_error_dict(errors)
+
+        if errors:
+            raise ValidationError(errors)
+        else:
+            for i in self.files:
+                i.save()
 
     def status(self, use_cache=True):
         """
