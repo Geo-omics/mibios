@@ -946,19 +946,22 @@ class File(Model):
         return str(self.file_pipeline)
 
     def check_stat(self):
-        """
-        Check field files' existence and size and modtime.
-
-        Checks that a file behind file_pipeline exists and auto-fill size and
-        modtime if needed.  For the other file fields size and modtime are
-        validated.
-
-        May raise ValidationError.
-        """
+        """ Convenience method to check all fiel fields """
         for i in ('file_pipeline', 'file_local', 'file_globus'):
             self.check_stat_field(i)
 
     def check_stat_field(self, field_name):
+        """
+        Check field files' existence and size and modtime.
+
+        Checks that the field file exists in storage. Validates the size and
+        modtime fields against the store file.  For file_pipeline, if size
+        and/or modtime are not set yet, then those fields will be auto-filled
+        instead.
+
+        Raise ValidationError if the file field is blank or if the stat call on
+        the file fails (usually if the file does not exist in storage.
+        """
         field_file = getattr(self, field_name)
         if not field_file:
             if field_name == 'file_pipeline':
@@ -984,7 +987,7 @@ class File(Model):
             self.modtime = modtime
         elif self.modtime != modtime:
             errs['modtime'] = (
-                f'modtime changed -- expected: {self.modtime}, '
+                f'modtime changed -- expected (modulo TZ): {self.modtime}, '
                 f'actually: {modtime}'
             )
 
@@ -1272,12 +1275,14 @@ class File(Model):
             cls.load_pipeline_checkout()
         mtime = cls.pipeline_checkout.get(Path(self.file_pipeline.name), None)
         if mtime is None:
-            raise ValidationError('file not in pipeline checkout')
+            raise ValidationError({str(self): 'file not in pipeline checkout'})
         if not self.modtime:
-            raise ValidationError(f'modtime not set: {self}')
+            raise ValidationError({str(self): 'modtime not set'})
         if self.modtime != mtime:
-            raise ValidationError(f'{self}: modtime {self.modtime} differs '
-                                  f'from pipeline checkout {mtime}')
+            raise ValidationError(
+                {str(self): f'modtime {self.modtime} differs (modulo TZ)'
+                            f'from pipeline checkout {mtime}'}
+            )
 
 
 class TaxonAbundance(Model):
