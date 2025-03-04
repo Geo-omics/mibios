@@ -137,7 +137,8 @@ class SampleQuerySet(QuerySet):
             return list(chain(*jobs.values()))
 
     @gentle_int
-    def load_omics_data(self, jobs=None, follow_up_jobs=True, dry_run=False):
+    def load_omics_data(self, jobs=None, follow_up_jobs=True,
+                        publish_files=True, dry_run=False):
         """
         Run ready omics data loading jobs for these samples.
 
@@ -151,20 +152,30 @@ class SampleQuerySet(QuerySet):
             jobs that were not ready before but are ready now, will also be
             run.
 
+        publish_files bool:
+            If True, the default, then, after a run, the loaded files will also
+            be published (saved to local and/or globus storage.)
+
         This is a wrapper to handle the dry_run parameter.  In a dry run
         everything is done inside an outer transaction that is then rolled
         back, as usual.  But in a production run we don't want the outer
         transaction as to not lose work of successful jobs when we later crash.
         """
+        kwargs = dict(
+            jobs=jobs,
+            follow_up_jobs=follow_up_jobs,
+            publish_files=publish_files,
+        )
         if dry_run:
             with atomic():
-                ret = self._load_omics_data(jobs=jobs)
+                ret = self._load_omics_data(**kwargs)
                 set_rollback(True)
                 return ret
         else:
-            return self._load_omics_data(jobs=jobs)
+            return self._load_omics_data(**kwargs)
 
-    def _load_omics_data(self, jobs=None, follow_up_jobs=True):
+    def _load_omics_data(self, jobs=None, follow_up_jobs=True,
+                         publish_files=True):
         timestamper = Timestamper(
             template='[ {timestamp} ]  ',
             file_copy=settings.OMICS_LOADING_LOG,
@@ -253,20 +264,21 @@ class SampleQuerySet(QuerySet):
                             ofile.write(msg + '\n')
                             traceback.print_exc(file=ofile)
                         print(f'see traceback at {faillog}')
-                        # skip to next sample, do not set the flag, fn() is
+                        # skip to next sample, do not set the flag, job() is
                         # assumed to have rolled back any its own changes to
                         # the DB
                         abort_sample = True
                         break
                     else:
-                        # publish files
-                        file_pks = (i.pk for i in job.files)
-                        files = File.objects.filter(pk__in=file_pks)
-                        try:
-                            files.update_storage()
-                        except OSError as e:
-                            # file publishing can be done manually later
-                            print(f'[ERROR] trying to publish files: {e}')
+                        if publish_files:
+                            file_pks = (i.pk for i in job.files)
+                            files = File.objects.filter(pk__in=file_pks)
+                            try:
+                                files.update_storage()
+                            except OSError as e:
+                                # not fatal, file publishing can also be done
+                                # later, manually
+                                print(f'[ERROR] trying to publish files: {e}')
 
                         if follow_up_jobs:
                             # add newly ready jobs
