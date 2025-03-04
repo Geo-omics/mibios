@@ -92,16 +92,35 @@ class FileQuerySet(QuerySet):
 
 
 class SampleQuerySet(QuerySet):
-    def get_ready(self, sort_by_sample=False):
+    def get_ready(self, only=None, sort_by_sample=False):
         """
         Return Job instances which are ready to go (but not yet done).
 
-        Params:
+        only list:
+            Only return jobs of the given type.  A list of Job classes or class
+            names may be passed.  If None, the default, then all our samples'
+            ready jobs are returned.
         sort_by_sample:
             Sort jobs by sample.  The default is to sort jobs by the flag, in
             order as defined in SampleTracking.Flag.
         """
         SampleTracking = import_string('mibios.omics.models.SampleTracking')
+        job_registry = import_string('mibios.omics.tracking.registry')
+
+        if only is not None:
+            _only = set()
+            for i in only:
+                if isinstance(i, str):
+                    try:
+                        _only.add(job_registry.jobs[i])
+                    except KeyError as e:
+                        raise ValueError('not a job class name: {i}') from e
+                else:
+                    if i in job_registry.jobs.values():
+                        _only.add(i)
+                    else:
+                        raise ValueError('not a job class: {i}')
+            only = _only
 
         qs = self
         blocklist = \
@@ -124,7 +143,8 @@ class SampleQuerySet(QuerySet):
             for tr in sample.tracking.all():
                 for job in tr.job.before:
                     if job.is_ready() and job not in ready_jobs:
-                        ready_jobs.append(job)
+                        if only is None or type(job) in only:
+                            ready_jobs.append(job)
             if sort_by_sample:
                 jobs += ready_jobs
             else:
@@ -144,7 +164,7 @@ class SampleQuerySet(QuerySet):
 
         jobs list:
             list of jobs to process.  If this is None, then all possible jobs
-            with status READY will be processed.  Jobs not beloging to the
+            with status READY will be processed.  Jobs not belonging to the
             queryset will be skipped.
 
         follow_up_jobs bool:
