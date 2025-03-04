@@ -24,6 +24,7 @@ class LoadContigAbund(Job):
     sample_types = [Sample.TYPE_METAGENOME]
     required_files = [File.Type.CONT_ABUND]
     run = Contig.loader.load_abundance
+    undo = Contig.loader.unload_abundance
 
 
 class LoadContigLCA(Job):

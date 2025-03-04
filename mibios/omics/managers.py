@@ -336,13 +336,14 @@ class ContigLoader(TaxNodeMixin, SequenceLikeLoader):
 
     @atomic_dry
     def load_abundance(self, sample, **kwargs):
-        self.load_sample(
-            sample,
-            flag='contig_abundance_loaded',
-            spec=self.contig_abund_spec,
-            file=self.get_contig_abund_path(sample),
-            update=True,
-            **kwargs)
+        kwargs.setdefault('file', sample.get_omics_file('CONT_ABUND'))
+        kwargs.setdefault('spec', self.contig_abund_spec)
+        kwargs.setdefault('update', True)
+
+        if not kwargs['update']:
+            raise ValueError('method must run in update mode')
+
+        self.load_sample(sample, **kwargs)
 
     @atomic_dry
     def unload_abundance(self, sample):
@@ -351,8 +352,6 @@ class ContigLoader(TaxNodeMixin, SequenceLikeLoader):
         print('Unsetting abundance fields... ', end='', flush=True)
         count = self.filter(sample=sample).update(**{i: None for i in fields})
         print(f'[{count} OK]')
-        sample.contig_abundance_loaded = False
-        sample.save()
 
     @atomic_dry
     def load_lca(self, sample, **kwargs):
