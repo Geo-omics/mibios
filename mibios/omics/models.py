@@ -1125,7 +1125,6 @@ class File(Model):
             current file.  Other values are interpreted as path-like to which
             the new data is written (appended, too.)
         """
-        root = cls.get_path_prefix()
         LOCK = settings.OMICS_PIPELINE_ROOT / '.snakemake/locks/0.output.lock'
         Sample = cls._meta.get_field('sample').related_model
 
@@ -1162,11 +1161,25 @@ class File(Model):
         print(f'Samples registered in pipeline: {len(sample_data)}')
 
         # 3. Read snakemake output lock file
+        # These are paths relative to OMICS_PIPELINE_ROOT, keeping those under
+        # data root.
         locked_files = set()
+        data_root = cls._meta.get_field('file_pipeline').storage.location
+        data_pref = data_root.relative_to(settings.OMICS_PIPELINE_ROOT)
         with open(LOCK) as ifile:
-            for line in ifile:
-                locked_files.add(line.rstrip('\n'))
-        print(f'File records in lock file: {len(locked_files)}')
+            for lineno, line in enumerate(ifile):
+                path = Path(line.rstrip('\n'))
+                try:
+                    # rm data_pref to make these paths comparable with
+                    # File.file_pipeline.name
+                    path = path.relative_to(data_pref)
+                except ValueError:
+                    # locked file is not relative to our data root, ignore
+                    continue
+                locked_files.add(path)
+        del data_root, data_pref, path, line, ifile
+        print(f'Lock file: {len(locked_files)}/{lineno + 1} files under data '
+              f'root')
 
         # 4. check file stats
         data = {}
@@ -1174,6 +1187,7 @@ class File(Model):
         now = datetime.now().astimezone()
         one_day = timedelta(days=1)
         warn_os_error = True
+        print('Checking file stats... ', end='', flush=True)
         for sid, styp, sdir in sample_data:
             for j in cls.Type:
                 sample = Sample(
@@ -1182,23 +1196,24 @@ class File(Model):
                     analysis_dir=sdir,
                 )
                 try:
-                    path = sample.get_omics_file(j).path
+                    file_obj = sample.get_omics_file(j)
                 except ValueError:
                     if j not in cls.PATH_TAILS:
                         # type is not in File.PATH_TAILS
                         continue
                     else:
                         raise
+                file = file_obj.file_pipeline
 
                 try:
-                    st = path.stat()
+                    st = Path(file.path).stat()
                 except OSError:
                     # e.g. file not found, permissions
                     continue
                 else:
                     warn_os_error = False
 
-                path = path.relative_to(root)
+                path = file.name
                 dt = datetime.fromtimestamp(st.st_mtime).astimezone()
 
                 use_dt = True
@@ -1228,6 +1243,7 @@ class File(Model):
 
                 if use_dt:
                     data[path] = dt
+        print('[done]')
 
         print(f'up-to-date: {num_same}')
         print(f'newer time: {num_updated}')
