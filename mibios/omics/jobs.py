@@ -16,6 +16,7 @@ class LoadMetaGAssembly(Job):
     sample_types = [Sample.TYPE_METAGENOME]
     required_files = [File.Type.METAG_ASM]
     run = Contig.loader.load_fasta
+    undo = Contig.loader.unload_fasta
 
 
 class LoadContigAbund(Job):

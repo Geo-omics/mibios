@@ -289,11 +289,6 @@ class ContigLoader(TaxNodeMixin, SequenceLikeLoader):
         fname = f'{sample.sample_id}_contig_abund.tsv'
         return sample.get_metagenome_path() / fname
 
-    def get_contig_lca_path(self, sample):
-        """ get path to samp_NNN_contig_lca.tsv file """
-        fname = f'{sample.sample_id}_contig_lca.tsv'
-        return sample.get_metagenome_path() / fname
-
     def get_contig_no(self, value, obj):
         sample_id, _, contig_no = value.rpartition('_')
         if sample_id != self.sample.sample_id:
@@ -322,17 +317,10 @@ class ContigLoader(TaxNodeMixin, SequenceLikeLoader):
     )
 
     contig_lca_spec = CSV_Spec(
+        # FIXME - outdated, format changed, using GTDB taxonomy
         ('contig_no', get_contig_no),
         ('lca', 'check_taxid'),
     )
-
-    @atomic_dry
-    def unload_fasta_sample(self, sample):
-        super().unload_fasta_sample(sample)
-        # since this deletes the whole object
-        sample.contig_abundance_loaded = False
-        sample.contig_lca_loaded = False
-        sample.save()
 
     @atomic_dry
     def load_abundance(self, sample, **kwargs):
@@ -355,22 +343,19 @@ class ContigLoader(TaxNodeMixin, SequenceLikeLoader):
 
     @atomic_dry
     def load_lca(self, sample, **kwargs):
-        self.load_sample(
-            sample,
-            flag='contig_lca_loaded',
-            spec=self.contig_lca_spec,
-            file=self.get_contig_lca_path(sample),
-            update=True,
-            **kwargs,
-        )
+        kwargs.setdefault('file', sample.get_omics_file('CONT_LCA'))
+        kwargs.setdefault('update', True)
+
+        if not kwargs['update']:
+            raise ValueError('method must run in update mode')
+
+        self.load_sample(sample, spec=self.contig_lca_spec, **kwargs)
 
     @atomic_dry
     def unload_lca(self, sample):
         print('Unsetting lca... ', end='', flush=True)
         count = self.filter(sample=sample).update(lca=None)
         print(f'[{count} OK]')
-        setattr(sample, 'contig_lca_loaded', False)
-        sample.save()
 
 
 class FuncAbundanceLoader(BulkLoader, SampleLoadMixin):
@@ -524,11 +509,7 @@ class GeneLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
         ]
         self.spec.fkmap_filters['contig'] = {'sample': sample}
 
-        self.load_sample(
-            sample,
-            flag='gene_alignments_loaded',
-            **kwargs,
-        )
+        self.load_sample(sample, **kwargs)
 
 
 class GeneAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
@@ -820,23 +801,6 @@ class SampleLoader(MetaDataLoader):
             if missing.exists():
                 log(f'WARNING The DB has {missing.count()} samples not at all '
                     f'listed in {source_file}')
-
-    def get_metagenomic_loader_script(self):
-        """
-        Gets 'script' to load metagenomic data
-
-        This is a list of pairs (progress_flag, functions) where functions
-        means either a single callable that takes a sample as argument or a
-        list of such callables.
-        """
-        Contig = import_string('mibios.omics.models.Contig')
-        Gene = import_string('mibios.omics.models.Gene')
-
-        return [
-            ('contig_abundance_loaded', Contig.loader.load_abundance),
-            ('contig_lca_loaded', Contig.loader.load_lca),
-            ('gene_alignments_loaded', Gene.loader.load_alignments),
-        ]
 
     def get_omics_blocklist(self):
         """

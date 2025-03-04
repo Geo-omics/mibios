@@ -881,6 +881,7 @@ class File(Model):
         """ *_lca_abund_summarized.tsv """
         FUNC_ABUND_TPM = 5, 'functional abundance (TPM) [csv]'
         CONT_ABUND = 6, 'contig abundance [csv]'
+        CONT_LCA = 7, 'contig taxonomy [csv]'
 
     file_pipeline = ReadOnlyFileField(upload_to=None,
                                       storage=storages['omics_pipeline'],
@@ -939,6 +940,7 @@ class File(Model):
         Type.FUNC_ABUND: '{sample.sample_id}_tophit_report',
         Type.FUNC_ABUND_TPM: '{sample.sample_id}_tophit_TPM.tsv',
         Type.CONT_ABUND: '{sample.sample_id}_contig_abund.tsv',
+        Type.CONT_LCA: '{sample.sample_id}_contig_lca.tsv',
     }
     """ file location, relative to a sample's data dir """
 
