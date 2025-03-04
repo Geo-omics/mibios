@@ -71,9 +71,9 @@ class Job:
         """
         Run the job
 
-        This Calls the callable stored under the run class attribute with the
-        sample as positional argument and tracks the success in the sample
-        tracking table.
+        This calls the callable stored under the run attribute with the sample
+        as positional argument and tracks the success in the sample tracking
+        table.
 
         As part of running the job, this also tracks the files used and add a
         sampletracking entry.
@@ -97,7 +97,7 @@ class Job:
             # for one file per job) one file with the file kw args
             raise RuntimeError('implementation supports only single file')
 
-        retval = type(self).run(self.sample, **kw)
+        retval = self.run(self.sample, **kw)
 
         self.post_check_files()
 
@@ -131,10 +131,11 @@ class Job:
                 'the sample as argument.'
             )
 
-        self.undo(self.sample)
+        retval = self.undo(self.sample)
         if self.tracking is not None:
             self.tracking.delete()
         self._status = None
+        return retval
 
     @classmethod
     def for_sample(cls, sample, tracking=None):
@@ -268,6 +269,29 @@ class Job:
 
     def is_done(self, use_cache=True):
         return Status.DONE in self.status(use_cache=use_cache)
+
+    def fake_run(self):
+        """
+        Like __call__() but skips running the job's run function.
+
+        Use with care!
+        """
+        real_run = self.run
+        self.run = lambda *args, **kw: None
+        self()
+        self.run = real_run
+
+    def fake_undo(self):
+        """
+        Like run_undo() but skips actually running the job's undo function.
+
+        This will even run if the job's undo attribute is not set.  Use with
+        care!
+        """
+        real_undo = self.undo
+        self.undo = lambda *args, **kw: None
+        self.run_undo()
+        self.undo = real_undo
 
 
 class Registry:

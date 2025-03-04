@@ -1771,11 +1771,18 @@ class SampleTracking(Model):
         # but I should re-think the surrounding design .
         return jobcls.for_sample(self.sample, tracking=self)
 
-    def undo(self):
+    def undo(self, fake=False):
         """
         Unload the data loaded by our job and delete this tracking item.
+
+        fake bool:
+            If True then the job's undo function will not be run.  Use with
+            care.  The default is False.
         """
-        self.job.run_undo()
+        if fake:
+            self.job.fake_undo()
+        else:
+            self.job.run_undo()
 
 
 class Sample(AbstractSample):
