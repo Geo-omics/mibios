@@ -85,20 +85,6 @@ class AbstractSample(Model):
     fwd_primer = models.TextField(max_length=32, **ch_opt)
     rev_primer = models.TextField(max_length=32, **ch_opt)
 
-    # sample data accounting flags
-    contig_abundance_loaded = models.BooleanField(
-        default=False,
-        help_text='contig abundance/rpkm data loaded',
-    )
-    contig_lca_loaded = models.BooleanField(
-        default=False,
-        help_text='contig LCA data loaded',
-    )
-    gene_alignments_loaded = models.BooleanField(
-        default=False,
-        help_text='genes loaded via contig_tophit_aln file',
-    )
-
     analysis_dir = models.TextField(
         **opt,
         help_text='path to results of analysis, relative to '
