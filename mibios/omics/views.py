@@ -95,7 +95,7 @@ class SampleTrackingView(StaffLoginRequiredMixin, SingleTableView):
 
         samples = (
             Samples._meta.base_manager.all()
-            .only(*sample_fields, 'dataset__dataset_id', 'dataset__private')
+            .only(*sample_fields, 'access', 'dataset__dataset_id',)
             .select_related('dataset')
             .in_bulk()
         )
