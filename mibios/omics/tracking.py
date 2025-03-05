@@ -123,13 +123,22 @@ class Job:
         """
         Undo the effect of run()
 
-        This will also delete the tracking instance from the DB.
+        This will also delete the tracking instance from the DB.  To undo a
+        job, all jobs depending on this one, must be undone first.
         """
         if self.undo is None:
             raise NotImplementedError(
                 'The Job.undo attribute must be set to a callable that takes '
                 'the sample as argument.'
             )
+
+        # guard rails
+        if not self.is_done(use_cache=False):
+            raise RuntimeError('to undo, job must be done first')
+        for i in self.before:
+            if i.is_done(use_cache=False):
+                raise RuntimeError(f'a job that depends on this is already '
+                                   f'done: {i}')
 
         retval = self.undo(self.sample)
         if self.tracking is not None:
