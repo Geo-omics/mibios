@@ -474,12 +474,7 @@ class SequenceLikeLoader(SampleLoadMixin, BulkLoader):
 class ContigLoader(TaxNodeMixin, SequenceLikeLoader):
     """ Manager for the Contig model """
     def get_fasta_path(self, sample):
-        return sample.get_omics_file('METAG_ASM').path
-
-    def get_contig_abund_path(self, sample):
-        """ get path to samp_NNN_contig_abund.tsv file """
-        fname = f'{sample.sample_id}_contig_abund.tsv'
-        return sample.get_metagenome_path() / fname
+        return Path(sample.get_omics_file('METAG_ASM').file_pipeline.path)
 
     def get_contig_no(self, value, obj):
         sample_id, _, contig_no = value.rpartition('_')
@@ -515,15 +510,16 @@ class ContigLoader(TaxNodeMixin, SequenceLikeLoader):
     )
 
     @atomic_dry
-    def load_abundance(self, sample, **kwargs):
-        kwargs.setdefault('file', sample.get_omics_file('CONT_ABUND'))
+    def load_abundance(self, sample, file=None, **kwargs):
+        if file is None:
+            file = Path(sample.get_omics_file('CONT_ABUND').file_pipeline.path)
         kwargs.setdefault('spec', self.contig_abund_spec)
         kwargs.setdefault('update', True)
 
         if not kwargs['update']:
             raise ValueError('method must run in update mode')
 
-        self.load_sample(sample, **kwargs)
+        self.load_sample(sample, file=file, **kwargs)
 
     @atomic_dry
     def unload_abundance(self, sample):
@@ -534,14 +530,16 @@ class ContigLoader(TaxNodeMixin, SequenceLikeLoader):
         print(f'[{count} OK]')
 
     @atomic_dry
-    def load_lca(self, sample, **kwargs):
-        kwargs.setdefault('file', sample.get_omics_file('CONT_LCA'))
+    def load_lca(self, sample, file=None, **kwargs):
+        if file is None:
+            file = Path(sample.get_omics_file('CONT_LCA').file_pipeline.path)
         kwargs.setdefault('update', True)
 
         if not kwargs['update']:
             raise ValueError('method must run in update mode')
 
-        self.load_sample(sample, spec=self.contig_lca_spec, **kwargs)
+        self.load_sample(sample, spec=self.contig_lca_spec, file=file,
+                         **kwargs)
 
     @atomic_dry
     def unload_lca(self, sample):
@@ -749,7 +747,7 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
 
     def get_file(self, sample):
         """ get the *_tophit_report file """
-        return sample.get_omics_file('FUNC_ABUND')
+        return Path(sample.get_omics_file('FUNC_ABUND').file_pipeline.path)
 
     @atomic_dry
     def load_sample(self, sample, *args, spec=None, **kwargs):
@@ -775,7 +773,9 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
         self.spec.pre_load_hook = \
             partial(self.uniref100_helper, field_name='ref')
         if file is None:
-            file = sample.get_omics_file('FUNC_ABUND_TPM')
+            file = Path(
+                sample.get_omics_file('FUNC_ABUND_TPM').file_pipeline.path
+            )
         update = kwargs.pop('update', True)
         if not update:
             raise ValueError('update kwarg must not be False, loader method '
@@ -1037,7 +1037,7 @@ class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
 
     def get_file(self, sample):
         """ Get path to lca_abund_summarized file """
-        return sample.get_omics_file('TAX_ABUND')
+        return Path(sample.get_omics_file('TAX_ABUND').file_pipeline.path)
 
     @atomic_dry
     def load_sample(self, sample, **kwargs):

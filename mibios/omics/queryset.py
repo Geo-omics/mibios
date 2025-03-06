@@ -338,12 +338,13 @@ class SampleQuerySet(QuerySet):
                 except Exception:
                     # e.g. sample w/o analysis_dir
                     continue
-                if not file.path.exists():
+                path = Path(file.file_pipeline.path)
+                if not path.exists():
                     continue
 
                 file_count += 1
                 found_a_file = True
-                with open(file) as ifile:
+                with path.open() as ifile:
                     os.posix_fadvise(
                         ifile.fileno(), 0, 0, os.POSIX_FADV_SEQUENTIAL
                     )
@@ -362,7 +363,7 @@ class SampleQuerySet(QuerySet):
                     cur_total = len(accns)
                     print(
                         f'{cur_total:>10} {sample.sample_id:>9}:'
-                        f'{file.path.name:<33}\t'
+                        f'{path.name:<33}\t'
                         f'{linenum:>7} new:{cur_total - old_total:>8}'
                     )
                     old_total = cur_total
