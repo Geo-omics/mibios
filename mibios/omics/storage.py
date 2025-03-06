@@ -11,10 +11,15 @@ from django.utils.functional import cached_property
 
 
 class ReadOnlyFieldFile(FieldFile):
+    """
+    A FieldFile that tries to enforce read-only access.
+
+    Text-mode by default.
+    """
     WRITE_MODE_BITS = set(('w', 'x', '+', 'a'))
 
-    def open(self, mode='rb'):
-        if self.WRITE_MODE_BITS.isdisjoin(mode):
+    def open(self, mode='rt'):
+        if self.WRITE_MODE_BITS.isdisjoint(mode):
             return super().open(mode=mode)
         else:
             raise ValueError('mode must be read-only')
