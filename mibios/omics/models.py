@@ -508,7 +508,6 @@ class AmpliconAnalysisUnit(Model):
 
 class Bin(Model):
     """ Metagenomic assembly bin """
-    history = None
     name = models.TextField(max_length=20, unique=True)
     sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
     contigs = models.ManyToManyField('Contig', related_name='bins')
