@@ -240,8 +240,15 @@ class CompoundAbundanceTable(Table):
 
 
 class ContigTable(Table):
+    sample = Column(linkify=linkify_value)
+    name = Column(linkify=linkify_record, empty_values=())
+
     class Meta:
         model = omics_models.Contig
+        sequence = ['sample', 'name', '...']
+
+    def render_name(self, record):
+        return f'{record.sample.sample_id}_{record.contig_no}'
 
 
 class DBInfoTable(Table):
