@@ -852,22 +852,30 @@ class File(Model):
         # These are paths relative to OMICS_PIPELINE_ROOT, keeping those under
         # data root.
         locked_files = set()
-        data_root = cls._meta.get_field('file_pipeline').storage.location
-        data_pref = data_root.relative_to(settings.OMICS_PIPELINE_ROOT)
-        with open(LOCK) as ifile:
-            for lineno, line in enumerate(ifile):
-                path = Path(line.rstrip('\n'))
-                try:
-                    # rm data_pref to make these paths comparable with
-                    # File.file_pipeline.name
-                    path = path.relative_to(data_pref)
-                except ValueError:
-                    # locked file is not relative to our data root, ignore
-                    continue
-                locked_files.add(path)
-        del data_root, data_pref, path, line, ifile
-        print(f'Lock file: {len(locked_files)}/{lineno + 1} files under data '
-              f'root')
+        if LOCK.exists():
+            data_root = cls._meta.get_field('file_pipeline').storage.location
+            data_pref = data_root.relative_to(settings.OMICS_PIPELINE_ROOT)
+            with open(LOCK) as ifile:
+                for lineno, line in enumerate(ifile):
+                    path = Path(line.rstrip('\n'))
+                    try:
+                        # rm data_pref to make these paths comparable with
+                        # File.file_pipeline.name
+                        path = path.relative_to(data_pref)
+                    except ValueError:
+                        # locked file is not relative to our data root, ignore
+                        continue
+                    locked_files.add(path)
+            del data_root, data_pref, path, line, ifile
+            print(f'Lock file: {len(locked_files)}/{lineno + 1} files under '
+                  f'data root')
+        elif LOCK.parent.exists():
+            # TODO: what does this mean?  Pipeline not running at this time?
+            # can it be ignored?
+            print(f'NOTICE: snakemake lock file does not exist: {LOCK}')
+        else:
+            # shouldn't ignore this
+            raise RuntimeError(f'no snakemake lock directory: {LOCK.parent}')
 
         # 4. check file stats
         data = {}
