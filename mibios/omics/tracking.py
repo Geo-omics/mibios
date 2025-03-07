@@ -93,9 +93,8 @@ class Job:
         if len(self.files) == 1:
             kw['file'] = self.files[0].file_pipeline.path
         elif len(self.files) > 1:
-            # SampleLoadMixin etc only expect (and currently only have need
-            # for one file per job) one file with the file kw args
-            raise RuntimeError('implementation supports only single file')
+            kw['file'] = None
+            kw.update({i.filetype.name.lower(): i for i in self.files})
 
         retval = self.run(self.sample, **kw)
 

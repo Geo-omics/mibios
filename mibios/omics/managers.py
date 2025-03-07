@@ -139,11 +139,34 @@ class BinLoader(SampleLoadMixin, BulkLoader):
         # here.
         return None
 
-    def load_sample(self, sample, **kwargs):
-        spec = ModelSpec(rows=self.get_rows(sample))
-        with atomic:
-            super().load_sample(sample, spec=spec, **kwargs)
-            self.load_binning(sample)
+    def load_sample(self, sample, file=None, **kwargs):
+        """
+        Load all the sample's binning data
+
+        file:
+            This must be None.  Input files must be passed via kwargs.
+        kwargs:
+            To pass input files, add kwargs with key being lower-case
+            models.File.Type names and values either File instances or just a
+            path as Path or str.
+
+        """
+        if file is not None:
+            raise ValueError('files must be provided by filetype=file kwargs')
+
+        # get file kwargs for other methods, remove them from kwargs which is
+        # passed on separately
+        bin_contig_file = kwargs.pop('bin_contig', None)
+        file_kwargs = {}
+        for i in ['BIN_COV', 'BIN_CLASS_ARC', 'BIN_CLASS_BAC', 'BIN_CHECKM']:
+            key = i.casefold()
+            if key in kwargs:
+                file_kwargs[key] = kwargs.pop(key)
+
+        spec = ModelSpec(rows=self.get_rows(sample, **file_kwargs))
+        with atomic():
+            super().load_sample(sample, spec=spec, file=None, **kwargs)
+            self.load_binning(sample, file=bin_contig_file)
 
     def get_spec_columns(self):
         """
@@ -164,19 +187,31 @@ class BinLoader(SampleLoadMixin, BulkLoader):
             field_names.append(i.name)
         return field_names
 
-    def get_rows(self, sample):
+    def get_rows(self, sample, **file_kwargs):
         """
         Generate rows for load_sample()
         """
-        data = {}
-        # 1. read coverage for each bin
+        # 1. get all input files args so that they can be passed to open()
         # Since FieldFile.open() does not return a file handle a readline() to
         # get the header followed by iterating over the rows as below won't
         # work as the the FieldFile machinery will make the row iteration start
         # all over with the header being the first line read.  So below will
-        # just open() the str-path old fashionedly.
-        file = sample.get_omics_file('BIN_COV').file_pipeline
-        with open(file.path) as ifile:
+        # always open() a PathLike old fashionedly.
+        files = {
+            i: file_kwargs.get(i.casefold(), sample.get_omics_file(i))
+            for i
+            in ['BIN_COV', 'BIN_CLASS_ARC', 'BIN_CLASS_BAC', 'BIN_CHECKM']
+        }
+        for k, v in files.items():
+            if isinstance(v, (str, Path)):
+                pass
+            else:
+                # assume a models.File instance
+                files[k] = v.file_pipeline.path
+
+        data = {}
+        # 2. read coverage for each bin
+        with open(files['BIN_COV']) as ifile:
             header = ifile.readline().strip().split('\t')
             NAME_POS = header.index('Genome')
             REL_ABUND_POS = header.index('Relative Abundance (%)')
@@ -208,10 +243,9 @@ class BinLoader(SampleLoadMixin, BulkLoader):
                     'tpm': row[TPM_POS],
                 }
 
-        # 2. read taxa for bins that have a classification
+        # 3. read taxa for bins that have a classification
         for filetype in ('BIN_CLASS_ARC', 'BIN_CLASS_BAC'):
-            file = sample.get_omics_file(filetype).file_pipeline
-            with open(file.path) as ifile:
+            with open(files[filetype]) as ifile:
                 header = ifile.readline().strip().split('\t')
                 NAME_POS = header.index('user_genome')
                 TAXON_POS = header.index('classification')
@@ -226,9 +260,8 @@ class BinLoader(SampleLoadMixin, BulkLoader):
                         # not a rep bin
                         pass
 
-        # 3. read checkm stats for bins that have it
-        file = sample.get_omics_file('BIN_CHECKM').file_pipeline
-        with open(file.path) as ifile:
+        # 4. read checkm stats for bins that have it
+        with open(files['BIN_CHECKM']) as ifile:
             header = ifile.readline().strip().split('\t')
             NAME_POS = header.index('Bin Id')
             COMPL_POS = header.index('Completeness')
@@ -245,7 +278,7 @@ class BinLoader(SampleLoadMixin, BulkLoader):
                     # not a rep bin
                     pass
 
-        # 4. Create tuples with all values
+        # 5. Create tuples with all values
         fields = [
             self.model._meta.get_field(i)
             for i in self.get_spec_columns()
@@ -261,8 +294,8 @@ class BinLoader(SampleLoadMixin, BulkLoader):
             ))
 
     @atomic_dry
-    def load_binning(self, sample, **kwargs):
-        """ Load the Bin<->Contig relation """
+    def load_binning(self, sample, file=None):
+        """ Load the Bin<->Contig m2m relation """
         print('Retrieving bins...', end='', flush=True)
         bins = {i.name: i for i in sample.bin_set.all()}
         print(f' {len(bins)} [OK]')
@@ -270,12 +303,20 @@ class BinLoader(SampleLoadMixin, BulkLoader):
         contigs = {i.contig_no: i for i in sample.contig_set.all()}
         print(f' {len(contigs)} [OK]')
 
-        file = sample.get_omics_file('BIN_CONTIG')
+        if file is None:
+            file = sample.get_omics_file('BIN_CONTIG')
+
+        if isinstance(file, (str, Path)):
+            path = file
+        else:
+            # assume omics.models.File
+            path = file.file_pipeline.path
+
         print('Converting RDS file ...', end='', flush=True)
         with tempfile.TemporaryDirectory() as tmpd:
             tmpd = Path(tmpd)
             rscript = dedent(f"""
-            data = readRDS('{file.file_pipeline.path}')
+            data = readRDS('{path}')
             write.csv(data, '{tmpd}/binning.csv', quote=FALSE, row.names=FALSE)
             """)
             subprocess.run(['Rscript', '--vanilla', '-e', rscript], check=True)

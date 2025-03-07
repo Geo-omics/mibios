@@ -402,6 +402,9 @@ class InputFileSpec:
         """
         Setup method to be called once before loading data
 
+        file:
+            Expected to be pathlib.Path, str, or None.
+
         Intended to be called automatically by the loader.  Should be
         idempotent when called repeatedly.
         """

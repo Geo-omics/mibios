@@ -1421,6 +1421,7 @@ class SampleTracking(Model):
         UR1TPM = 'TPM', 'reads/UR100/TPM loaded'
         TAXABUND = 'TAB', 'taxa abundance loaded'
         CABUND = 'CAB', 'contig abundance loaded'
+        BINNING = 'BIN', 'bins loaded'
 
     flag = models.CharField(max_length=3, choices=Flag.choices)
     sample = models.ForeignKey(

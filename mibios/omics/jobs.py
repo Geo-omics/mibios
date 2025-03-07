@@ -1,5 +1,6 @@
 from . import get_sample_model
-from .models import Contig, File, ReadAbundance, SampleTracking, TaxonAbundance
+from .models import Bin, Contig, File, ReadAbundance, SampleTracking, \
+    TaxonAbundance
 from .tracking import Job
 
 
@@ -62,3 +63,18 @@ class LoadTaxAbund(Job):
     sample_types = [Sample.TYPE_METAGENOME]
     required_files = [File.Type.TAX_ABUND]
     run = TaxonAbundance.loader.load_sample
+
+
+class LoadBins(Job):
+    flag = SampleTracking.Flag.BINNING
+    after = [LoadMetaGAssembly]
+    sample_types = [Sample.TYPE_METAGENOME]
+    required_files = [
+        File.Type.BIN_COV,
+        File.Type.BIN_CLASS_ARC,
+        File.Type.BIN_CLASS_BAC,
+        File.Type.BIN_CHECKM,
+        File.Type.BIN_CONTIG,
+    ]
+    run = Bin.loader.load_sample
+    undo = Bin.loader.unload_sample
