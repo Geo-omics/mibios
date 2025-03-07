@@ -909,7 +909,7 @@ class File(Model):
                 else:
                     warn_os_error = False
 
-                path = file.name
+                path = Path(file.name)
                 dt = datetime.fromtimestamp(st.st_mtime).astimezone()
 
                 use_dt = True

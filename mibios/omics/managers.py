@@ -847,7 +847,9 @@ class SampleLoader(MetaDataLoader):
                 most_recent_date = date
                 most_recent_file = i
         if most_recent_file is None:
-            raise RuntimeError('sample status file / import log not found')
+            raise RuntimeError(
+                f'sample status file / import log not found under {basedir}'
+            )
         else:
             return most_recent_file
 
