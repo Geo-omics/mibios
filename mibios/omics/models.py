@@ -1,3 +1,4 @@
+from collections import defaultdict
 from contextlib import ExitStack
 from datetime import datetime, timedelta
 from logging import getLogger
@@ -981,6 +982,25 @@ class File(Model):
                 # later entries overwrite earlier
                 files[Path(relpath)] = datetime.fromisoformat(mtime)
         cls.pipeline_checkout = files
+
+    @classmethod
+    def pipeline_checkout_show_changes(cls, path=None):
+        """
+        Utility to show history of omics checkout file
+        """
+        if path is None:
+            path = settings.OMICS_CHECKOUT_FILE
+        files = defaultdict(list)
+        with open(path) as ifile:
+            for line in ifile:
+                mtime, _, relpath = line.strip().partition('\t')
+                files[relpath].append(mtime)
+        for relpath, times in files.items():
+            if len(times) == 1:
+                continue
+            print(relpath)
+            for i in times:
+                print(f'    {datetime.fromisoformat(i)}')
 
     def verify_with_pipeline(self):
         """ Verify that modtime matches pipeline checkout time """
