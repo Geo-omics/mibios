@@ -309,7 +309,16 @@ class SampleInputSpec(CSV_Spec):
                     spec_item = base_spec.pop(field_name)
                 else:
                     # take from meta data
-                    spec_item = (col_name, field_name)
+                    field = loader.model._meta.get_field(field_name)
+                    field_type = field.get_internal_type()
+                    if field_type == 'BooleanField':
+                        funcs = ['parse_bool']
+                    elif field_type == 'DecimalField':
+                        funcs = ['parse_decimal']
+                    else:
+                        funcs = []
+
+                    spec_item = (col_name, field_name, *funcs)
 
                 specs.append(spec_item)
 
@@ -536,8 +545,6 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
         ('samp_collect_device', 'sampling_device'),  # BX
         ('modified_or_experimental', 'modified_or_experimental', 'parse_bool'),
         ('is_isolate', 'is_isolate', 'parse_bool'),  # BT
-        ('is_blank_neg_control', 'is_neg_control', 'parse_bool'),  # BU
-        ('is_mock_community_or_pos_control', 'is_pos_control', 'parse_bool'),
         ('Notes', 'notes'),  # CQ
     )
 
