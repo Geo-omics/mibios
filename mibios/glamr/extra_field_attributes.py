@@ -76,7 +76,7 @@ extra_sample_field_attrs = {
     'is_pos_control': {'verbose_name': 'Mock community', 'pseudo_unit': 'TRUE / FALSE'},
     'samp_vol_we_dna_ext': {'verbose_name': 'Volume filtered', 'unit': 'mL'},
     'filt_duration': {'verbose_name': 'Filtration duration', 'pseudo_unit': 'hh:mm:ss'},
-    'par': {'verbose_name': 'Photosynthetically active radiation', 'unit': 'μE/m2/s'},
+    'par': {'verbose_name': 'Photosynthetically active radiation', 'unit': 'µM/m^2/s'},
     'qPCR_total': {'verbose_name': 'qPCR; Phytoxigene total cyanobacteria', 'unit': 'copies/mL'},
     'qPCR_mcyE': {'verbose_name': 'qPCR; Phytoxigene mcyE', 'unit': 'copies/mL'},
     'qPCR_sxtA': {'verbose_name': 'qPCR; Phytoxigene sxtA', 'unit': 'copies/mL'},
