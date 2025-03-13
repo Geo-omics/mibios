@@ -91,7 +91,7 @@ class TaxNodeMixin:
 
     Use together with SampleLoadMixin.
     """
-    def check_taxid(self, value, obj):
+    def check_taxid(self, value, **ctx):
         """
         Check validity of NCBI taxids
 
@@ -517,7 +517,7 @@ class ContigLoader(TaxNodeMixin, SequenceLikeLoader):
     def get_fasta_path(self, sample):
         return Path(sample.get_omics_file('METAG_ASM').file_pipeline.path)
 
-    def get_contig_no(self, value, obj):
+    def get_contig_no(self, value, **ctx):
         sample_id, _, contig_no = value.rpartition('_')
         if sample_id != self.sample.sample_id:
             raise InputFileError(
@@ -610,7 +610,7 @@ def fkmap_cache_reset():
 
 class UniRefMixin:
     """ Mixin for dealing with uniref100 columns """
-    def parse_ur100(self, value, obj):
+    def parse_ur100(self, value, **ctx):
         """ Preprocessing method, add this to spec line """
         # UniRef100_XYZ --> XYZ
         return UniRef100.loader.parse_ur100(value)
@@ -679,7 +679,7 @@ class GeneLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
         return sample.get_metagenome_path() \
             / f'{sample.sample_id}_contig_tophit_aln'
 
-    def to_contig_id(self, value, obj):
+    def to_contig_id(self, value, **ctx):
         """ return ID tuple based on sample and contig number """
         return self.sample.pk, int(value.rpartition('_')[2])
 
@@ -1056,7 +1056,7 @@ class SampleLoader(MetaDataLoader):
 
 class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
     """ loader manager for the TaxonAbundance model """
-    def process_tpm(self, value, obj):
+    def process_tpm(self, value, obj, **ctx):
         # obj.taxon may be None for unclassified or deleted taxids
         # tpm values for those get added together
         taxid = getattr(obj.taxon, 'taxid', None)

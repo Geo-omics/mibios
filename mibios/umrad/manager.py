@@ -509,7 +509,7 @@ class BaseLoader(MibiosBaseManager):
 
                 if callable(fn):
                     try:
-                        value = fn(value, obj)
+                        value = fn(value, obj=obj, field=field)
                     except SkipRow as e:
                         if e.log:
                             skipped_log.append(dict(
@@ -990,11 +990,21 @@ class BaseLoader(MibiosBaseManager):
         """
         Return pre-processing method for choice value prepping
         """
+        # This is called from spec setup for regular choice fields but also for
+        # the ReactionCompound loader.  In latter case the prep method calls do
+        # not pass the context and so the field (renamed to _field) is passed
+        # as as default argument so the sanity check (is the method is called
+        # on the correct field?) can be passed.
         prep_values = {j: i for i, j in field.choices}
+        _field = field
+        del field
 
-        def prep_choice_value(self, value, row=None, obj=None):
+        def prep_choice_value(self, value, field=_field, **ctx):
             """ get the prepared field value for a choice field """
-            return prep_values.get(value, value)
+            if field == _field:
+                return prep_values.get(value, value)
+            else:
+                raise ValueError('method called for wrong field')
 
         return partial(prep_choice_value, self)
 
@@ -1225,7 +1235,7 @@ class CompoundRecordLoader(BulkLoader):
     def get_file(self):
         return settings.UMRAD_ROOT / 'MERGED_CPD_DB.txt'
 
-    def chargeconv(self, value, obj):
+    def chargeconv(self, value, **ctx):
         """ Pre-processor to convert '2+' -> 2 / '2-' -> -2 """
         if value == '' or value is None:
             return None
@@ -1239,7 +1249,7 @@ class CompoundRecordLoader(BulkLoader):
             except ValueError as e:
                 raise InputFileError from e
 
-    def collect_others(self, value, obj):
+    def collect_others(self, value, **ctx):
         """
         Pre-processor triggered on kegg column to collect from other columns
         """
@@ -1342,14 +1352,14 @@ class ReactionRecordLoader(BulkLoader):
     def get_file(self):
         return settings.UMRAD_ROOT / 'MERGED_RXN_DB.txt'
 
-    def errata_check(self, value, obj):
+    def errata_check(self, value, **ctx):
         """ Pre-processor to skip extra header rows """
         # FIXME: remove this function when source data is fixed
         if value == 'rxn':
             raise SkipRow('value == "rxn" (see source code)')
         return value
 
-    def process_xrefs(self, value, obj):
+    def process_xrefs(self, value, **ctx):
         """
         Pre-processor to collect data from all xref columns
 
@@ -1363,7 +1373,7 @@ class ReactionRecordLoader(BulkLoader):
         xrefs = [(i, ) for i in xrefs if i != row[0]]  # rm this rxn itself
         return xrefs
 
-    def process_compounds(self, value, obj):
+    def process_compounds(self, value, **ctx):
         """
         Pre-processor to collect data from the 18 compound columns
 
@@ -1512,7 +1522,7 @@ class UniRef100Loader(BulkLoader):
         """ helper to parse UniRef100 accessions """
         return value.upper().removeprefix('UNIREF100_')
 
-    def parse_and_filter(self, value, obj):
+    def parse_and_filter(self, value, **ctx):
         """ for selective loading, check if row is to be skipped """
         value = self.parse_ur100(value)
         if self.selected_accns is not None:
@@ -1520,7 +1530,7 @@ class UniRef100Loader(BulkLoader):
                 raise SkipRow('record was not selected by caller', log=False)
         return value
 
-    def process_func_xrefs(self, value, obj):
+    def process_func_xrefs(self, value, **ctx):
         """ Pre-processor ro collect COG through EC columns """
         ret = []
         for (db_code, _), vals in zip(self.func_dbs, self.current_row[13:19]):
@@ -1536,7 +1546,7 @@ class UniRef100Loader(BulkLoader):
                 ret.append((i, ))
         return ret
 
-    def process_reactions(self, value, obj):
+    def process_reactions(self, value, **ctx):
         """ Pre-processor to collect all reactions """
         rxns = set()
         for i in self.current_row[17:20]:
@@ -1548,7 +1558,7 @@ class UniRef100Loader(BulkLoader):
                     rxns.add(j)
         return [(i, ) for i in rxns]
 
-    def merge_taxids(self, value, obj):
+    def merge_taxids(self, value, **ctx):
         """ replace any merged taxid with new taxid """
         items = self.split_m2m_value(value)
         if not items:

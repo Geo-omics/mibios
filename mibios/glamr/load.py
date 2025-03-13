@@ -32,7 +32,7 @@ log = getLogger(__name__)
 
 
 class BoolColMixin:
-    def parse_bool(self, value, obj):
+    def parse_bool(self, value, **ctx):
         """ Pre-processor to parse booleans """
         # Only parse str values.  The pandas reader may give us booleans
         # already for some reason (for the modified_or_experimental but not the
@@ -105,14 +105,14 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
         return settings.GLAMR_META_ROOT\
             / 'Great_Lakes_Omics_Datasets.xlsx - studies_datasets.tsv'
 
-    def ensure_id(self, value, obj):
+    def ensure_id(self, value, **ctx):
         """ Pre-processor to skip rows without dataset id """
         if not value:
             raise SkipRow('no dataset id')
 
         return value
 
-    def check_status(self, value, obj):
+    def check_status(self, value, obj, **ctx):
         match value:
             case 'Completed' | 'In Progress' | 'Issues':
                 return self.spec.IGNORE_COLUMN
@@ -120,14 +120,14 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
                 self.skipped.append(obj)
                 raise SkipRow(f'study status: {obj.dataset_id} not ready yet')
 
-    def check_is_glamr(self, value, obj):
-        if self.parse_bool(value, obj):
+    def check_is_glamr(self, value, obj, **ctx):
+        if self.parse_bool(value):
             return self.spec.IGNORE_COLUMN
         else:
             self.skipped.append(obj)
             raise SkipRow(f'{obj.dataset_id} is not a GLAMR dataset')
 
-    def sub_user_groups(self, value, obj):
+    def sub_user_groups(self, value, **ctx):
         """
         Parse special values in the 'private' column
 
@@ -176,7 +176,7 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
                 + [(i, ) for i in group_names]
             )
 
-    def split_by_comma(self, value, obj):
+    def split_by_comma(self, value, **ctx):
         return [(i, ) for i in self.split_m2m_value(value, sep=',')]
 
     spec = CSV_Spec(
@@ -233,14 +233,14 @@ class ReferenceLoader(MetaDataLoader):
         return settings.GLAMR_META_ROOT\
             / 'Great_Lakes_Omics_Datasets.xlsx - papers.tsv'
 
-    def fix_doi(self, value, obj):
+    def fix_doi(self, value, **ctx):
         """ Pre-processor to fix issue with some DOIs """
         if value is not None:
             # fix, don't require umich weblogin to follow these links
             value = value.replace('doi-org.proxy.lib.umich.edu', 'doi.org')
         return value
 
-    def check_empty(self, value, obj):
+    def check_empty(self, value, **ctx):
         """ Pre-processor to determine if row needs to be skipped """
         if not value:
             raise SkipRow('field is empty')
@@ -358,13 +358,13 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
     def get_file(self):
         return settings.GLAMR_META_ROOT / 'Great_Lakes_Omics_Datasets.xlsx - samples.tsv'  # noqa:E501
 
-    def fix_sample_id(self, value, obj):
+    def fix_sample_id(self, value, **ctx):
         """ Remove leading "SAMPLE_" from accession value """
         return value.removeprefix('Sample_')
 
     sample_id_pat = re.compile(r'^samp_[0-9]+$')
 
-    def check_sample_id(self, value, obj):
+    def check_sample_id(self, value, **ctx):
         """
         allow skipping row based on blank or blocked sample_id
 
@@ -402,7 +402,7 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
     # re for yyyy or yyyy-mm (year or year/month only) timestamp formats
     partial_date_pat = re.compile(r'^([0-9]{4})(?:-([0-9]{2})?)$')
 
-    def process_timestamp(self, value, obj):
+    def process_timestamp(self, value, obj, **ctx):
         """
         Pre-processor for the collection timestamp
 
@@ -474,7 +474,7 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
         obj.collection_ts_partial = collection_ts_partial
         return value
 
-    def parse_human_int(self, value, obj):
+    def parse_human_int(self, value, **ctx):
         """
         Pre-processor to allow use of commas to separate thousands
         """
