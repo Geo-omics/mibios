@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from itertools import chain
 from logging import getLogger
 import re
@@ -7,7 +8,7 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.contrib.postgres.search import SearchQuery
-from django.core.exceptions import FieldDoesNotExist
+from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.db import connections, transaction, NotSupportedError
 from django.db.models.signals import post_save
 from django.utils import timezone
@@ -484,6 +485,27 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
             return value.replace(',', '')
         else:
             return value
+
+    def parse_decimal(self, value, field, **ctx):
+        """
+        Pre-process decimals
+
+        Check for abnormaly many post-decimal-point places and round.  Nothing
+        else is done if the result still has too many overall digits.
+        """
+        if not value:
+            return value
+
+        try:
+            num = field.to_python(value)
+        except ValidationError:
+            # regular validation deals with this
+            return value
+
+        sign, digits, exp = num.as_tuple()
+        if -exp > field.decimal_places:
+            return num.quantize(Decimal((0, (1,), -field.decimal_places)))
+        return value
 
     spec = SampleInputSpec(
         ('SampleID', 'sample_id', check_sample_id),  # A
