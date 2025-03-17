@@ -1116,11 +1116,17 @@ class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
                 if a_node.taxid not in closure:
                     closure[a_node.taxid] = a_node
                     new_taxids.append(a_node.taxid)
-                    # 2. add ancestors to tpm data
+                    # ancestors added with initial 0.0
                     tpm_data[a_node.taxid] = 0.0
+        if 1 not in tpm_data:
+            # ensure we have the root (not present in all samples) and
+            # ancestors.all() won't include that
+            closure[1] = TaxNode.objects.get(taxid=1)
+            new_taxids.append(1)
+            tpm_data[1] = 0.0
         print(f'{len(tpm_data)} [OK]')
 
-        # 3. push tpm numbers up the tree
+        # 2. push tpm numbers up the tree
         print('Closing TPM under ancestry... ', end='', flush=True)
         to_update = {}
         to_create = {}
@@ -1151,7 +1157,7 @@ class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
                 del tpm_data[i]
         print(f'[{len(to_update)}/{len(to_create)} OK]')
 
-        # 4. update existing objects
+        # 3. update existing objects
         objs = []
         for obj in self.filter(sample=sample).select_related('taxon'):
             # objs = qs.in_bulk(to_update.keys(), field_name='taxon__taxid')
@@ -1162,7 +1168,7 @@ class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
                 objs.append(obj)
         self.fast_bulk_update(objs, ['tpm'])
 
-        # 5. create new objects (ancestry)
+        # 4. create new objects (ancestry)
         objs = [
             self.model(sample=sample, taxon=closure[taxid], tpm=tpm)
             for taxid, tpm in to_create.items()
