@@ -1,0 +1,9 @@
+{% extends "glamr/base.html" %}
+{% load static %}
+{% block content %}
+<div class="container" style="max-width:70rem;">
+<h3>http header</h3>
+<table class="table">
+{% for k, v in info.items %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}
+</table>
+{% endblock %}

@@ -87,6 +87,7 @@ urlpatterns = [
     path('errortest/', never_cache(views.test_server_error)),
     path('minitest/', never_cache(views.MiniTestView.as_view())),
     path('basetest/', never_cache(views.BaseTestView.as_view())),
+    path('httptest/', never_cache(views.HttpTestView.as_view())),
     path('omics/', include(omics_urls)),
     path('', include(mibios_urls.model_graph_urls))
 ]

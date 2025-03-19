@@ -2275,14 +2275,19 @@ def test_server_error(request):
         raise Http404('settings.ENABLE_TEST_VIEWS is set to False')
 
 
-class MiniTestView(RequiredSettingsMixin, BaseMixin, View):
+class TestViewMixin(RequiredSettingsMixin, BaseMixin):
+    """
+    Mixin for test views - use with View or TemplateView
+    """
+    required_settings = 'ENABLE_TEST_VIEWS'
+
+
+class MiniTestView(TestViewMixin, View):
     """
     minimalistic display and print request/response to stderr
 
     GET /minitest
     """
-    required_settings = 'ENABLE_TEST_VIEWS'
-
     def get(self, request, *args, **kwargs):
         log.debug(f'{self}: {request=}')
         log_msg = ''
@@ -2297,7 +2302,19 @@ class MiniTestView(RequiredSettingsMixin, BaseMixin, View):
         return response
 
 
-class BaseTestView(RequiredSettingsMixin, BaseMixin, TemplateView):
+class BaseTestView(TestViewMixin, TemplateView):
     """ Display rendered base template via GET /basetest """
-    required_settings = 'ENABLE_TEST_VIEWS'
     template_name = 'glamr/base.html'
+
+
+class HttpTestView(StaffLoginRequiredMixin, TestViewMixin, TemplateView):
+    """ Show http header """
+    template_name = 'glamr/httptest.html'
+
+    def get_context_data(self, **ctx):
+        ctx.update(info={
+            k: v for k, v
+            in self.request.META.items()
+            if k.startswith('HTTP_')
+        })
+        return ctx
