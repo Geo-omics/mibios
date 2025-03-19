@@ -2269,7 +2269,7 @@ class HttpTestView(StaffLoginRequiredMixin, TestViewMixin, TemplateView):
     def get_context_data(self, **ctx):
         ctx.update(info={
             k: v for k, v
-            in self.request.META.items()
+            in sorted(self.request.META.items())
             if k.startswith('HTTP_')
         })
         return ctx
