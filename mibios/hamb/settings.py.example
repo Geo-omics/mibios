@@ -1,0 +1,50 @@
+from django.contrib.messages import constants as message_constants
+
+from mibios.omics.settings import *  # noqa:F403
+
+LOGGING['loggers']['mibios.hamb'] = LOGGING['loggers']['mibios']  # noqa:F405
+
+# add our app
+INSTALLED_APPS.append('mibios.hamb.apps.HambConfig')  # noqa:F405
+
+TEST_RUNNER = 'mibios.hamb.tests.DiscoverRunner'
+
+# add django-filters TODO
+INSTALLED_APPS.append('django_filters')  # noqa:F405
+
+# add crispy forms TODO
+INSTALLED_APPS.append('crispy_forms')  # noqa:F405
+CRISPY_ALLOWED_TEMPLATE_PACKS = 'bootstrap4'
+CRISPY_TEMPLATE_PACK = 'bootstrap4'
+
+# find bootstrap icons as template TODO
+TEMPLATES[0]['DIRS'].append('/usr/share/bootstrap-icons/svg/')  # noqa:F405
+BASE_TEMPLATE_NAME = 'hamb/base.html'
+
+ROOT_URLCONF = 'mibios.hamb.urls'
+
+# swappable models (these are strings "<app_name>.<model_name>")
+OMICS_SAMPLE_MODEL = 'hamb.Sample'
+OMICS_DATASET_MODEL = 'hamb.Dataset'
+
+DJANGO_TABLES2_TEMPLATE = 'django_tables2/bootstrap4.html'
+
+# use messaging with bootstrap 5 CSS classes : TODO
+MESSAGE_TAGS = {
+    message_constants.DEBUG: 'alert-primary',
+    message_constants.INFO: 'alert-info',
+    message_constants.SUCCESS: 'alert-success',
+    message_constants.WARNING: 'alert-warning',
+    message_constants.ERROR: 'alert-danger',
+}
+
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'frontpage'
+LOGOUT_REDIRECT_URL = 'frontpage'
+
+# Set to True to enable URLs for testing
+ENABLE_TEST_VIEWS = False
+
+# Set to True to activate an unauthenticated admin interface, only to be used
+# in restricted environments please
+ENABLE_OPEN_ADMIN = False
