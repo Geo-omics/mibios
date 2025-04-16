@@ -484,6 +484,62 @@ class AbstractDataset(Model):
         ...
 
 
+class ASV(Model):
+    accession = models.TextField(max_length=16, unique=True)
+    sequence = models.TextField(max_length=300, unique=True)
+    taxon = models.ForeignKey(TaxNode, **fk_opt)
+    # TODO gene_target
+
+    objects = managers.ASVManager()
+
+    class Meta:
+        verbose_name = 'Amplicon Sequence Variant'
+
+    PREFIX = 'ASV'
+
+    def __str__(self):
+        return self.accession
+
+    def clean(self):
+        """
+        Check for valid accession and sequence.  Ensure sequence uses upper
+        case letters.
+        """
+        if not self.accession.startswith(self.PREFIX):
+            raise ValidationError({'accession': 'invalid prefix'})
+        try:
+            int(self.accession.removeprefix(self.PREFIX))
+        except ValueError as e:
+            raise ValidationError(
+                {'accession': 'failed parsing as prefix+num'}
+            ) from e
+
+        self.sequence = self.sequence.upper()
+        if sorted(set(self.sequence)) != ['A', 'C', 'G', 'T']:
+            raise ValidationError(
+                {'sequence': 'invalid letters in sequence'}
+            )
+
+
+class ASVAbundance(Model):
+    sample = models.ForeignKey(
+        settings.OMICS_SAMPLE_MODEL,
+        related_name='asv_abundance',
+        **fk_req,
+    )
+    asv = models.ForeignKey(ASV, **fk_req)
+    count = models.PositiveIntegerField()
+    relabund = models.FloatField()
+
+    class Meta:
+        constraints = (
+            models.UniqueConstraint(
+                fields=('sample', 'asv'),
+                name='uniq_sample_asv',
+            ),
+        )
+
+
 class ReadAbundance(Model):
     """
     Read-mapping based abundance w.r.t. UniRef100
