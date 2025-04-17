@@ -80,9 +80,9 @@ class CompoundName(VocabularyModel):
 
 
 class FunctionName(VocabularyModel):
-    fts_index = GenericRelation('glamr.Searchable')
+    # fts_index = GenericRelation('glamr.Searchable')  FIXME
     abundance_accessor = 'funcrefdbentry__abundance'
-    default_internal_fields = ['fts_index']
+    # default_internal_fields = ['fts_index']  FIXME
 
 
 class Location(VocabularyModel):
