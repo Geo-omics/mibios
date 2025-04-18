@@ -16,6 +16,6 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='sample',
             name='dataset',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='glamr.dataset'),
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.OMICS_DATASET_MODEL),
         ),
     ]
