@@ -268,7 +268,7 @@ class TaxNode(Model):
         return self.taxid == 1
 
     STANDARD_RANKS = (
-        'superkingdom', 'phylum', 'class', 'order', 'family', 'genus',
+        'domain', 'phylum', 'class', 'order', 'family', 'genus',
         'species',
     )
 
