@@ -178,6 +178,102 @@ class TaxNodeMixin:
         del self.merged, self.merged_count, self.deleted, self.deleted_count
 
 
+class ASVManager(Manager):
+    @atomic_dry
+    def load(self, file, validate=True):
+        """
+        Load data from fasta file
+
+        Input file must have sequence on single line.  Headers must be of
+        format ">{asv-accession}\n"
+        """
+        existing = set(self.values_list('accession', flat=True))
+        skipped = 0
+        objs = []
+        with open(file) as ifile:
+            print(f'Reading {file} ... ', end='', flush=True)
+            zargs = [iter(ifile)] * 2
+            fasta_records = zip(*zargs, strict=True)
+            for head, seq in fasta_records:
+                accn = head.rstrip('\n').removeprefix('>')
+                if accn in existing:
+                    skipped += 1
+                    continue
+                seq = seq.rstrip('\n').upper()
+                obj = self.model(
+                    accession=accn,
+                    sequence=seq,
+                )
+                objs.append(obj)
+        print(f'{len(objs)} records [OK]')
+        if validate:
+            print('Validating records... ', end='', flush=True)
+            for i in objs:
+                i.full_clean()
+            print('[OK]')
+        self.bulk_create(objs)
+
+    @atomic_dry
+    def load_classification(self, file):
+        """
+        Load classifications from special file
+
+        Input file format is, tab-delimited, 2-columns: ASV accession and
+        comman-separated list if NCBI tax IDs.
+        """
+        TaxNode = self.model._meta.get_field('taxon').related_model
+        print('Loading ASVs... ', end='', flush=True)
+        objs = self.in_bulk(field_name='accession')
+        print(f'{len(objs)} [OK]')
+        data = []
+        all_taxids = set()
+        with open(file) as ifile:
+            print('Loading classification... ', end='', flush=True)
+            for line in ifile:
+                accn, taxids = line.rstrip('\n').split('\t')
+                if accn not in objs:
+                    raise RuntimeError(f'unknown ASV: {accn}')
+                taxids = [int(i) for i in taxids.split(',')]
+                all_taxids.update(taxids)
+                data.append((accn, taxids))
+            print(f'{len(data)} ASVs / {len(all_taxids)} taxa [OK]')
+
+        taxnodes = TaxNode.objects \
+            .filter(taxid__in=all_taxids) \
+            .in_bulk(field_name='taxid')
+
+        for i in all_taxids - set(taxnodes):
+            if i == 0:
+                # ignore for now
+                continue
+            try:
+                merge = MergedNodes.objects.get(old_taxid=i)
+            except MergedNodes.DoesNotExist:
+                print(f'[ERROR] no such taxid / not merged: {i}')
+                raise
+
+            # map old taxid to new node
+            taxnodes[i] = merge.new_node
+
+        print('Compiling LCAs... ', end='', flush=True)
+        for accn, taxids in data:
+            nodes = [taxnodes[i] for i in taxids if i > 0]
+            if len(nodes) == 0:
+                taxon = None  # got only zeros
+            elif len(nodes) == 1:
+                taxon = nodes[0]
+            elif len(nodes) > 1:
+                lca = nodes[0].get_lca_lineage(*nodes[1:])
+                if lca:
+                    taxon = lca[-1]
+                else:
+                    taxon = None  # LCA is root
+            objs[accn].taxon = taxon
+        print('[OK]')
+
+        self.bulk_update(objs.values(), ['taxon'])
+
+
 class CompoundAbundanceLoader(BulkLoader, SampleLoadMixin):
     """ loader manager for CompoundAbundance """
     load_flag_attr = 'comp_abund_ok'
