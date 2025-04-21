@@ -7,7 +7,7 @@ from mibios.umrad.model_utils import (
 
 
 class Dataset(AbstractDataset):
-    ...
+    label = models.TextField(max_length=16, unique=True)
 
 
 class Host(Model):
@@ -21,5 +21,14 @@ class Host(Model):
 class Sample(AbstractSample):
     label = models.TextField(max_length=16)
     biosample = models.TextField(max_length=16, **ch_opt)
-    host = models.ForeignKey(Host, **fk_req)
-    source_material = models.TextField()
+    host = models.ForeignKey(Host, **fk_opt)
+    source_material = models.TextField(max_length=32)
+    control = models.TextField(max_length=8, blank=True)
+
+    class Meta:
+        constraints = (
+            models.UniqueConstraint(
+                fields=('label', 'dataset'),
+                name='uniq_label_dataset',
+            ),
+        )
