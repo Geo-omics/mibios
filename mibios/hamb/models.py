@@ -5,6 +5,8 @@ from mibios.umrad.model_utils import (
     digits, opt, ch_opt, fk_req, fk_opt, uniq_opt, Model,
 )
 
+from .managers import HostManager, SampleManager
+
 
 class Dataset(AbstractDataset):
     label = models.TextField(max_length=16, unique=True)
@@ -17,6 +19,8 @@ class Host(Model):
     description = models.TextField(**ch_opt)
     health_state = models.TextField(**ch_opt)
 
+    objects = HostManager()
+
 
 class Sample(AbstractSample):
     label = models.TextField(max_length=16)
@@ -24,6 +28,8 @@ class Sample(AbstractSample):
     host = models.ForeignKey(Host, **fk_opt)
     source_material = models.TextField(max_length=32)
     control = models.TextField(max_length=8, blank=True)
+
+    objects = SampleManager()
 
     class Meta:
         constraints = (

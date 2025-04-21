@@ -274,6 +274,65 @@ class ASVManager(Manager):
         self.bulk_update(objs.values(), ['taxon'])
 
 
+class ASVAbundanceManager(Manager):
+    @atomic_dry
+    def load_bio173_data(self, shared_file, sample_file):
+        """ load from mothur-style shared file """
+        ASV = self.model._meta.get_field('asv').related_model
+        Sample = self.model._meta.get_field('sample').related_model
+        Dataset = Sample._meta.get_field('dataset').related_model
+
+        bio173 = Dataset.objects.get(label='Bio173')
+
+        print('Retrieving Sample objects... ', end='', flush=True)
+        # label is unique per dataset
+        samples = {i.label: i for i in Sample.objects.filter(dataset=bio173)}
+        print(f'{len(samples)} [OK]')
+
+        print('Retrieving ASV objects... ', end='', flush=True)
+        asvs = ASV.objects.defer('sequence').in_bulk(field_name='accession')
+        print(f'{len(asvs)} [OK]')
+
+        # load sample file for id mapping U001_2_S274 -> U001_2
+        sample_ids = {}
+        with open(sample_file) as ifile:
+            print(f'Reading sample file {ifile.name} ...', end='', flush=True)
+            head = ifile.readline().rstrip('\n').split('\t')
+            for line in ifile:
+                row = line.rstrip('\n').split('\t')
+                row = dict(zip(head, row, strict=True))
+                sample_ids[row['Name']] = row['Fecalsample'] or row['Name']
+        print(f'{len(sample_ids)} [OK]')
+
+        objs = []
+        with open(shared_file) as ifile:
+            print(f'Reading shared file {ifile.name} ...', end='', flush=True)
+            _, _, _, *asv_accns = ifile.readline().split()
+            asvs = [asvs[i] for i in asv_accns]
+            for line in ifile:
+                _, samp_id, _, *counts = line.rstrip('\n').split('\t')
+                try:
+                    samp_id = sample_ids[samp_id]
+                except KeyError:
+                    continue
+
+                sample = samples[samp_id]
+                counts = [int(i) for i in counts]
+                total = sum(counts)
+                for asv, count in zip(asvs, counts, strict=True):
+                    if count == 0:
+                        continue
+                    objs.append(self.model(
+                        sample=sample,
+                        asv=asv,
+                        count=count,
+                        relabund=count / total,
+                    ))
+        print(f'{len(objs)} non-zero counts [OK]')
+
+        self.bulk_create(objs)
+
+
 class CompoundAbundanceLoader(BulkLoader, SampleLoadMixin):
     """ loader manager for CompoundAbundance """
     load_flag_attr = 'comp_abund_ok'

@@ -531,6 +531,8 @@ class ASVAbundance(Model):
     count = models.PositiveIntegerField()
     relabund = models.FloatField()
 
+    objects = managers.ASVAbundanceManager()
+
     class Meta:
         constraints = (
             models.UniqueConstraint(
