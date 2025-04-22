@@ -1,8 +1,9 @@
 from django.db import models
+from django.urls import reverse
 
 from mibios.omics.models import AbstractDataset, AbstractSample
 from mibios.umrad.model_utils import (
-    digits, opt, ch_opt, fk_req, fk_opt, uniq_opt, Model,
+    opt, ch_opt, fk_opt, Model,
 )
 
 from .managers import HostManager, SampleManager
@@ -13,6 +14,9 @@ class Dataset(AbstractDataset):
 
     def __str__(self):
         return self.label
+
+    def get_absolute_url(self):
+        return reverse('dataset_detail', kwargs=dict(pk=self.pk))
 
 
 class Host(Model):
@@ -26,6 +30,9 @@ class Host(Model):
 
     def __str__(self):
         return self.label
+
+    def get_absolute_url(self):
+        return reverse('host_detail', kwargs=dict(pk=self.pk))
 
 
 class Sample(AbstractSample):
@@ -47,3 +54,6 @@ class Sample(AbstractSample):
 
     def __str__(self):
         return self.label
+
+    def get_absolute_url(self):
+        return reverse('sample_detail', kwargs=dict(pk=self.pk))

@@ -1,0 +1,9 @@
+{%extends "hamb/base.html"%}
+{%block content%}
+<table class="table table-hover table-condensed">
+    {%for label, text, url in items%}
+    <tr><td>{{label|capfirst}}</td><td>{%if url%}<a href="{{url}}">{%endif%}{{text}}{%if url%}</a>{%endif%}</td></tr>
+    {%endfor%}
+</table>
+{%endblock%}
+
