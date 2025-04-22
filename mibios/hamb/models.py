@@ -11,6 +11,9 @@ from .managers import HostManager, SampleManager
 class Dataset(AbstractDataset):
     label = models.TextField(max_length=16, unique=True)
 
+    def __str__(self):
+        return self.label
+
 
 class Host(Model):
     label = models.TextField(max_length=16, unique=True)
@@ -20,6 +23,9 @@ class Host(Model):
     health_state = models.TextField(**ch_opt)
 
     objects = HostManager()
+
+    def __str__(self):
+        return self.label
 
 
 class Sample(AbstractSample):
@@ -38,3 +44,6 @@ class Sample(AbstractSample):
                 name='uniq_label_dataset',
             ),
         )
+
+    def __str__(self):
+        return self.label
