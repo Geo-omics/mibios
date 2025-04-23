@@ -1,5 +1,6 @@
 from collections import defaultdict
 
+from django.urls import reverse
 from django_tables2 import A, Column, Table
 
 from .models import Sample
@@ -7,8 +8,8 @@ from .models import Sample
 
 def get_samples_url(record):
     """ linkify helper for DatasetTable """
-    # TODO
-    return '/xx'
+    # FIXME: any less ad-hoc solution (reverse django_filter)?
+    return reverse('sample_list') + f'?dataset={record.pk}'
 
 
 class ASVAbundanceTable(Table):
@@ -32,17 +33,9 @@ class DatasetTable(Table):
         orderable=False,
     )
 
-    class Meta:
-        # model = Dataset
-        ...
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.types = None
-
-    def get_queryset(self):
-        qs = super().get_queryset()
-        return qs
 
     def render_sample_type(self, table, record):
         if self.types is None:
@@ -56,13 +49,9 @@ class DatasetTable(Table):
 
 
 class SampleTable(Table):
+    dataset = Column(linkify=True)
     label = Column(linkify=True)
+    sample_type = Column()
+    amplicon_target = Column()
+    source_material = Column()
     host = Column(linkify=True)
-
-    class Meta:
-        # model = Dataset
-        ...
-
-    def get_queryset(self):
-        qs = super().get_queryset()
-        return qs

@@ -7,7 +7,7 @@ from django_tables2 import SingleTableView
 
 from mibios.ncbi_taxonomy.models import TaxNode
 from mibios.omics.models import ASV, ASVAbundance
-from . import tables
+from . import filters, tables
 from .models import Dataset, Host, Sample
 
 
@@ -130,8 +130,13 @@ class DatasetListing(SingleTableView):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        qs = qs.annotate(sample_count=Count('sample'))
-        return qs
+        self.filter = filters.DatasetFilter(self.request.GET, queryset=qs)
+        return self.filter.qs.annotate(sample_count=Count('sample'))
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['filter'] = self.filter
+        return ctx
 
 
 class HostDetail(DetailView):
@@ -154,8 +159,16 @@ class SampleListing(SingleTableView):
     model = Sample
     table_class = tables.SampleTable
 
-    def XXX_get_queryset(self):
-        ...
+    def get_queryset(self):
+        qs = super().get_queryset()
+        qs = qs.select_related('dataset', 'host')
+        self.filter = filters.SampleFilter(self.request.GET, queryset=qs)
+        return self.filter.qs
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['filter'] = self.filter
+        return ctx
 
 
 class TaxBrowser(TemplateView):
