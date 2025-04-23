@@ -520,6 +520,10 @@ class ASV(Model):
                 {'sequence': 'invalid letters in sequence'}
             )
 
+    @property
+    def asv_number(self):
+        return int(self.accession.removeprefix(self.PREFIX))
+
 
 class ASVAbundance(Model):
     sample = models.ForeignKey(

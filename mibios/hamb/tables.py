@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from django_tables2 import Column, Table
+from django_tables2 import A, Column, Table
 
 from .models import Sample
 
@@ -9,6 +9,16 @@ def get_samples_url(record):
     """ linkify helper for DatasetTable """
     # TODO
     return '/xx'
+
+
+class ASVAbundanceTable(Table):
+    sample = Column(linkify=True)
+    asv = Column(
+        verbose_name='ASV',
+        linkify=('asv_detail', {'asvnum': A('asv.asv_number')}),
+    )
+    count = Column()
+    relabund = Column()
 
 
 class DatasetTable(Table):
