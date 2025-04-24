@@ -11,10 +11,30 @@ from . import filters, tables
 from .models import Dataset, Host, Sample
 
 
-class ASVAbundanceListing(SingleTableView):
+class Listing(SingleTableView):
     template_name = 'hamb/list.html'
+    model = None
+    table_class = None
+    filter = None
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['filter'] = self.filter
+        ctx['header'] = self.model._meta.verbose_name_plural
+        return ctx
+
+
+class ASVAbundanceListing(Listing):
     model = ASVAbundance
     table_class = tables.ASVAbundanceTable
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        self.filter = filters.ASVAbundanceFilter(
+            self.request.GET,
+            queryset=qs,
+        )
+        return self.filter.qs
 
 
 class DetailView(TemplateView):
@@ -88,6 +108,8 @@ class DetailView(TemplateView):
 
         for field in fields:
             value = getattr(self.obj, field.name)
+            if value is None:
+                value = ''
             if field.many_to_one:
                 url = self.get_other_object_url(value)
             else:
@@ -111,6 +133,15 @@ class ASVDetail(DetailView):
     def get_object_url(cls, obj):
         return reverse('asv_detail', kwargs={'asvnum': obj.asv_number})
 
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['items'].append((
+            'Abundance',
+            self.obj.asvabundance_set.count(),
+            reverse('asv_abund_list', kwargs={'asvnum': self.obj.asv_number}),
+        ))
+        return ctx
+
 
 class DatasetDetail(DetailView):
     model = Dataset
@@ -119,12 +150,15 @@ class DatasetDetail(DetailView):
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['items'].append(('samples', self.obj.sample_set.count(), None))
+        ctx['items'].append((
+            'samples',
+            self.obj.sample_set.count(),
+            reverse('sample_list') + f'?dataset={self.obj.pk}',
+        ))
         return ctx
 
 
-class DatasetListing(SingleTableView):
-    template_name = 'hamb/list.html'
+class DatasetListing(Listing):
     model = Dataset
     table_class = tables.DatasetTable
 
@@ -133,29 +167,63 @@ class DatasetListing(SingleTableView):
         self.filter = filters.DatasetFilter(self.request.GET, queryset=qs)
         return self.filter.qs.annotate(sample_count=Count('sample'))
 
-    def get_context_data(self, **ctx):
-        ctx = super().get_context_data(**ctx)
-        ctx['filter'] = self.filter
-        return ctx
-
 
 class HostDetail(DetailView):
     model = Host
     name_field = 'label'
     fields = ['common_name', 'age_years', 'description', 'health_state']
 
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['items'].append((
+            'hosts',
+            self.obj.sample_set.count(),
+            reverse('host_sample_list', kwargs={'pk': self.obj.pk}),
+        ))
+        return ctx
+
+
+class SampleAbundList(ASVAbundanceListing):
+    """ ASV abundance for single sample """
+    def get_table_kwargs(self):
+        return {'exclude': 'sample'}
+
+    def get_queryset(self):
+        sample_qs = Sample.objects.select_related('dataset')
+        try:
+            self.sample = sample_qs.get(pk=self.kwargs['pk'])
+        except Sample.DoesNotExist as e:
+            raise Http404('no such sample') from e
+
+        qs = super().get_queryset()
+        return qs.filter(sample=self.sample)
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['header'] = f'{self.sample.dataset}: {self.sample}'
+        return ctx
+
 
 class SampleDetail(DetailView):
     model = Sample
     name_field = 'label'
     fields = [
+        'dataset', 'host',
         'sample_type', 'sra_accession', 'amplicon_target', 'biosample',
         'source_material', 'control',
     ]
 
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['items'].append((
+            'ASV Abundance',
+            self.obj.asv_abundance.count(),
+            reverse('sample_abund_list', kwargs={'pk': self.obj.pk}),
+        ))
+        return ctx
 
-class SampleListing(SingleTableView):
-    template_name = 'hamb/list.html'
+
+class SampleListing(Listing):
     model = Sample
     table_class = tables.SampleTable
 
@@ -165,9 +233,36 @@ class SampleListing(SingleTableView):
         self.filter = filters.SampleFilter(self.request.GET, queryset=qs)
         return self.filter.qs
 
+
+class HostSampleListing(SampleListing):
+    def get_queryset(self):
+        try:
+            host = Host.objects.get(pk=self.kwargs['pk'])
+        except Host.DoesNotExist as e:
+            raise Http404('no such host') from e
+
+        qs = super().get_queryset()
+        return qs.filter(host=host)
+
+
+class SingleASVAbundList(ASVAbundanceListing):
+    """ ASV abundance for single ASV """
+    def get_table_kwargs(self):
+        return {'exclude': 'asv'}
+
+    def get_queryset(self):
+        accn = f'{ASV.PREFIX}{self.kwargs["asvnum"]}'
+        try:
+            self.asv = ASV.objects.get(accession=accn)
+        except ASV.DoesNotExist as e:
+            raise Http404('no such ASV') from e
+
+        qs = super().get_queryset()
+        return qs.filter(asv=self.asv)
+
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['filter'] = self.filter
+        ctx['header'] = f'{self.asv}'
         return ctx
 
 

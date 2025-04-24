@@ -1,5 +1,8 @@
-from django_filters import ChoiceFilter, FilterSet, ModelChoiceFilter
+from django_filters import (
+    ChoiceFilter, FilterSet, ModelChoiceFilter
+)
 
+from mibios.omics.models import ASVAbundance
 from .models import Dataset, Sample
 
 
@@ -71,6 +74,12 @@ def get_choices(model, field_name):
         (i, i) if i else (BLANK, '<blank>')
         for i in qs
     ))
+
+
+class ASVAbundanceFilter(FilterSet):
+    class Meta:
+        model = ASVAbundance
+        fields = ['asv__accession']
 
 
 class DatasetFilter(FilterSet):
