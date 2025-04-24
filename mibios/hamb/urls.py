@@ -15,7 +15,8 @@ urlpatterns = [
     path('sample/<int:pk>/', views.SampleDetail.as_view(), name='sample_detail'),  # noqa:E501
     path('sample/<int:pk>/abundance/', views.SampleAbundList.as_view(), name='sample_abund_list'),  # noqa:E501
     path('samples/', views.SampleListing.as_view(), name='sample_list'),
-    path('tax/', views.TaxBrowser.as_view(), name='tax_browser'),
+    path('tax/', views.TaxBrowser.as_view(), name='tax_browser_root'),
+    path('tax/<int:taxid>/', views.TaxBrowser.as_view(), name='tax_browser'),
     path('taxon/<int:taxid>/', views.TaxonDetail.as_view(), name='taxon_detail'),  # noqa:E501
     path('admin/', admin_site.urls),
 ]

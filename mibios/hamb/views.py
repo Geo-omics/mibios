@@ -267,7 +267,25 @@ class SingleASVAbundList(ASVAbundanceListing):
 
 
 class TaxBrowser(TemplateView):
-    ...
+    template_name = 'hamb/tax_browser.html'
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        # inject default for alternative root url
+        taxid = self.kwargs.get('taxid', 1)
+        try:
+            node = TaxNode.objects.get(taxid=taxid)
+        except TaxNode.DoesNotExist as e:
+            raise Http404('no such taxon') from e
+        ctx['lineage'] = [
+            (i.taxid, i.rank, i.name)
+            for i in node.lineage
+        ]
+        ctx['children'] = [
+            (i.taxid, i.rank, i.name)
+            for i in node.children.all().order_by('name')
+        ]
+        return ctx
 
 
 class TaxonDetail(DetailView):
