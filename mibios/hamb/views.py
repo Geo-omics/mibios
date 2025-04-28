@@ -4,7 +4,7 @@ from django.db.models import Count
 from django.http import Http404
 from django.urls import reverse
 from django.utils.functional import cached_property
-from django.views.generic import TemplateView
+from django.views.generic import DetailView as DetailView0
 
 from django_tables2 import SingleTableView
 
@@ -50,7 +50,7 @@ class ASVAbundanceListing(Listing):
         return self.filter.qs
 
 
-class DetailView(TemplateView):
+class DetailView(DetailView0):
     template_name = 'hamb/detail.html'
 
     model = None
@@ -84,29 +84,13 @@ class DetailView(TemplateView):
         """
         return obj.get_absolute_url()
 
-    def get_object(self):
-        """
-        Get the object
-
-        The default implementation assumed that the PK is in the kwargs passed
-        from the URL resolver.  Override as needed.
-
-        May raise DoesNotExist for URLs with invalid arguments.
-        """
-        return self.model.objects.get(pk=self.kwargs['pk'])
-
-    def get_context_data(self, **ctx):
-        try:
-            self.obj = self.get_object()
-        except self.model.DoesNotExist as e:
-            raise Http404(f'no such {self.model._meta.modelname}') from e
-
-        ctx = super().get_context_data(**ctx)
+    def get_items(self):
+        """ Get the details """
         items = []
         if self.name_field:
             items.append((
                 self.model._meta.verbose_name,
-                getattr(self.obj, self.name_field),
+                getattr(self.object, self.name_field),
                 None,
             ))
 
@@ -120,7 +104,7 @@ class DetailView(TemplateView):
             ]
 
         for field in fields:
-            value = getattr(self.obj, field.name)
+            value = getattr(self.object, field.name)
             if value is None:
                 value = ''
             if field.many_to_one:
@@ -128,8 +112,11 @@ class DetailView(TemplateView):
             else:
                 url = None
             items.append((field.verbose_name, value, url))
+        return items
 
-        ctx['items'] = items
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['items'] = self.get_items()
         return ctx
 
 
@@ -146,14 +133,15 @@ class ASVDetail(DetailView):
     def get_object_url(cls, obj):
         return reverse('asv_detail', kwargs={'asvnum': obj.asv_number})
 
-    def get_context_data(self, **ctx):
-        ctx = super().get_context_data(**ctx)
-        ctx['items'].append((
+    def get_items(self):
+        items = super().get_items()
+        asvnum = self.object.asv_number
+        items.append((
             'Abundance',
-            self.obj.asvabundance_set.count(),
-            reverse('asv_abund_list', kwargs={'asvnum': self.obj.asv_number}),
+            self.object.asvabundance_set.count(),
+            reverse('asv_abund_list', kwargs={'asvnum': asvnum}),
         ))
-        return ctx
+        return items
 
 
 class DatasetDetail(DetailView):
@@ -161,14 +149,14 @@ class DatasetDetail(DetailView):
     fields = []
     name_field = 'label'
 
-    def get_context_data(self, **ctx):
-        ctx = super().get_context_data(**ctx)
-        ctx['items'].append((
+    def get_items(self):
+        items = super().get_items()
+        items.append((
             'samples',
-            self.obj.sample_set.count(),
-            reverse('sample_list') + f'?dataset={self.obj.pk}',
+            self.object.sample_set.count(),
+            reverse('sample_list') + f'?dataset={self.object.pk}',
         ))
-        return ctx
+        return items
 
 
 class DatasetListing(Listing):
@@ -186,14 +174,14 @@ class HostDetail(DetailView):
     name_field = 'label'
     fields = ['common_name', 'age_years', 'description', 'health_state']
 
-    def get_context_data(self, **ctx):
-        ctx = super().get_context_data(**ctx)
-        ctx['items'].append((
+    def get_items(self):
+        items = super().get_items()
+        items.append((
             'samples',
-            self.obj.sample_set.count(),
-            reverse('host_sample_list', kwargs={'pk': self.obj.pk}),
+            self.object.sample_set.count(),
+            reverse('host_sample_list', kwargs={'pk': self.object.pk}),
         ))
-        return ctx
+        return items
 
 
 class SampleAbundList(ASVAbundanceListing):
@@ -226,14 +214,14 @@ class SampleDetail(DetailView):
         'source_material', 'control',
     ]
 
-    def get_context_data(self, **ctx):
-        ctx = super().get_context_data(**ctx)
-        ctx['items'].append((
+    def get_items(self):
+        items = super().get_items()
+        items.append((
             'ASV Abundance',
-            self.obj.asv_abundance.count(),
-            reverse('sample_abund_list', kwargs={'pk': self.obj.pk}),
+            self.object.asv_abundance.count(),
+            reverse('sample_abund_list', kwargs={'pk': self.object.pk}),
         ))
-        return ctx
+        return items
 
 
 class SampleListing(Listing):
