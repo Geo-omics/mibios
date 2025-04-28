@@ -189,7 +189,7 @@ class HostDetail(DetailView):
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['items'].append((
-            'hosts',
+            'samples',
             self.obj.sample_set.count(),
             reverse('host_sample_list', kwargs={'pk': self.obj.pk}),
         ))
