@@ -1,13 +1,15 @@
-{%extends "hamb/base.html"%}
-{%block content%}
-<h4>{{header}}</h4>
-{%for taxid, rank, taxname in lineage%}
+{%for node, asv_count in lineage%}
 {%for _ in lineage%}{%if forloop.counter < forloop.parentloop.counter%}&nbsp;&nbsp;&nbsp;&nbsp;{%endif%}{%endfor%}
-<a href="{%url 'tax_browser' taxid%}">{{rank}} {{taxname}}</a><br>
+{{node.rank}}
+<a href="{%url 'taxon_detail' node.taxid%}">{{node.name}}</a>
+{%if asv_count%}(<a href="{%url 'asv_list'%}?taxon__taxid={{node.taxid}}">{{asv_count}}</a>){%endif%}
+{%if forloop.last%}&larr;{%endif%}
+<br>
 {%endfor%}
-{%for taxid, rank, taxname in children%}
+{%for node, asv_count in children%}
 {%for _ in lineage%}&nbsp;&nbsp;&nbsp;&nbsp;{%endfor%}
-<a href="{%url 'tax_browser' taxid%}">{{rank}} {{taxname}}</a><br>
+{{node.rank}}
+<a href="{%url 'taxon_detail' node.taxid%}">{{node.name}}</a>
+{%if asv_count%}(<a href="{%url 'asv_list'%}?taxon__taxid={{node.taxid}}">{{asv_count}}</a>){%endif%}
+<br>
 {%endfor%}
-{%endblock%}
-

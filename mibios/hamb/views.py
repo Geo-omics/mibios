@@ -1,6 +1,9 @@
+from itertools import chain
+
 from django.db.models import Count
 from django.http import Http404
 from django.urls import reverse
+from django.utils.functional import cached_property
 from django.views.generic import TemplateView
 
 from django_tables2 import SingleTableView
@@ -276,35 +279,49 @@ class SingleASVAbundList(ASVAbundanceListing):
         return ctx
 
 
-class TaxBrowser(TemplateView):
-    template_name = 'hamb/tax_browser.html'
+class TaxBrowserMixin:
+    template_insert_name = 'hamb/tax_browser.html'
+    """ add this to implementing template """
 
-    def get_context_data(self, **ctx):
-        ctx = super().get_context_data(**ctx)
+    @cached_property
+    def node(self):
+        """ query DB for node and set instance attribute """
         # inject default for alternative root url
         taxid = self.kwargs.get('taxid', 1)
         try:
-            node = TaxNode.objects.get(taxid=taxid)
+            return TaxNode.objects.get(taxid=taxid)
         except TaxNode.DoesNotExist as e:
             raise Http404('no such taxon') from e
-        ctx['lineage'] = [
-            (i.taxid, i.rank, i.name)
-            for i in node.lineage
-        ]
-        ctx['children'] = [
-            (i.taxid, i.rank, i.name)
-            for i in node.children.all().order_by('name')
-        ]
+
+    def get_data(self, node):
+        lineage = node.lineage
+        children = node.children.all().order_by('name')
+        counts = dict(
+            TaxNode.objects
+            .filter(pk__in=[i.pk for i in chain(lineage, children)])
+            .annotate(Count('asv'))
+            .values_list('pk', 'asv__count')
+        )
+        return (
+            [(i, counts[i.pk]) for i in lineage],
+            [(i, counts[i.pk]) for i in children],
+        )
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['lineage'], ctx['children'] = self.get_data(self.node)
+        ctx['tax_browser_insert'] = self.template_insert_name
         return ctx
 
 
-class TaxonDetail(DetailView):
+class TaxonDetail(TaxBrowserMixin, DetailView):
+    template_name = 'hamb/taxon_detail.html'
     model = TaxNode
     name_field = 'name'
     fields = ['taxid', 'parent']
 
     def get_object(self):
-        return TaxNode.objects.get(taxid=self.kwargs['taxid'])
+        return self.node
 
     @classmethod
     def get_object_url(cls, obj):
