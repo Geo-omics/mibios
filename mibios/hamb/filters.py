@@ -2,7 +2,7 @@ from django_filters import (
     ChoiceFilter, FilterSet, ModelChoiceFilter
 )
 
-from mibios.omics.models import ASVAbundance
+from mibios.omics.models import ASV, ASVAbundance
 from .models import Dataset, Sample
 
 
@@ -74,6 +74,12 @@ def get_choices(model, field_name):
         (i, i) if i else (BLANK, '<blank>')
         for i in qs
     ))
+
+
+class ASVFilter(FilterSet):
+    class Meta:
+        model = ASV
+        fields = ['taxon__taxid']
 
 
 class ASVAbundanceFilter(FilterSet):

@@ -12,11 +12,23 @@ def get_samples_url(record):
     return reverse('sample_list') + f'?dataset={record.pk}'
 
 
+class ASVTable(Table):
+    accession = Column(
+        linkify=('asv_detail', {'asvnum': A('asv_number')})
+    )
+    taxon__name = Column(
+        linkify=('taxon_detail', {'taxid': A('taxon__taxid')})
+    )
+
+
 class ASVAbundanceTable(Table):
     sample = Column(linkify=True)
     asv = Column(
         verbose_name='ASV',
         linkify=('asv_detail', {'asvnum': A('asv.asv_number')}),
+    )
+    asv__taxon = Column(
+        linkify=('taxon_detail', {'taxid': A('asv__taxon__taxid')}),
     )
     count = Column()
     relabund = Column()

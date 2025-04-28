@@ -24,6 +24,16 @@ class Listing(SingleTableView):
         return ctx
 
 
+class ASVListing(Listing):
+    model = ASV
+    table_class = tables.ASVTable
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        self.filter = filters.ASVFilter(self.request.GET, queryset=qs)
+        return self.filter.qs
+
+
 class ASVAbundanceListing(Listing):
     model = ASVAbundance
     table_class = tables.ASVAbundanceTable
