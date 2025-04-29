@@ -3,7 +3,7 @@ from collections import defaultdict
 from django.urls import reverse
 from django_tables2 import A, Column, Table
 
-from .models import Sample
+from .models import Host, Sample
 
 
 def get_samples_url(record):
@@ -58,6 +58,28 @@ class DatasetTable(Table):
                 self.types[pk].append(sample_type)
 
         return ', '.join(sorted(self.types[record.pk]))
+
+
+class HostTable(Table):
+    dataset = Column(empty_values=())
+    sample_count = Column(
+        verbose_name='Samples',
+        linkify=('host_sample_list', {'pk': A('pk')}),
+    )
+    label = Column(
+        verbose_name='Host',
+        linkify=True,
+    )
+
+    class Meta:
+        model = Host
+        sequence = ['dataset', 'sample_count', '...']
+        exclude = ('id', 'description')
+
+    def render_dataset(self, record):
+        datasets = record.sample_set.values_list('dataset__label', flat=True)
+        datasets = datasets.distinct()
+        return ', '.join(datasets)
 
 
 class SampleTable(Table):

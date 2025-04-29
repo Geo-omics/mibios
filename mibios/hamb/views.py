@@ -189,6 +189,16 @@ class HostDetail(DetailView):
         return items
 
 
+class HostListing(Listing):
+    model = Host
+    table_class = tables.HostTable
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        qs = qs.annotate(sample_count=Count('sample'))
+        return qs
+
+
 class SampleAbundList(ASVAbundanceListing):
     """ ASV abundance for single sample """
     def get_table_kwargs(self):

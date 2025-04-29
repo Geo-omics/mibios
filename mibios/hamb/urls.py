@@ -11,6 +11,7 @@ urlpatterns = [
     path('asv/<int:asvnum>/', views.ASVDetail.as_view(), name='asv_detail'),  # noqa:E501
     path('asv/<int:asvnum>/abundance/', views.SingleASVAbundList.as_view(), name='asv_abund_list'),  # noqa:E501
     path('dataset/<int:pk>/', views.DatasetDetail.as_view(), name='dataset_detail'),  # noqa:E501
+    path('host/', views.HostListing.as_view(), name='host_list'),
     path('host/<int:pk>/', views.HostDetail.as_view(), name='host_detail'),
     path('host/<int:pk>/samples', views.HostSampleListing.as_view(), name='host_sample_list'),  # noqa:E501
     path('sample/', views.SampleListing.as_view(), name='sample_list'),
