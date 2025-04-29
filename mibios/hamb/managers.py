@@ -1,3 +1,5 @@
+from django.apps import apps
+
 from mibios.umrad.manager import Manager
 from mibios.umrad.utils import atomic_dry
 
@@ -63,3 +65,14 @@ class SampleManager(Manager):
         print('[OK]')
 
         self.bulk_create(objs)
+
+
+_incl_tax_asv_map = None
+
+
+def get_taxon_asv(taxnode):
+    global _incl_tax_asv_map
+    if _incl_tax_asv_map is None:
+        ASV = apps.get_model('omics', 'ASV')
+        _incl_tax_asv_map = ASV.objects.get_tax_mapping()
+    return _incl_tax_asv_map.get(taxnode.pk, [])

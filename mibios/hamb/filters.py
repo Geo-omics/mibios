@@ -1,8 +1,12 @@
+from django.forms import CheckboxInput
+
 from django_filters import (
-    ChoiceFilter, FilterSet, ModelChoiceFilter
+    BooleanFilter, ChoiceFilter, FilterSet, ModelChoiceFilter
 )
 
+from mibios.ncbi_taxonomy.models import TaxNode
 from mibios.omics.models import ASV, ASVAbundance
+from .managers import get_taxon_asv
 from .models import Dataset, Sample
 
 
@@ -77,9 +81,39 @@ def get_choices(model, field_name):
 
 
 class ASVFilter(FilterSet):
+    inclusive = BooleanFilter(
+        label='inclusive classification',
+        widget=CheckboxInput,
+    )
+
     class Meta:
         model = ASV
         fields = ['taxon__taxid']
+
+    def filter_queryset(self, queryset):
+        try:
+            taxid = int(self.form.cleaned_data['taxon__taxid'])
+        except (TypeError, ValueError):
+            # ignore invalid input
+            taxid = None
+        except KeyError:
+            # empty input
+            taxid = None
+
+        is_incl = self.form.cleaned_data['inclusive']
+        if not isinstance(taxid, int):
+            # empty form - no filterin
+            return queryset
+
+        if is_incl:
+            taxnode = TaxNode.objects.get(
+                taxid=self.form.cleaned_data['taxon__taxid']
+            )
+            qs = self._meta.model.objects.all()
+            return qs.filter(pk__in=get_taxon_asv(taxnode))
+        else:
+            del self.form.cleaned_data['inclusive']
+            return super().filter_queryset(queryset)
 
 
 class ASVAbundanceFilter(FilterSet):

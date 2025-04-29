@@ -273,6 +273,41 @@ class ASVManager(Manager):
 
         self.bulk_update(objs.values(), ['taxon'])
 
+    def get_tax_mapping(self):
+        """
+        Compile a taxonomy PK -> ASV PKs mapping
+        """
+        TaxNode = self.model._meta.get_field('taxon').related_model
+        asvs = self.values_list('pk', 'taxon__pk')
+        # print('Retrieving ASVs...')
+        tax_pks = set((taxon_pk for _, taxon_pk in asvs))
+        # add the missed root:
+        root_pk = TaxNode.objects.get(taxid=1).pk
+        tax_pks.add(root_pk)
+        # print(len(asvs), len(tax_pks), 'OK')
+        # print('Retrieving taxa...')
+        taxa = {
+            i.pk: [j.pk for j in i.ancestors.all()]
+            for i in TaxNode.objects
+            .filter(pk__in=tax_pks)
+            .prefetch_related('ancestors')
+        }
+        # print(len(taxa), 'OK')
+        data = defaultdict(list)
+        # print('Compiling...')
+        for asv_pk, taxon_pk in asvs:
+            if taxon_pk is None:
+                taxon_pk = root_pk
+            data[taxon_pk].append(asv_pk)
+            for ancestor_pk in taxa[taxon_pk]:
+                data[ancestor_pk].append(asv_pk)
+        data = {
+            k: sorted(vs)[:10000]  # FIXME 10k too slow otherwise
+            for k, vs in data.items()
+        }
+        # print(len(data), 'OK')
+        return data
+
 
 class ASVAbundanceManager(Manager):
     @atomic_dry

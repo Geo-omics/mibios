@@ -11,6 +11,7 @@ from django_tables2 import SingleTableView
 from mibios.ncbi_taxonomy.models import TaxNode
 from mibios.omics.models import ASV, ASVAbundance
 from . import filters, tables
+from .managers import get_taxon_asv
 from .models import Dataset, Host, Sample
 
 
@@ -85,7 +86,11 @@ class DetailView(DetailView0):
         return obj.get_absolute_url()
 
     def get_items(self):
-        """ Get the details """
+        """
+        Get the details
+
+        Returns a list of 3-tuples: field_name, value, URL.
+        """
         items = []
         if self.name_field:
             items.append((
@@ -282,8 +287,16 @@ class TaxBrowserMixin:
             raise Http404('no such taxon') from e
 
     def get_data(self, node):
+        """
+        Get taxonomy browser data
+
+        These are two lists of 3-tuples: TaxNode, inclusive ASVs, pure ASVs.
+        Use the pre-compiled data from managers module for the inclusive ASV
+        counts.
+        """
         lineage = node.lineage
         children = node.children.all().order_by('name')
+        # "pure" ASVs for taxon
         counts = dict(
             TaxNode.objects
             .filter(pk__in=[i.pk for i in chain(lineage, children)])
@@ -291,8 +304,8 @@ class TaxBrowserMixin:
             .values_list('pk', 'asv__count')
         )
         return (
-            [(i, counts[i.pk]) for i in lineage],
-            [(i, counts[i.pk]) for i in children],
+            [(i, len(get_taxon_asv(i)), counts[i.pk]) for i in lineage],
+            [(i, len(get_taxon_asv(i)), counts[i.pk]) for i in children],
         )
 
     def get_context_data(self, **ctx):
@@ -314,3 +327,12 @@ class TaxonDetail(TaxBrowserMixin, DetailView):
     @classmethod
     def get_object_url(cls, obj):
         return reverse('taxon_detail', kwargs={'taxid': obj.taxid})
+
+    def get_items(self):
+        items = super().get_items()
+        items.append((
+            'ASVs',
+            self.object.asv_set.count(),
+            reverse('asv_list') + f'?taxon__taxid={self.object.taxid}',
+        ))
+        return items

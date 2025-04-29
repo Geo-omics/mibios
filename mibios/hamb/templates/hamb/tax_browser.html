@@ -1,15 +1,25 @@
-{%for node, asv_count in lineage%}
+{%for node, incl_count, pure_count in lineage%}
 {%for _ in lineage%}{%if forloop.counter < forloop.parentloop.counter%}&nbsp;&nbsp;&nbsp;&nbsp;{%endif%}{%endfor%}
 {{node.rank}}
 <a href="{%url 'taxon_detail' node.taxid%}">{{node.name}}</a>
-{%if asv_count%}(<a href="{%url 'asv_list'%}?taxon__taxid={{node.taxid}}">{{asv_count}}</a>){%endif%}
+{%if incl_count or pure_count%}(
+    {%if incl_count%}<a href="{%url 'asv_list'%}?taxon__taxid={{node.taxid}}&inclusive=True">{{incl_count}}</a>/
+    {%else%}-{%endif%}
+    {%if pure_count%}<a href="{%url 'asv_list'%}?taxon__taxid={{node.taxid}}">{{pure_count}}</a>
+    {%else%}-{%endif%}
+){%endif%}
 {%if forloop.last%}&larr;{%endif%}
 <br>
 {%endfor%}
-{%for node, asv_count in children%}
+{%for node, incl_count, pure_count in children%}
 {%for _ in lineage%}&nbsp;&nbsp;&nbsp;&nbsp;{%endfor%}
 {{node.rank}}
 <a href="{%url 'taxon_detail' node.taxid%}">{{node.name}}</a>
-{%if asv_count%}(<a href="{%url 'asv_list'%}?taxon__taxid={{node.taxid}}">{{asv_count}}</a>){%endif%}
+{%if incl_count or pure_count%}(
+    {%if incl_count%}<a href="{%url 'asv_list'%}?taxon__taxid={{node.taxid}}&inclusive=True">{{incl_count}}</a>/
+    {%else%}-{%endif%}
+    {%if pure_count%}<a href="{%url 'asv_list'%}?taxon__taxid={{node.taxid}}">{{pure_count}}</a>
+    {%else%}-{%endif%}
+){%endif%}
 <br>
 {%endfor%}
