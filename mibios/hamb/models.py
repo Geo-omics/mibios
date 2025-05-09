@@ -39,7 +39,7 @@ class Sample(AbstractSample):
     label = models.TextField(max_length=16)
     biosample = models.TextField(max_length=16, **ch_opt)
     host = models.ForeignKey(Host, **fk_opt)
-    source_material = models.TextField(max_length=32)
+    source_material = models.TextField(max_length=32, blank=True)
     control = models.TextField(max_length=8, blank=True)
 
     objects = SampleManager()

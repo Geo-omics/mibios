@@ -48,14 +48,16 @@ class SampleManager(Manager):
                 row = line.rstrip('\n').split('\t')
                 row = dict(zip(head, row, strict=True))
                 id_num += 1
+
                 objs.append(self.model(
                     dataset=dataset,
                     sample_id=f'sa{id_num}',
                     label=row['Fecalsample'] or row['Name'],
                     host=hosts.get(row['Participant'], None),
-                    source_material='feces',
+                    source_material='' if row['Control'] else 'feces',
                     sample_type='amplicon',
                     amplicon_target='16S V4',
+                    control=row['Control'],
                 ))
         print(f'{len(objs)} [OK]')
 
