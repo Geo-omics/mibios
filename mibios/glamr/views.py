@@ -1765,11 +1765,13 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
             row_field='geo_loc_name',
         )
         conf = DataConfig(Dataset)
-        head = []
+        dataset_count = Dataset.objects.exclude_private(self.request.user).count()
+        # FIXME: count should not be needed
+        head = [('', f'All datasets ({dataset_count})')]
         for i in df.columns:
             conf.filter['sample__sample_type'] = i
             head.append((conf.url_query(), i))
-        dataset_counts_data = [head]
+        dataset_summary_data = [head]
         for lake, lake_counts in df.to_dict(orient='index').items():
             conf.clear_selection()
             if lake == 'other':
@@ -1778,26 +1780,21 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
                 conf.filter = dict(sample__geo_loc_name=lake)
             row = [(conf.url_query(), lake)]
             for samp_type, count in lake_counts.items():
-                if count > 0:
-                    conf.filter['sample__sample_type'] = samp_type
-                    q_str = conf.url_query()
-                else:
-                    q_str = None
+                conf.filter['sample__sample_type'] = samp_type
+                q_str = conf.url_query()
                 row.append((q_str, count))
-            dataset_counts_data.append(row)
-        ctx['dataset_counts'] = dataset_counts_data
-        ctx['dataset_totalcount'] = \
-            Dataset.objects.exclude_private(self.request.user).count()
+            dataset_summary_data.append(row)
+        ctx['dataset_summary_data'] = dataset_summary_data
 
         # Compile data for sample summary: Similar to above for datasets
         df = Sample.objects.exclude_private(self.request.user) \
                            .summary('sample_type', 'geo_loc_name')
         conf = DataConfig(Sample)
-        head = []
+        head = [('', f'All samples ({df.sum().sum()})')]
         for i in df.columns:
             conf.filter['sample_type'] = i
             head.append((conf.url_query(), i))
-        sample_counts_data = [head]
+        sample_summary_data = [head]
         for lake, lake_counts in df.to_dict(orient='index').items():
             conf.clear_selection()
             if lake == 'other':
@@ -1806,15 +1803,11 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
                 conf.filter = dict(geo_loc_name=lake)
             row = [(conf.url_query(), lake)]
             for samp_type, count in lake_counts.items():
-                if count > 0:
-                    conf.filter['sample_type'] = samp_type
-                    q_str = conf.url_query()
-                else:
-                    q_str = None
+                conf.filter['sample_type'] = samp_type
+                q_str = conf.url_query()
                 row.append((q_str, count))
-            sample_counts_data.append(row)
-        ctx['sample_counts'] = sample_counts_data
-        ctx['sample_totalcount'] = df.sum().sum()
+            sample_summary_data.append(row)
+        ctx['sample_summary_data'] = sample_summary_data
 
         return ctx
 

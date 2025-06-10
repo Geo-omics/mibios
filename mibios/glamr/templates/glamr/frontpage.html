@@ -5,11 +5,17 @@
 <h3>Welcome to the Great Lakes Atlas for Multi-omics Research (GLAMR)</h3><br/>
 {% include "glamr/full_text_search_form.html" %}
 
+<div class='container-fluid'>
+<div class="row row">
+<div class="col-md-6 frontpage-intro">
 {% include "glamr/frontpage_intro_text.html" %}
+</div>
 
 {% if db_is_good %}
 {% include "glamr/frontpage_summary.html"%}
 {% endif %}
+</div>
+</div>
 <hr/>
 
 
