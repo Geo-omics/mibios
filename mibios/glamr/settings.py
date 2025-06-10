@@ -17,8 +17,8 @@ INSTALLED_APPS.append('django_filters')  # noqa:F405
 
 # add crispy forms
 INSTALLED_APPS.append('crispy_forms')  # noqa:F405
-CRISPY_ALLOWED_TEMPLATE_PACKS = 'bootstrap4'
-CRISPY_TEMPLATE_PACK = 'bootstrap4'
+INSTALLED_APPS.append('crispy_bootstrap5')  # noqa:F405
+CRISPY_TEMPLATE_PACK = 'bootstrap5'
 
 # find bootstrap icons as template
 TEMPLATES[0]['DIRS'].append('/usr/share/bootstrap-icons/svg/')  # noqa:F405
@@ -31,7 +31,7 @@ ROOT_URLCONF = 'mibios.glamr.urls0'
 OMICS_SAMPLE_MODEL = 'glamr.Sample'
 OMICS_DATASET_MODEL = 'glamr.Dataset'
 
-DJANGO_TABLES2_TEMPLATE = 'django_tables2/bootstrap4.html'
+DJANGO_TABLES2_TEMPLATE = 'django_tables2/bootstrap5.html'
 
 # path to so file without .so suffix, e.g. './spellfix'
 # Setting this enables search suggestions

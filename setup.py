@@ -98,13 +98,14 @@ setuptools.setup(
     python_requires='>=3.11',
     install_requires=[
         'biopython~=1.80',
+        'crispy-bootstrap5==2024.2',
         'defusedxml~=0.7',
         'Django~=4.2.0',
-        'django-crispy-forms~=1.14',
+        'django-crispy-forms~=2.0',
         'django-extensions~=3.2.0',
         'django-filter~=23.0',  # the debian pkg spells python3-django-filters!
         'djangorestframework~=3.14.0',
-        'django-tables2~=2.4.0',
+        'django-tables2~=2.7.0',
         'matplotlib~=3.6.0',
         'pandas~=1.5.0',
         'psycopg2~=2.9.0',
