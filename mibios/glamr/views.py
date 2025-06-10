@@ -1765,8 +1765,10 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
             row_field='geo_loc_name',
         )
         conf = DataConfig(Dataset)
-        dataset_count = Dataset.objects.exclude_private(self.request.user).count()
-        # FIXME: count should not be needed
+        # The summary double counts datasets (if they fit match multiple
+        # categories) so we get the total number from the table data, which
+        # should have the length already cached.
+        dataset_count = len(ctx['table'].data)
         head = [('', f'All datasets ({dataset_count})')]
         for i in df.columns:
             conf.filter['sample__sample_type'] = i
