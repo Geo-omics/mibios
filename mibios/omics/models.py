@@ -531,7 +531,7 @@ class Bin(Model):
     # abundance
     percent_abund = models.FloatField()
     mean_depth = models.FloatField()
-    trimmed_mead_depth = models.FloatField()
+    trimmed_mean_depth = models.FloatField()
     covered_bases = models.IntegerField()
     variance = models.FloatField()
     length = models.IntegerField()
@@ -541,6 +541,9 @@ class Bin(Model):
     tpm = models.FloatField()
 
     loader = managers.BinLoader()
+
+    class Meta:
+        verbose_name = 'MAG'
 
 
 class File(Model):
