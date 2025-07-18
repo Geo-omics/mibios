@@ -233,7 +233,7 @@ class BinLoader(SampleLoadMixin, BulkLoader):
                 data[name] = {
                     'percent_abund': row[REL_ABUND_POS],
                     'mean_depth': row[MEAN_POS],
-                    'trimmed_mead_depth': row[TR_MEAN_POS],
+                    'trimmed_mean_depth': row[TR_MEAN_POS],
                     'covered_bases': row[BASES_POS],
                     'variance': row[VAR_POS],
                     'length': row[LEN_POS],
