@@ -4,12 +4,13 @@ from itertools import groupby
 from django.conf import settings
 from django.http import Http404, HttpResponse
 from django.views.decorators.cache import patch_cache_control
+from django.views.generic import DetailView
 
 from django_tables2 import SingleTableView
 
 from mibios.views import StaffLoginRequiredMixin
 from . import get_sample_model
-from .models import File, SampleTracking, TaxonAbundance
+from .models import Contig, File, SampleTracking, TaxonAbundance
 from .tables import FileTable, SampleTrackingTable
 
 
@@ -65,6 +66,16 @@ def krona(request, samp_no):
     if request.user.is_authenticated:
         patch_cache_control(resp, private=True)
     return resp
+
+
+class ContigSequenceView(DetailView):
+    model = Contig
+    template_name = 'omics/contig_sequence.html'
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['sequence'] = ctx['contig'].get_sequence()
+        return ctx
 
 
 class FileListingView(StaffLoginRequiredMixin, SingleTableView):

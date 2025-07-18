@@ -1391,6 +1391,7 @@ class RecordView(BaseMixin, DetailView):
         ctx['has_abundance'] = (
             self.model._meta.model_name in AbundanceView.VIEW_ATTRS
         )
+        ctx['header_link_groups'] = []
 
         return ctx
 
@@ -1579,6 +1580,28 @@ class RecordView(BaseMixin, DetailView):
             details.append(('external URL', None, [(exturl, exturl)], None))
 
         return details
+
+
+class ContigView(RecordView):
+    model = Contig
+
+    def get_sequence_url(self):
+        """ Get URL to contig's sequence
+
+            Returns None if we don't have an assembly file.
+        """
+        asm_qs = self.object.sample.file_set.filter(
+            filetype=File.Type.METAG_ASM
+        )
+        if asm_qs.exists():
+            return reverse('contig_seq', kwargs={'pk': self.object.pk})
+        else:
+            return None
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['header_link_groups'] = [[(self.get_sequence_url(), 'sequence')]]
+        return ctx
 
 
 class DatasetAccessView(StaffLoginRequiredMixin, BaseMixin, SingleTableView):
@@ -2254,6 +2277,7 @@ class UniRef100View(RecordView):
 
 
 record_view_registry = DefaultDict(
+    contig=ContigView.as_view(),
     dataset=DatasetView.as_view(),
     sample=SampleView.as_view(),
     reference=ReferenceView.as_view(),
