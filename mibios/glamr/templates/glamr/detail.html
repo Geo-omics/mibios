@@ -11,6 +11,11 @@
 
 {% block detail_header %}
 <h3>{{ object_model_verbose_name|capfirstsmart }}: {{ object }}</h3>
+{% for link_grp in header_link_groups %}
+    {% for url, txt in link_grp %}
+        {% if forloop.first%}[{%endif%}{%if url %}<a href="{{url}}">{{txt}}</a>{%else%}{{txt}}{%endif%}{%if forloop.last%}]{%else%} | {%endif%}
+    {% endfor %}
+{% endfor %}
 {% endblock %}
 
 {% block map%}{%include 'glamr/map.html'%}{%endblock%}

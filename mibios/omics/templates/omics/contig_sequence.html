@@ -1,0 +1,7 @@
+{% extends base_template_name %}
+{% load glamr_extras %}
+{% block content %}
+<h4>Sequence of contig <a href="{% record_url contig %}">{{contig}}</a></h4>
+<code>{{sequence}}</code>
+{% endblock %}
+
