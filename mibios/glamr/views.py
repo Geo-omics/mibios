@@ -557,6 +557,7 @@ class GenericModelMixin:
         'glamr.sample',
         'glamr.dataset',
         'glamr.reference',
+        'omics.bin',
         'omics.contig',
         'omics.readabundance',
         'omics.taxonabundance',
@@ -1957,6 +1958,17 @@ class SampleView(MapMixin, RecordView):
                     ),
                 )
             abund_links.append((funcabund_url, 'abundance/functions'))
+            bin_url = None
+            if SampleTracking.Flag.BINNING in tr:
+                bin_url = reverse(
+                    'relations',
+                    kwargs=dict(
+                        obj_model='sample',
+                        pk=obj.pk,
+                        field='bin',
+                    ),
+                )
+            abund_links.append((bin_url, 'MAGs'))
 
         if obj.file_set.exists():
             urlkw = dict(
