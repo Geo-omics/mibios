@@ -52,6 +52,8 @@ MEDIA_URL = None
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'frontpage'
 LOGOUT_REDIRECT_URL = 'frontpage'
+# To allow logins w/o knowing the password (for development only) set this True
+SKIP_PASSWORD_CHECK = False
 
 # base URL for 'file_download'
 FILE_DOWNLOAD_URL = '/download/'
