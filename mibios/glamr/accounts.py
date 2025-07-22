@@ -1,6 +1,10 @@
 from django import forms
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import views as auth_views
+from django.contrib.auth.backends import (
+    ModelBackend as AuthModelBackend, UserModel,
+)
 from django.contrib.auth.forms import AuthenticationForm, UsernameField
 from django.contrib.auth.models import Group, Permission, User
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -249,6 +253,28 @@ class UserProfileView(LoginRequiredMixin, DetailView):
 
 class PasswordChangeDoneView(UserProfileView):
     extra_context = dict(password_change_done=True)
+
+
+class ModelBackend(AuthModelBackend):
+    def authenticate(self, request, username=None, password=None, **kwargs):
+        """
+        Like the original authenticate() but may skip password check depending
+        on settings
+        """
+        if username is None:
+            username = kwargs.get(UserModel.USERNAME_FIELD)
+        if username is None or password is None:
+            return
+        try:
+            user = UserModel._default_manager.get_by_natural_key(username)
+        except UserModel.DoesNotExist:
+            # Run the default password hasher once to reduce the timing
+            # difference between an existing and a nonexistent user (#20760).
+            UserModel().set_password(password)
+        else:
+            if (user.check_password(password) or settings.SKIP_PASSWORD_CHECK)\
+                    and self.user_can_authenticate(user):
+                return user
 
 
 STAFF_PERMISSIONS = set([
