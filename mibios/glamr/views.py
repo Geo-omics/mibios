@@ -2325,7 +2325,10 @@ class SampleListView(ObjectRelatedMixin, TableView):
     related_field_name = 'sample'
 
     def get_object_lookups(self):
-        set_no = self.kwargs['set_no']
+        try:
+            set_no = self.kwargs['set_no']
+        except KeyError:
+            return super().get_object_lookups()
         return {'dataset_id': f'set_{set_no}'}
 
 
