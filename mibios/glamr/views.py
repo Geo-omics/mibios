@@ -863,6 +863,139 @@ class MapMixin():
         return map_data
 
 
+class ObjectRelatedMixin:
+    """ Mixin for TableView for listing records related to an object """
+    template_name = 'glamr/relations_list.html'
+
+    obj_model = None
+    """ model of object """
+
+    related_field_name = None
+    """ name of the related field """
+
+    model = None
+    """ related model """
+
+    object = None
+
+    @classmethod
+    def get_base_attrs(cls, *args, **kwargs):
+        """
+        Get the basic class attributes from urlconf passed arg/kwargs.
+
+        Raises for certain errors, in particular when an attribute is declared
+        by both the class and the urlconf's kwargs.
+        """
+        attrs = {}
+
+        if 'obj_model' in kwargs:
+            if cls.obj_model is not None:
+                raise TypeError(
+                    '"obj_model" is provided via kwargs but also set by class'
+                )
+            try:
+                attrs['obj_model'] = get_registry().models[kwargs['obj_model']]
+            except KeyError as e:
+                raise Http404(f'no such model: {e}') from e
+
+        if 'field' in kwargs and cls.related_field_name:
+            raise TypeError(
+                '"field" is passed by kwargs and "related_field_name" is also '
+                'set by class'
+            )
+        elif field_name := kwargs.get('field', cls.related_field_name):
+            # get field from field name
+            if obj_model := attrs.get('obj_model', cls.obj_model):
+                try:
+                    field = obj_model._meta.get_field(field_name)
+                except FieldDoesNotExist as e1:
+                    raise Http404(f'no such field: {e1}') from e1
+
+                if not field.one_to_many and not field.many_to_many:
+                    raise Http404('field is not *-to_many')
+
+                attrs['field'] = field
+            else:
+                raise TypeError(f'got field name ({field_name}) but no model')
+
+        if 'field' in attrs:
+            # also get the related model
+            if cls.model is None:
+                attrs['model'] = field.related_model
+            else:
+                if cls.model is not field.related_model:
+                    raise RuntimeError(
+                        f'Mismatch: {cls.__name__}.model={cls.model} but field'
+                        f' {field} relates to {field.related_model}'
+                    )
+
+        return attrs
+
+    def setup(self, request, *args, **kwargs):
+        """
+        Set up obj_model, field etc. from the kwargs.  Some of these may be
+        provided by an inheriting class and thus get skipped.  Also sets the
+        model, which will be picked up by as super().setup() is called last.
+        """
+        attrs_from_kwargs = self.get_base_attrs(*args, **kwargs)
+        for name, value in attrs_from_kwargs.items():
+            if getattr(self, name, None) is None:
+                setattr(self, name, value)
+            else:
+                raise RuntimeError(
+                    f'Attribute {name}={value} got passed (or inferred) via '
+                    f'kwargs but is already set by class '
+                    f'({type(self).__name__})'
+                )
+
+        if self.field and self.model is not self.field.related_model:
+            raise RuntimeError(
+                f'{self.field=} {self.field.related_model=} does not match '
+                f'{self.model=}'
+            )
+
+        # hide the column for the object:
+        self.exclude.append(self.field.remote_field.name)
+
+        try:
+            self.accessor_name = self.field.get_accessor_name()
+        except AttributeError:
+            self.accessor_name = self.field.name
+
+        super().setup(request, *args, **kwargs)
+
+    def get_object_lookups(self):
+        return {'pk': self.kwargs['pk']}
+
+    def get_object(self, queryset=None):
+        """ This is similar to DetailView.get_object() """
+        if queryset is None:
+            queryset = self.obj_model.objects.all()
+
+        queryset = queryset.filter(**self.get_object_lookups())
+        queryset = exclude_private_data(queryset, self.request.user)
+
+        try:
+            return queryset.get()
+        except self.obj_model.DoesNotExist:
+            raise Http404(f'no such {self.obj_model} record')
+
+    def get_queryset(self):
+        self.object = self.get_object()
+        qs = super().get_queryset()
+        qs = qs.filter(**{self.field.remote_field.name: self.object})
+        return qs
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['object'] = self.object
+        ctx['object_model_name'] = self.obj_model._meta.model_name
+        ctx['object_model_name_verbose'] = self.obj_model._meta.verbose_name
+        ctx['field'] = self.field
+        ctx['verbose_name_plural'] = self.model._meta.verbose_name_plural
+        return ctx
+
+
 class SearchFormMixin:
     """
     Mixin sufficient to display the simple search form
@@ -1095,6 +1228,39 @@ class TableView(FilterMixin, MapMixin, ModelTableMixin, BaseMixin,
             # using a model-specific view, so remove model from kwargs
             del kwargs['model']
         return view(request, *args, **kwargs)
+
+
+class ObjRelTableView(ObjectRelatedMixin, TableView):
+    @classonlymethod
+    def disp_view(cls, request, *args, **kwargs):
+        """
+        Dispatch to view function based on the model
+
+        Use as view function.  It will dispatch to the proper view class' view
+        function as returned by its as_view(). Raises a KeyError if 'model' is
+        not passed via kwargs.
+        """
+        if cls.model is not None:
+            raise RuntimeError(
+                'only call this on a generic view class with model=None'
+            )
+
+        if model := cls.get_base_attrs(*args, **kwargs).get('model'):
+            model_name = model._meta.model_name
+        else:
+            model_name = None
+
+        table_view = TableView._get_views()[model_name]
+        base_cls = table_view.view_class
+        view_cls = type(
+            'AutoObjRel' + base_cls.__name__,
+            (ObjectRelatedMixin, base_cls),
+            {},
+        )
+        if view_cls.model is not None:
+            # using a model-specific view, so remove model from kwargs
+            del kwargs['model']
+        return view_cls.as_view()(request, *args, **kwargs)
 
 
 class AboutView(BaseMixin, DetailView):
@@ -2128,92 +2294,13 @@ class SearchModelView(EditFilterMixin, BaseMixin, TemplateView):
         return ctx
 
 
-class ToManyListView(FilterMixin, ModelTableMixin, BaseMixin, SingleTableView):
-    """ List records related to other record """
-    template_name = 'glamr/relations_list.html'
-    obj_model = None
-    object = None
-
-    def setup(self, request, *args, **kwargs):
-        """
-        Set up obj_model, field etc. from the kwargs.  Some of
-        these may be provided by an inheriting class and thus get skipped.
-        """
-        if self.obj_model is None:
-            obj_model = kwargs['obj_model']
-            try:
-                self.obj_model = get_registry().models[obj_model]
-            except KeyError as e:
-                raise Http404(f'no such model: {e}') from e
-
-        try:
-            field = self.obj_model._meta.get_field(kwargs['field'])
-        except FieldDoesNotExist as e:
-            raise Http404('no such field') from e
-
-        if not field.one_to_many and not field.many_to_many:
-            raise Http404('field is not *-to_many')
-
-        self.field = field
-        if self.model is None:
-            self.model = field.related_model
-        else:
-            if self.model is not field.related_model:
-                raise RuntimeError(f'{field=} {field.related_model=} does not '
-                                   f'match {self.model=}')
-        # hide the column for the object:
-        self.exclude.append(self.field.remote_field.name)
-
-        try:
-            self.accessor_name = field.get_accessor_name()
-        except AttributeError:
-            self.accessor_name = field.name
-
-        # hand over to ModelTableMixin
-        super().setup(request, *args, **kwargs)
-
-    def get_object_lookups(self):
-        return {'pk': self.kwargs['pk']}
-
-    def get_object(self, queryset=None):
-        """ This is similar to DetailView.get_object() """
-        if queryset is None:
-            queryset = self.obj_model.objects.all()
-
-        queryset = queryset.filter(**self.get_object_lookups())
-        queryset = exclude_private_data(queryset, self.request.user)
-
-        try:
-            return queryset.get()
-        except self.obj_model.DoesNotExist:
-            raise Http404(f'no such {self.obj_model} record')
-
-    def get_queryset(self):
-        self.object = self.get_object()
-        qs = super().get_queryset()
-        qs = qs.filter(**{self.field.remote_field.name: self.object})
-        return qs
-
-    def get_context_data(self, **ctx):
-        ctx = super().get_context_data(**ctx)
-        ctx['object'] = self.object
-        ctx['object_model_name'] = self.obj_model._meta.model_name
-        ctx['object_model_name_verbose'] = self.obj_model._meta.verbose_name
-        ctx['field'] = self.field
-        ctx['verbose_name_plural'] = self.model._meta.verbose_name_plural
-        return ctx
-
-
-class SampleListView(MapMixin, ToManyListView):
+class SampleListView(ObjectRelatedMixin, TableView):
     """ List of samples belonging to a given dataset  """
     template_name = 'glamr/sample_list.html'
     table_class = tables.SampleTable
-    model = models.Sample
     obj_model = models.Dataset
-
-    def setup(self, request, *args, **kwargs):
-        """ adapt setup call to ToManyListView's expectations """
-        super().setup(request, *args, field='sample', **kwargs)
+    model = models.Sample
+    related_field_name = 'sample'
 
     def get_object_lookups(self):
         set_no = self.kwargs['set_no']
