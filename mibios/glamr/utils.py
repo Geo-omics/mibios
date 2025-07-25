@@ -99,3 +99,21 @@ def estimate_row_totals(model):
 
     stat_model = apps.get_model('glamr', stat_model_name)
     return int(stat_model.objects.get(name=model._meta.db_table).num_rows)
+
+
+def get_subclasses(cls, _collected=None):
+    """
+    Get given class' subclasses, recursively
+    """
+    subs = {}
+    for i in cls.__subclasses__():
+        if _collected is not None and i in _collected:
+            continue
+        subs[i] = None
+        subs.update(get_subclasses(i, _collected=subs))
+    if _collected is None:
+        # return from original call
+        return list(subs)
+    else:
+        # return from recursive call
+        return subs
