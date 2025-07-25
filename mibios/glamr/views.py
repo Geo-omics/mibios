@@ -17,6 +17,7 @@ from django.db import OperationalError, connection
 from django.db.models import Count, Exists, Field, OuterRef, Prefetch, URLField
 from django.http import Http404, HttpResponse
 from django.urls import reverse
+from django.utils.decorators import classonlymethod
 from django.utils.functional import classproperty
 from django.utils.html import format_html
 from django.views.decorators.cache import cache_control, cache_page
@@ -52,7 +53,7 @@ from .forms import QBuilderForm, QLeafEditForm, SearchForm
 from .queryset import exclude_private_data
 from .search_fields import ADVANCED_SEARCH_MODELS, search_fields
 from .search_utils import get_suggestions, SearchResult
-from .utils import estimate_row_totals, get_record_url
+from .utils import estimate_row_totals, get_record_url, get_subclasses
 
 
 log = getLogger(__name__)
@@ -589,8 +590,8 @@ class GenericModelMixin:
                 == (kwargs.get(self.url_model_kw, None) is None)
         ):
             raise TypeError(
-                'if the url kwarg is given then the model attr must not be'
-                ' set and vice versa'
+                'if the url kwarg is given then the model attr must not be '
+                'set and vice versa'
             )
 
         if not (model_name := kwargs.get(self.url_model_kw)):
@@ -1041,6 +1042,59 @@ class SearchMixin(SearchFormMixin):
         else:
             ctx['result_stats'] = None
         return ctx
+
+
+class TableView(FilterMixin, MapMixin, ModelTableMixin, BaseMixin,
+                SingleTableView):
+    template_name = 'glamr/filter_list.html'
+
+    _views = None
+    """ private attribute to store views for the view dispatcher """
+
+    @classonlymethod
+    def _get_views(cls):
+        """
+        Get the views for the view dispatcher.
+
+        Upon first invocation, to collect views, go through subclasses in the
+        order they are defined, if they have a model declared take the first
+        for that model to dispatch to.  TableView is the default.
+
+        Call this from the view dispatcher on its first run.
+        """
+        if cls._views is None:
+            views = DefaultDict(default=cls.as_view())
+            for view_cls in get_subclasses(cls):
+                if view_cls.model is None:
+                    # other generic view, generic case is handles by TableClass
+                    continue
+                if issubclass(view_cls, ObjectRelatedMixin):
+                    continue
+                model_name = view_cls.model._meta.model_name
+                if model_name in views:
+                    continue
+                views[model_name] = view_cls.as_view()
+            cls._views = views
+        return cls._views
+
+    @classonlymethod
+    def disp_view(cls, request, *args, **kwargs):
+        """
+        Dispatch to view function based on the model
+
+        Use as view function.  It will dispatch to the proper view class' view
+        function as returned by its as_view(). Raises a KeyError if 'model' is
+        not passed via kwargs.
+        """
+        if cls.model is not None:
+            raise RuntimeError(
+                'only call this on a generic view class with model=None'
+            )
+        view = cls._get_views()[kwargs['model']]
+        if view.view_class.model is not None:
+            # using a model-specific view, so remove model from kwargs
+            del kwargs['model']
+        return view(request, *args, **kwargs)
 
 
 class AboutView(BaseMixin, DetailView):
@@ -2074,11 +2128,6 @@ class SearchModelView(EditFilterMixin, BaseMixin, TemplateView):
         return ctx
 
 
-class TableView(FilterMixin, MapMixin, ModelTableMixin, BaseMixin,
-                SingleTableView):
-    template_name = 'glamr/filter_list.html'
-
-
 class ToManyListView(FilterMixin, ModelTableMixin, BaseMixin, SingleTableView):
     """ List records related to other record """
     template_name = 'glamr/relations_list.html'
@@ -2253,12 +2302,6 @@ class AdvFilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
             for k, v in self.conf.filter.items()
         ] + [('', i) for i in self.conf.q]
         return ctx
-
-
-class FilteredListView(SearchFormMixin, FilterMixin, MapMixin, ModelTableMixin,
-                       BaseMixin, SingleTableView):
-    """ Similar to FilteredListView but got via django-filter filters """
-    template_name = 'glamr/filter_list.html'
 
 
 class UniRef100View(RecordView):

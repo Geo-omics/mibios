@@ -56,7 +56,7 @@ urlpatterns = [
     re_path(rf'sample/{kpat}/$', views.SampleView.as_view(), name='sample'),  # noqa: E501
     path('sample/<int:samp_no>/krona/', krona, name='krona'),
     path('data/', views.AvailableDataView.as_view(), name='available_data'),
-    path('data/<str:model>/', views.TableView.as_view(), name='generic_table'),  # noqa: E501
+    path('data/<str:model>/', views.TableView.disp_view, name='generic_table'),  # noqa: E501
     re_path(rf'data/(?P<model>\w+)/{kpat}/$', views.record_view, name='record'),  # noqa: E501
     path('data/<str:model>/<int:pk>/abundance/', views.AbundanceView.as_view(), name='record_abundance'),  # noqa: E501
     path('data/<str:model>/<int:pk>/abundance/<str:sample>/genes/', views.AbundanceGeneView.as_view(), name='record_abundance_genes'),  # noqa: E501
@@ -65,7 +65,7 @@ urlpatterns = [
     path('search/', views.SearchView.as_view(), name='search_initial'),
     path('search/<str:model>/', views.SearchResultListView.as_view(), name='search_result'),  # noqa: E501
     path('filter/adv/<str:model>/', views.AdvFilteredListView.as_view(), name='filter_result'),  # noqa: E501
-    path('filter/<str:model>/', views.FilteredListView.as_view(), name='filter_result2'),  # noqa: E501
+    path('filter/<str:model>/', views.TableView.disp_view, name='filter_result2'),  # noqa: E501
     path('search-adv/<str:model>/', views.SearchModelView.as_view(), name='search_model'),  # noqa: E501
 
     # URLs are served depending on settings, e.g. RequiredSettingsMixin
