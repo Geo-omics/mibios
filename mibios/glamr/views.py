@@ -1,4 +1,4 @@
-from functools import cached_property
+from functools import cache, cached_property
 from itertools import groupby
 from logging import getLogger
 from pathlib import Path
@@ -1231,6 +1231,32 @@ class TableView(FilterMixin, MapMixin, ModelTableMixin, BaseMixin,
 
 
 class ObjRelTableView(ObjectRelatedMixin, TableView):
+
+    @classonlymethod
+    @cache
+    def _get_view(cls, obj_model=None, field=None, model=None):
+        # try for specialized views, obj_model and field name must match
+        for subcls in get_subclasses(ObjectRelatedMixin):
+            test1 = obj_model and subcls.obj_model is obj_model
+            test2 = field and subcls.related_field_name == field.name
+            if test1 and test2:
+                view_cls = subcls
+                break
+        else:
+            if model:
+                # fall-back to generic mixin with specialized TableView
+                table_view = TableView._get_views()[model._meta.model_name]
+                base_cls = table_view.view_class
+                view_cls = type(
+                    'AutoObjRel' + base_cls.__name__,
+                    (ObjectRelatedMixin, base_cls),
+                    {},
+                )
+            else:
+                # fall-back to fully generic, this class
+                view_cls = cls
+        return view_cls.as_view()
+
     @classonlymethod
     def disp_view(cls, request, *args, **kwargs):
         """
@@ -1245,22 +1271,18 @@ class ObjRelTableView(ObjectRelatedMixin, TableView):
                 'only call this on a generic view class with model=None'
             )
 
-        if model := cls.get_base_attrs(*args, **kwargs).get('model'):
-            model_name = model._meta.model_name
-        else:
-            model_name = None
+        base_attrs = cls.get_base_attrs(*args, **kwargs)
+        view_fn = cls._get_view(**base_attrs)
 
-        table_view = TableView._get_views()[model_name]
-        base_cls = table_view.view_class
-        view_cls = type(
-            'AutoObjRel' + base_cls.__name__,
-            (ObjectRelatedMixin, base_cls),
-            {},
-        )
-        if view_cls.model is not None:
-            # using a model-specific view, so remove model from kwargs
+        # only pass required kwargs to view function
+        if 'obj_model' in kwargs and view_fn.view_class.obj_model:
+            del kwargs['obj_model']
+        if 'field' in kwargs and view_fn.view_class.related_field_name:
+            del kwargs['field']
+        if 'model' in kwargs and view_fn.view_class.model:
             del kwargs['model']
-        return view_cls.as_view()(request, *args, **kwargs)
+
+        return view_fn(request, *args, **kwargs)
 
 
 class AboutView(BaseMixin, DetailView):
