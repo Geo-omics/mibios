@@ -1064,7 +1064,7 @@ class DefaultDict(dict):
     data then one can get an instance with a different default key, e.g.:
 
     DEFAULT_KEY = object()
-    d = SafeDict.with_default_key(DEFAULT_KEY)(...)
+    d = DefaultDict.with_default_key(DEFAULT_KEY)(...)
 
     If a default key-value pair is set then the default value is returned for
     any unknown key.  If no default key-value is set (or if a previous one was
