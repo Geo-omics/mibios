@@ -55,26 +55,15 @@ def get_fasta_sequence(file, offset, length, skip_header=True):
         offset: first byte of header
         length: length of data in bytes
 
-    Returns the fasta record or sequence as bytes string.  The sequence part
-    will be returned in a single line even if it was broken up into multiple
-    line originally.
+    Returns the fasta record or sequence as bytes.
     """
     file.seek(offset)
     if skip_header:
-        header = file.readline()
-        if header[0] != ord(b'>'):
-            raise RuntimeError('expected fasta header start ">" missing')
-        length -= len(header)
-        if length < 0:
-            raise ValueError('header is longer than length')
-    else:
-        # not bothering with any checks here
-        pass
-
-    data = file.read(length).splitlines()
-    if not skip_header:
-        data.insert(1, b'\n')
-    data = b''.join(data)
+        length -= len(file.readline())
+    data = file.read(length)
+    if data[-1] != ord(b'\n'):
+        # TODO: do we need test for newlines?
+        raise ValueError('fasta record does not end in newline: {data[-10:]}')
     return data
 
 

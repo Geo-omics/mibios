@@ -16,6 +16,8 @@ import tempfile
 from textwrap import dedent
 
 from django.conf import settings
+from django.db.models import F, Window
+from django.db.models.functions import FirstValue
 from django.db.transaction import atomic
 from django.utils.module_loading import import_string
 
@@ -390,28 +392,27 @@ class SequenceLikeQuerySet(QuerySet):
 
     def to_fasta(self):
         """
-        Make fasta-formatted sequences
+        Generate fasta-formatted sequences from file
+
+        Yields bytes.
         """
-        files = {}
-        lines = []
-        fields = ('fasta_offset', 'fasta_len', 'gene_id', 'sample__accession')
-        qs = self.select_related('sample').values_list(*fields)
-        try:
-            for offs, length, gene_id, sampid in qs.iterator():
-                if sampid not in files:
-                    sample = get_sample_model().objects.get(accession=sampid)
-                    files[sampid] = \
-                        self.model.loader.get_fasta_path(sample).open('rb')
+        Sample = get_sample_model()
+        File = import_string('mibios.omics.models.File')
 
-                lines.append(f'>{sampid}:{gene_id}')
-                lines.append(
-                    get_fasta_sequence(files[sampid], offs, length).decode()
-                )
-        finally:
-            for i in files.values():
-                i.close()
-
-        return '\n'.join(lines)
+        qs = self.annotate(sample_pk=Window(
+            expression=FirstValue('sample__pk'),
+            partition_by=F('sample'),
+        ))
+        qs = qs.values_list('fasta_offset', 'fasta_len', 'contig_no',
+                            'sample_pk')
+        for sample_pk, grp in groupby(qs, key=lambda x: x[3]):
+            sample = Sample.objects.get(pk=sample_pk)
+            # NOTE: this assumes contigs from metagenomic assembly
+            file = sample.get_omics_file(File.Type.METAG_ASM)
+            with file.file_pipeline.open('rb') as ifile:
+                for (offs, length, contig_no, _) in grp:
+                    yield f'>{sample.sample_id}:{contig_no}\n'.encode()
+                    yield get_fasta_sequence(ifile, offs, length)
 
 
 SequenceLikeManager = Manager.from_queryset(SequenceLikeQuerySet)
