@@ -86,8 +86,8 @@ class ExportMixin(ExportBaseMixin):
     Also requires BaseMixin to pass around the cache option.
 
     Differs from mibios.ExportMixin in that this doesn't override the template
-    response, instead conditional switch in get() if a file export response is
-    needed.  The code is just copy-pasted into our get().
+    response, instead conditional switch in dispatch() if a file export
+    response is needed.  Similar code then appears in out get_export().
     """
     export_query_param = 'export'
     export_options = None
@@ -189,13 +189,13 @@ class ExportMixin(ExportBaseMixin):
     def get_export_queryset(self, export_option):
         """
         Get the queryset corresponding to given export option.
+
+        Assumes export option is name of a to-many relation's field.  Override
+        this method in inheriting class is this does not apply.
         """
         if export_option is self.EXPORT_TABLE:
             return self.get_queryset()
 
-        # Try for related data export (or get 404 if this fails), other
-        # more intricate options would need to be implemented by inheriting
-        # views.
         remote_field = self.get_export_remote_field(export_option)
 
         match self.model._meta.model_name, export_option:
@@ -217,17 +217,22 @@ class ExportMixin(ExportBaseMixin):
         export_option:
             Expected to be the field name of a to-many relation.
 
-        Raises 404 for illegal export options, since those may come in via the
-        GET query string.
+        Raises LookupError if the provided export_option is not name of a
+        to-many field.
         """
         try:
             field = self.model._meta.get_field(export_option)
-        except FieldDoesNotExist:
-            raise Http404(f'export option not implemented: {export_option}')
+        except FieldDoesNotExist as e:
+            raise LookupError(
+                f'expected export option to be a field name: {export_option}'
+            ) from e
 
         if field.related_model is None:
             # not a relation
-            raise Http404(f'invalid export option: {export_option}')
+            raise LookupError(
+                f'expected export option to be a related field name: '
+                f'{export_option}'
+            )
 
         return field.remote_field
 
@@ -267,29 +272,37 @@ class ExportMixin(ExportBaseMixin):
         This helper is called from get_context_data().  Returns a tuple of
         strings: (URL, txt).  Raises ValueError for invalid option.
 
-        Queries the DB with exists() for each option.
+        For links to related data this will query the DB with exists() to set a
+        link to active/not active.
         """
         if option is self.EXPORT_TABLE:
-            # default export, the view's model
+            # default export, the current table
             option = ''
             link_txt = self.model._meta.verbose_name_plural
             link_txt += ' (this table)'
             is_active = True
         else:
-            remote_field = self.get_export_remote_field(option)
-            link_txt = remote_field.remote_field.related_name \
-                or remote_field.model._meta.verbose_name_plural
+            try:
+                remote_field = self.get_export_remote_field(option)
+            except LookupError:
+                # other link type
+                link_txt = option
+                is_active = True
+            else:
+                # link to related data
+                link_txt = remote_field.remote_field.related_name \
+                    or remote_field.model._meta.verbose_name_plural
 
-            # Check if any export data would exist
-            rel_data = remote_field.model.objects.filter(
-                **{remote_field.name: OuterRef('pk')}
-            )
-            is_active = (
-                self.get_queryset()
-                .annotate(has_rel_data=Exists(rel_data))
-                .filter(has_rel_data=True)
-                .exists()
-            )
+                # Check if any export data would exist
+                rel_data = remote_field.model.objects.filter(
+                    **{remote_field.name: OuterRef('pk')}
+                )
+                is_active = (
+                    self.get_queryset()
+                    .annotate(has_rel_data=Exists(rel_data))
+                    .filter(has_rel_data=True)
+                    .exists()
+                )
 
             if not settings.INTERNAL_DEPLOYMENT:
                 # currently impractical, use too much resources
