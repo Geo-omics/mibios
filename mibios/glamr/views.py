@@ -36,7 +36,7 @@ from mibios.glamr.models import Sample, Dataset, pg_class, dbstat
 from mibios.query import Q
 from mibios.views import (
     ExportBaseMixin, StaffLoginRequiredMixin,
-    TextRendererZipped, VersionInfoMixin,
+    TextRenderer, TextRendererZipped, VersionInfoMixin,
 )
 from mibios.omics import get_sample_model
 from mibios.omics.models import (
@@ -664,6 +664,7 @@ class ModelTableMixin(GenericModelMixin, ExportMixin):
 
     EXTRA_EXPORT_OPTIONS = {
         Sample: ['taxonabundance', 'functional_abundance'],
+        Contig: ['sequence_fasta'],
     }
 
     def setup(self, request, *args, **kwargs):
@@ -1523,6 +1524,29 @@ class AvailableDataView(BaseMixin, TemplateView):
 
 class ContactView(BaseMixin, TemplateView):
     template_name = 'glamr/contact.html'
+
+
+class ContigListView(TableView):
+    model = Contig
+
+    def get_export_link(self, option):
+        if option != 'sequence_fasta':
+            return super().get_export_link(option)
+        qstr = self.request.GET.copy()
+        qstr[self.export_query_param] = option
+        url = f'?{qstr.urlencode()}'
+        return (url, 'sequences')
+
+    def get_format(self):
+        return ('fasta', '.fasta', TextRenderer)
+
+    def get_values(self):
+        """ Get data for export """
+        if self.requested_export_option != 'sequence_fasta':
+            return super().get_values()
+
+        # export as fasta
+        return self.get_queryset().to_fasta()
 
 
 class DBInfoView(StaffLoginRequiredMixin, BaseMixin, SingleTableView):
