@@ -1512,6 +1512,14 @@ class ContactView(BaseMixin, TemplateView):
     template_name = 'glamr/contact.html'
 
 
+class ContigListView(TableView):
+    model = Contig
+
+
+class ContigListView2(ContigListView):
+    model = Contig
+
+
 class DBInfoView(StaffLoginRequiredMixin, BaseMixin, SingleTableView):
     template_name = 'glamr/dbinfo.html'
     model = None  # set by setup()
