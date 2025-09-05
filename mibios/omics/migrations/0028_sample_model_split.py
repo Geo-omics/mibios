@@ -21,7 +21,7 @@ def populate_seqsample(apps, schema_editor):
     for i in Sample.objects.all():
         kwargs = {k: getattr(i, k) for k in fields}
         obj = SeqSample(pk=i.pk, parent=i, **kwargs)
-        obj.validate()
+        obj.full_clean()
         obj.save()
 
 
