@@ -41,6 +41,7 @@ class AbstractAbundance(Model):
     With data from the Sample_xxxx_<something>_VERSION.txt files
     """
     sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    seq_sample = models.ForeignKey('SeqSample', **fk_opt)
     scos = models.DecimalField(**digits(12, 2))
     rpkm = models.DecimalField(**digits(12, 2))
     # lca ?
@@ -465,6 +466,11 @@ class ReadAbundance(Model):
         related_name='functional_abundance',
         **fk_req,
     )
+    seq_sample = models.ForeignKey(
+        SeqSample,
+        related_name='functional_abundance',
+        **fk_opt,
+    )
     ref = models.ForeignKey(UniRef100, **fk_req, related_name='abundance')
     unique_cov = models.DecimalField(
         **digits(4, 3),
@@ -512,6 +518,7 @@ class Bin(Model):
     """ Metagenomic assembly bin """
     name = models.TextField(max_length=20, unique=True)
     sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    seq_sample = models.ForeignKey(SeqSample, **fk_opt)
     contigs = models.ManyToManyField('Contig', related_name='bins')
 
     # GTDB classification
@@ -589,6 +596,7 @@ class File(Model):
     )
     modtime = models.DateTimeField(verbose_name='modification time')
     sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    seq_sample = models.ForeignKey(SeqSample, **fk_opt)
 
     objects = managers.FileManager.from_queryset(FileQuerySet)()
 
@@ -1026,6 +1034,7 @@ class File(Model):
 class TaxonAbundance(Model):
     """ Abundance of taxon in a sample """
     sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    seq_sample = models.ForeignKey(SeqSample, **fk_opt)
     # Fields cf. Kraken-style report mmseqs2 userguide
     taxon = models.ForeignKey(
         TaxNode,
@@ -1086,6 +1095,7 @@ class SequenceLike(Model):
     """
     history = None
     sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    seq_sample = models.ForeignKey(SeqSample, **fk_opt)
 
     fasta_offset = models.PositiveBigIntegerField(
         **opt,
@@ -1458,7 +1468,12 @@ class SampleTracking(Model):
     flag = models.CharField(max_length=3, choices=Flag.choices)
     sample = models.ForeignKey(
         settings.OMICS_SAMPLE_MODEL,
-        on_delete=models.CASCADE,
+        **fk_req,
+        related_name='tracking',
+    )
+    seq_sample = models.ForeignKey(
+        SeqSample,
+        **fk_opt,
         related_name='tracking',
     )
     created = models.DateTimeField(auto_now_add=True)
