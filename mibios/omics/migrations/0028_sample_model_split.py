@@ -6,11 +6,50 @@ import django.db.models.deletion
 import mibios.fields
 
 
+# field common between old Sample and new SeqSample, must be copied during
+# migration
+fields = ['sample_id', 'sample_name', 'sample_type', 'has_paired_data',
+          'sra_accession', 'gold_analysis_id', 'gold_seq_id',
+          'amplicon_target', 'fwd_primer', 'rev_primer', 'analysis_dir',
+          'read_count', 'reads_mapped_contigs', 'reads_mapped_genes',]
+
+
+def populate_seqsample(apps, schema_editor):
+    Sample = apps.get_model('glamr', 'Sample')
+    SeqSample = apps.get_model('omics', 'SeqSample')
+
+    for i in Sample.objects.all():
+        kwargs = {k: getattr(i, k) for k in fields}
+        obj = SeqSample(parent=i, **kwargs)
+        obj.validate()
+        obj.save()
+
+
+def refill_removed_sample_fields(apps, schema_editor):
+    """
+    Refill lost fields in Sample model.  Assumes there is still an 1-1 relation
+    between the models
+    """
+    Sample = apps.get_model('glamr', 'Sample')
+    SeqSample = apps.get_model('omics', 'SeqSample')
+
+    for i in SeqSample.objects.all():
+        obj = Sample.objects.get(sample_id=i.sample_id)
+        for k in fields:
+            if k == 'sample_id':
+                continue
+            setattr(obj, k, getattr(i, k))
+
+        obj.validate()
+        obj.save()
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.OMICS_SAMPLE_MODEL),
         ("omics", "0027_alter_bin_options_alter_bin_managers_and_more"),
+        ("glamr", "0028_remove_sample_contig_abundance_loaded_and_more"),
     ]
 
     operations = [
@@ -117,6 +156,7 @@ class Migration(migrations.Migration):
                 ),
             ],
         ),
+        migrations.RunPython(populate_seqsample, refill_removed_sample_fields),
         migrations.DeleteModel(
             name="Dataset",
         ),
