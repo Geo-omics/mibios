@@ -2,7 +2,9 @@
 # with manual changes and additions
 
 from django.conf import settings
+from django.core.exceptions import FieldDoesNotExist
 from django.db import migrations, models
+
 import mibios.omics.storage
 
 
@@ -13,12 +15,23 @@ def migrate_samples_fwd(apps, schema_editor):
     """
     app, _, model = settings.OMICS_SAMPLE_MODEL.rpartition('.')
     Sample = apps.get_model(app, model)
+
     objs = []
     for obj in Sample.objects.all():
         if obj.analysis_dir:
             obj.analysis_dir = obj.analysis_dir.removeprefix('data/omics/')
             objs.append(obj)
-    Sample.objects.bulk_update(objs, fields=['analysis_dir'])
+
+    if objs:
+        try:
+            Sample.objects.bulk_update(objs, fields=['analysis_dir'])
+        except FieldDoesNotExist as e:
+            # report this, otherwise ignore.  We assume that no data will ever
+            # need to be migrated again.
+            print(
+                f'\n    [WARNING] data migration skipped for {len(objs)} '
+                f'samples due to {e.__class__.__name__}: {e}'
+            )
 
 
 def migrate_samples_rev(apps, schema_editor):
