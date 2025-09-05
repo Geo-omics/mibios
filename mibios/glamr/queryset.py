@@ -13,7 +13,6 @@ from django.utils.module_loading import import_string
 
 import pandas
 
-from mibios.omics.queryset import SampleQuerySet as OmicsSampleQuerySet
 from mibios.umrad.manager import QuerySet
 from . import GREAT_LAKES
 from .search_utils import SearchResult
@@ -202,7 +201,7 @@ class DatasetQuerySet(QuerySet):
         return self.model.objects.bulk_update(qs, ['access'])
 
 
-class SampleQuerySet(OmicsSampleQuerySet):
+class SampleQuerySet(QuerySet):
 
     _allowed_pks = {}
 

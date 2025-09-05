@@ -27,7 +27,7 @@ from mibios.umrad.utils import ProgressPrinter
 from . import managers, get_sample_model, sra
 from .amplicon import get_target_genes, quick_analysis, quick_annotation
 from .fields import DataPathField, ReadOnlyFileField
-from .queryset import FileQuerySet, SampleQuerySet
+from .queryset import FileQuerySet, SeqSampleQuerySet
 from .utils import get_fasta_sequence
 
 
@@ -49,7 +49,7 @@ class AbstractAbundance(Model):
         abstract = True
 
 
-class AbstractSample(Model):
+class SeqSample(Model):
     TYPE_AMPLICON = 'amplicon'
     TYPE_METAGENOME = 'metagenome'
     TYPE_METATRANS = 'metatranscriptome'
@@ -71,8 +71,8 @@ class AbstractSample(Model):
         **ch_opt,
         help_text='sample ID or name as given by original data source',
     )
-    dataset = models.ForeignKey(
-        settings.OMICS_DATASET_MODEL,
+    parent = models.ForeignKey(
+        settings.OMICS_SAMPLE_MODEL,
         **fk_req,
     )
     sample_type = models.CharField(
@@ -82,6 +82,8 @@ class AbstractSample(Model):
     )
     has_paired_data = models.BooleanField(**opt)
     sra_accession = models.TextField(max_length=16, **ch_opt)
+    gold_analysis_id = models.TextField(max_length=32, **ch_opt)
+    gold_seq_id = models.TextField(max_length=32, **ch_opt)
     amplicon_target = models.TextField(max_length=16, **ch_opt)
     fwd_primer = models.TextField(max_length=32, **ch_opt)
     rev_primer = models.TextField(max_length=32, **ch_opt)
@@ -105,11 +107,11 @@ class AbstractSample(Model):
         help_text='number of reads mapped to genes',
     )
 
-    objects = Manager.from_queryset(SampleQuerySet)()
-    loader = managers.SampleLoader.from_queryset(SampleQuerySet)()
+    objects = Manager.from_queryset(SeqSampleQuerySet)()
+    loader = managers.SampleLoader.from_queryset(SeqSampleQuerySet)()
 
     class Meta:
-        abstract = True
+        pass
 
     def __str__(self):
         return self.sample_id
@@ -432,7 +434,7 @@ class AbstractDataset(Model):
         if sample_type is None:
             sample_type = self.get_sample_type()
 
-        if sample_type == AbstractSample.TYPE_AMPLICON:
+        if sample_type == SeqSample.TYPE_AMPLICON:
             base = Path(settings.AMPLICON_PIPELINE_BASE)
         else:
             raise NotImplementedError
@@ -1205,7 +1207,7 @@ class FuncAbundance(AbstractAbundance):
 
 class Gene(Model):
     """ Model for a contig vs. UniRef100 alignment hit """
-    sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    sample = models.ForeignKey(SeqSample, **fk_req)
     # fields below cf. BLAST output fmt 6 (mmseqs2 tophit_aln)
     contig = models.ForeignKey('Contig', **fk_req)
     ref = models.ForeignKey(UniRef100, **fk_req)
@@ -1231,7 +1233,7 @@ class Gene(Model):
 
 class NCRNA(Model):
     history = None
-    sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    sample = models.ForeignKey(SeqSample, **fk_req)
     contig = models.ForeignKey('Contig', **fk_req)
     match = models.ForeignKey('RNACentralRep', **fk_req)
     part = models.PositiveIntegerField(**opt)
@@ -1300,7 +1302,7 @@ class Protein(SequenceLike):
 
 class ReadLibrary(Model):
     sample = models.OneToOneField(
-        settings.OMICS_SAMPLE_MODEL,
+        SeqSample,
         on_delete=models.CASCADE,
         related_name='reads',
     )
@@ -1323,7 +1325,7 @@ class ReadLibrary(Model):
         if not no_counts:
             raise NotImplementedError('read counting is not yet implemented')
 
-        for i in get_sample_model().objects.filter(reads=None):
+        for i in SeqSample.objects.filter(reads=None):
             obj = cls.from_sample(i)
             try:
                 obj.full_clean()
@@ -1498,17 +1500,21 @@ class SampleTracking(Model):
             self.job.run_undo()
 
 
-class Sample(AbstractSample):
-    """
-    Placeholder model for samples
-    """
-    class Meta:
-        swappable = 'OMICS_SAMPLE_MODEL'
-
-
+'''
 class Dataset(AbstractDataset):
     """
     Placeholder model implementing a dataset
     """
     class Meta:
         swappable = 'OMICS_DATASET_MODEL'
+'''
+
+
+class Sample(Model):
+    """
+    Placeholder model for samples
+    """
+    # dataset = models.ForeignKey(Dataset, **fk_opt)
+
+    class Meta:
+        swappable = 'OMICS_SAMPLE_MODEL'

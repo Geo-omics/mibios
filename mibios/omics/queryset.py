@@ -91,7 +91,7 @@ class FileQuerySet(QuerySet):
         return self.filter(sample__in=samples)
 
 
-class SampleQuerySet(QuerySet):
+class SeqSampleQuerySet(QuerySet):
     def get_ready(self, only=None, sort_by_sample=False):
         """
         Return Job instances which are ready to go (but not yet done).

@@ -340,7 +340,6 @@ class SampleFilter(FilterSet):
         model = Sample
         fields = [
             'geo_loc_name', 'year', 'collection_timestamp',
-            'sample_type', 'amplicon_target', 'fwd_primer', 'rev_primer',
             'microcystis_count',
         ]
 
