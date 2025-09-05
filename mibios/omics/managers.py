@@ -31,7 +31,6 @@ from mibios.umrad.utils import (
     CSV_Spec, atomic_dry, InputFileError, SkipRow, ModelSpec,
 )
 
-from . import get_sample_model
 from .utils import call_each, get_fasta_sequence, get_sample_blocklist
 
 log = getLogger(__name__)
@@ -396,8 +395,8 @@ class SequenceLikeQuerySet(QuerySet):
 
         Yields bytes.
         """
-        Sample = get_sample_model()
         File = import_string('mibios.omics.models.File')
+        SeqSample = import_string('mibios.omics.models.SeqSample')
 
         qs = self.annotate(sample_pk=Window(
             expression=FirstValue('sample__pk'),
@@ -406,7 +405,7 @@ class SequenceLikeQuerySet(QuerySet):
         qs = qs.values_list('fasta_offset', 'fasta_len', 'contig_no',
                             'sample_pk')
         for sample_pk, grp in groupby(qs, key=lambda x: x[3]):
-            sample = Sample.objects.get(pk=sample_pk)
+            sample = SeqSample.objects.get(pk=sample_pk)
             # NOTE: this assumes contigs from metagenomic assembly
             file = sample.get_omics_file(File.Type.METAG_ASM)
             with file.file_pipeline.open('rb') as ifile:
@@ -1189,8 +1188,9 @@ class TaxonAbundanceManager(Manager):
         The default is to keep existing charts.  To re-create charts set
         keep_existing to False.
         """
-        Sample = get_sample_model()
-        for i in Sample.objects.exclude(taxonabundance=None).only('sample_id'):
+        SeqSample = import_string('mibios.omics.models.SeqSample')
+        qs = SeqSample.objects.exclude(taxonabundance=None).only('sample_id')
+        for i in qs:
             path = self.get_krona_path(i)
             if path.exists():
                 if keep_existing:

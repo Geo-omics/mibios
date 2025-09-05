@@ -16,7 +16,7 @@ from django.utils.dateparse import parse_date, parse_datetime
 from django.utils.html import escape as escape_html
 from django.utils.module_loading import import_string
 
-from mibios.omics.models import AbstractSample
+from mibios.omics.models import SeqSample
 from mibios.omics.managers import SampleLoader as OmicsSampleLoader
 from mibios.umrad.manager import (
     InputFileError, Loader, MetaDataLoader, Manager,
@@ -329,11 +329,11 @@ class SampleInputSpec(CSV_Spec):
         # from the file:
         fields_accounted_for = set((i[1] for i in specs))
         fields_accounted_for.add('access')  # set/updated in load()
-        required = [  # fields from AbstractSample that we want to check for
+        required = [  # fields from SeqSample that we want to check for
             'sample_id', 'sample_name', 'sample_type', 'has_paired_data',
             'sra_accession', 'amplicon_target', 'fwd_primer', 'rev_primer',
         ]
-        for i in AbstractSample._meta.get_fields():
+        for i in SeqSample._meta.get_fields():
             if i.name not in required:
                 fields_accounted_for.add(i.name)
         for i in loader.model._meta.get_fields():

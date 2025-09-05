@@ -19,7 +19,7 @@ from django.urls import reverse
 from django.utils.dateparse import parse_datetime, parse_date, parse_time
 
 from mibios import __version__ as mibios_version
-from mibios.omics.models import AbstractDataset, AbstractSample
+from mibios.omics.models import AbstractDataset
 from mibios.umrad.fields import AccessionField
 from mibios.umrad.manager import Manager
 from mibios.umrad.models import Model
@@ -544,7 +544,7 @@ class Reference(IDMixin, Model):
         return value
 
 
-class Sample(IDMixin, AbstractSample):
+class Sample(IDMixin, Model):
     DATE_ONLY = 'date_only'
     YEAR_ONLY = 'year_only'
     MONTH_ONLY = 'month_only'
@@ -556,10 +556,19 @@ class Sample(IDMixin, AbstractSample):
         (FULL_TIMESTAMP, FULL_TIMESTAMP),
     )
 
+    sample_id = models.CharField(
+        max_length=32,
+        unique=True,
+        help_text='internal sample accession',
+    )
+    sample_name = models.TextField(
+        max_length=32,
+        **ch_opt,
+        help_text='sample ID or name as given by original data source',
+    )
+    dataset = models.ForeignKey(Dataset, **fk_req)
     project_id = models.TextField(max_length=32, **ch_opt)
     biosample = models.TextField(max_length=32, **ch_opt)
-    gold_analysis_id = models.TextField(max_length=32, **ch_opt)
-    gold_seq_id = models.TextField(max_length=32, **ch_opt)
     jgi_study = models.TextField(max_length=32, **ch_opt)
     jgi_biosample = models.TextField(max_length=32, **ch_opt)
     geo_loc_name = models.TextField(max_length=64, **ch_opt)

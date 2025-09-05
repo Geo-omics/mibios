@@ -38,7 +38,6 @@ from mibios.views import (
     ExportBaseMixin, StaffLoginRequiredMixin,
     TextRenderer, TextRendererZipped, VersionInfoMixin,
 )
-from mibios.omics import get_sample_model
 from mibios.omics.models import (
     CompoundAbundance, Contig, FuncAbundance, ReadAbundance, TaxonAbundance,
     SampleTracking,
@@ -2181,7 +2180,7 @@ class ReferenceView(RecordView):
 
 
 class SampleView(MapMixin, RecordView):
-    model = get_sample_model()
+    model = models.Sample
     template_name = 'glamr/sample_detail.html'
     fields = [
         'dataset',
