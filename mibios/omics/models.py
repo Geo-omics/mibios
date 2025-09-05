@@ -42,7 +42,7 @@ class AbstractAbundance(Model):
 
     With data from the Sample_xxxx_<something>_VERSION.txt files
     """
-    sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    sample = models.ForeignKey('SeqSample', **fk_req)
     scos = models.DecimalField(**digits(12, 2))
     rpkm = models.DecimalField(**digits(12, 2))
     # lca ?
@@ -481,7 +481,7 @@ class ReadAbundance(Model):
     """
     # cf. mmseqs2 easy-taxonomy output (tophit_report)
     sample = models.ForeignKey(
-        settings.OMICS_SAMPLE_MODEL,
+        SeqSample,
         related_name='functional_abundance',
         **fk_req,
     )
@@ -531,7 +531,7 @@ class AmpliconAnalysisUnit(Model):
 class Bin(Model):
     """ Metagenomic assembly bin """
     name = models.TextField(max_length=20, unique=True)
-    sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    sample = models.ForeignKey(SeqSample, **fk_req)
     contigs = models.ManyToManyField('Contig', related_name='bins')
 
     # GTDB classification
@@ -608,7 +608,7 @@ class File(Model):
         verbose_name='MD5 sum',
     )
     modtime = models.DateTimeField(verbose_name='modification time')
-    sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    sample = models.ForeignKey(SeqSample, **fk_req)
 
     objects = managers.FileManager.from_queryset(FileQuerySet)()
 
@@ -1045,7 +1045,7 @@ class File(Model):
 
 class TaxonAbundance(Model):
     """ Abundance of taxon in a sample """
-    sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    sample = models.ForeignKey(SeqSample, **fk_req)
     # Fields cf. Kraken-style report mmseqs2 userguide
     taxon = models.ForeignKey(
         TaxNode,
@@ -1105,7 +1105,7 @@ class SequenceLike(Model):
     Abstract model for sequences as found in fasta (or similar) files
     """
     history = None
-    sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    sample = models.ForeignKey(SeqSample, **fk_req)
 
     fasta_offset = models.PositiveBigIntegerField(
         **opt,
@@ -1477,7 +1477,7 @@ class SampleTracking(Model):
 
     flag = models.CharField(max_length=3, choices=Flag.choices)
     sample = models.ForeignKey(
-        settings.OMICS_SAMPLE_MODEL,
+        SeqSample,
         on_delete=models.CASCADE,
         related_name='tracking',
     )
