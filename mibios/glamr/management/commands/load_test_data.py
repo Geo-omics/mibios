@@ -52,11 +52,11 @@ class Command(BaseCommand):
     )
     """ tables that are expected to be non-empty after initial migrations """
 
-    valid_table_names = [
-        model._meta.db_table
+    models_by_table = {
+        model._meta.db_table: model
         for models in apps.all_models.values()
         for model in models.values()
-    ]
+    }
 
     def ensure_empty_start(self, cursor):
         """
@@ -87,7 +87,9 @@ class Command(BaseCommand):
         self.tarf.extract(tarinfo, path=self.tmp)
         dump = self.tmp / tarinfo.name
         table_name = dump.name.removesuffix('.dump.text')
-        if table_name not in self.valid_table_names:
+        try:
+            model = self.models_by_table[table_name]
+        except KeyError:
             raise CommandError(f'not a valid table name: {table_name}')
         print(f'  {table_name:<27}', end=' ', flush=True)
         if cols is None:
@@ -112,5 +114,32 @@ class Command(BaseCommand):
                 self.ensure_empty_start(cur)
                 cur.copy_expert(sql, dumpf)
             count = cur.rowcount
+
+            if model._meta.auto_field:
+                # Set the sequence to something reasonable; but it might differ
+                # somewhat from original database.  Exception should be raised
+                # if anything here goes wrong.
+                pk_col = model._meta.auto_field.column
+                cur.execute(
+                    'SELECT pg_get_serial_sequence(%s, %s)',
+                    (table_name, pk_col)
+                )
+                seq_name = cur.fetchall()[0][0]  # name of the serial sequence
+                cur.execute(
+                    f'SELECT setval(%s, max({pk_col})) FROM {table_name}',
+                    (seq_name, )
+                )
+                retval = cur.fetchall()[0][0]
+                if isinstance(retval, int):
+                    if retval < count:
+                        print(f'WARNING: row count {count} larger than id_seq:'
+                              f' {retval}')
+                elif count == 0 and retval is None:
+                    # as expected? Though docs are sparse, max(id) on an empty
+                    # table, unclear what exactly setval does with that.
+                    pass
+                else:
+                    print(f'WARNING: odd result trying to set id sequence: '
+                          f'{retval=}')
 
         print(f'{count:>10} [OK]')
