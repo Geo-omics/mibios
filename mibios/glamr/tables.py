@@ -1,3 +1,4 @@
+from django.db.models import Prefetch
 from django.urls import reverse
 from django.utils.html import escape, format_html, mark_safe
 
@@ -577,7 +578,10 @@ class DatasetTable(Table):
         }
 
     def customize_queryset(self, qs):
-        return qs.select_related('primary_ref').prefetch_related('sample_set')
+        return qs \
+            .select_related('primary_ref') \
+            .prefetch_related('sample_set') \
+            .prefetch_related('sample_set__seqsample_set')
 
     def get_extra_excludes(self):
         excludes = list(glamr_models.Dataset.get_internal_fields())
@@ -610,9 +614,10 @@ class DatasetTable(Table):
 
     def render_sample_type(self, record):
         values = set((
-            i.sample_type
+            j.sample_type
             for i in record.sample_set.all()
-            if i.sample_type
+            for j in i.seqsample_set.all()
+            if j.sample_type
         ))
         values = sorted(values)
 
@@ -654,6 +659,7 @@ class SampleTable(Table):
         linkify=linkify_record,
         empty_values=[],
     )
+    sample_type = Column(empty_values=[])
     geo_loc_name = Column(
         empty_values=[],
         verbose_name='Location / site',
@@ -679,13 +685,22 @@ class SampleTable(Table):
         }
 
     def customize_queryset(self, qs):
-        return qs.select_related('dataset', 'dataset__primary_ref')
+        pf_qs = omics_models.SeqSample.objects.only('parent_id', 'sample_type')
+        return qs \
+            .select_related('dataset', 'dataset__primary_ref') \
+            .prefetch_related(Prefetch('seqsample_set', queryset=pf_qs))
 
     def get_extra_excludes(self):
         return list(glamr_models.Sample.get_internal_fields())
 
     def render_sample_name(self, record):
         return str(record)
+
+    def render_sample_type(self, record):
+        values = sorted(set((
+            i.sample_type for i in record.seqsample_set.all()
+        )))
+        return ' '.join(values)
 
     def render_geo_loc_name(self, record):
         items = [record.geo_loc_name, record.noaa_site]

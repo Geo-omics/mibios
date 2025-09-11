@@ -257,7 +257,7 @@ class FilterSet(OrigFilterSet):
 
 class DatasetFilter(FilterSet):
     water_bodies = ChoiceFiFi(sep=',')
-    sample__sample_type = SampleTypeFiFi(label='Sample type')
+    sample__seqsample__sample_type = SampleTypeFiFi(label='Sample type')
     sample_year = YearChoiceFiFi(
         method='add_year',
         label='Sample year',
@@ -273,7 +273,7 @@ class DatasetFilter(FilterSet):
         model = Dataset
         fields = [
             'water_bodies',
-            'sample__sample_type',
+            'sample__seqsample__sample_type',
             'sample_year',
             'sample__collection_timestamp',
         ]

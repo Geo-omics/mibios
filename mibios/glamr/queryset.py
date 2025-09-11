@@ -119,7 +119,7 @@ class DatasetQuerySet(QuerySet):
 
     def summary(
             self,
-            column_field='sample_type',
+            column_field='seqsqmple__sample_type',
             row_field='geo_loc_name',
             as_dataframe=True,
             otherize=True,
@@ -265,19 +265,18 @@ class SampleQuerySet(QuerySet):
 
     def summary(
         self,
-        column_field='sample_type',
+        column_field='seqsample__sample_type',
         row_field='geo_loc_name',
         blank_sample_type=False,
         otherize=True,
     ):
         """ Get count summary (for frontpage view) """
+        exclude_blank_fields = []
         if not blank_sample_type:
-            if 'sample_type' in [column_field, row_field]:
+            if 'seqsample__sample_type' in [column_field, row_field]:
                 # with default paramters: don't display stats for samples with
                 # missing sample type
-                exclude_blank_fields = ['sample_type']
-        else:
-            exclude_blank_fields = []
+                exclude_blank_fields = ['seqsample__sample_type']
 
         qs = self.basic_counts(row_field, column_field,
                                exclude_blank_fields=exclude_blank_fields)

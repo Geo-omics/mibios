@@ -40,7 +40,7 @@ from mibios.views import (
 )
 from mibios.omics.models import (
     CompoundAbundance, Contig, FuncAbundance, ReadAbundance, TaxonAbundance,
-    SampleTracking,
+    SampleTracking, SeqSample,
 )
 from mibios.ncbi_taxonomy.models import TaxNode
 from mibios.umrad.models import FuncRefDBEntry, UniRef100
@@ -809,7 +809,7 @@ class MapMixin():
         """
         # Sample fields to be included in map data:
         map_data_fields = [
-            'id', 'sample_name', 'latitude', 'longitude', 'sample_type',
+            'id', 'sample_name', 'latitude', 'longitude',
             'collection_timestamp', 'sample_id', 'biosample',
         ]
         qs = self.get_sample_queryset()
@@ -817,6 +817,7 @@ class MapMixin():
         qs = qs.exclude(longitude=None)
         qs = qs.exclude(latitude=None)
         qs = qs.prefetch_related('dataset', 'dataset__primary_ref')
+        qs = qs.prefetch_related('seqsample_set')
         qs = qs.only(*map_data_fields, 'dataset_id')
         qs = qs.order_by('longitude', 'latitude')
 
@@ -843,7 +844,11 @@ class MapMixin():
             # no sample in the group has a sample_type then we put in an empty
             # string, resulting in a (hopefully) invalid selector in which case
             # no marker will be displayed.
-            stypes = set((i.sample_type for i in grp if i.sample_type))
+            stypes = set((
+                j.sample_type
+                for i in grp
+                for j in i.seqsample_set.all()
+            ))
             item['types_at_location'] = '-'.join(sorted(stypes))
 
             if len(grp) > 1:
@@ -2007,7 +2012,11 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
         # to get sample type in table
         qs = qs.prefetch_related(Prefetch(
             'sample_set',
-            queryset=Sample.objects.only('dataset_id', 'sample_type'),
+            queryset=Sample.objects.only('dataset_id'),
+        ))
+        qs = qs.prefetch_related(Prefetch(
+            'sample_set__seqsample_set',
+            queryset=SeqSample.objects.only('parent_id', 'sample_type'),
         ))
 
         qs = qs.annotate(sample_count=Count('sample', distinct=True))
@@ -2063,11 +2072,11 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
         # for each cell it's a tuple of URL query string and value (text or
         # count.)
         df = Dataset.objects.exclude_private(self.request.user).summary(
-            column_field='sample_type',
+            column_field='seqsample__sample_type',
             row_field='geo_loc_name',
         )
         conf = DataConfig(Dataset)
-        # The summary double counts datasets (if they fit match multiple
+        # The summary double counts datasets (if they match multiple
         # categories) so we get the total number from the table data, which
         # should have the length already cached.
         dataset_count = len(ctx['table'].data)
@@ -2084,7 +2093,7 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
                 conf.filter = dict(sample__geo_loc_name=lake)
             row = [(conf.url_query(), lake)]
             for samp_type, count in lake_counts.items():
-                conf.filter['sample__sample_type'] = samp_type
+                conf.filter['sample__seqsample__sample_type'] = samp_type
                 q_str = conf.url_query()
                 row.append((q_str, count))
             dataset_summary_data.append(row)
@@ -2092,7 +2101,7 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
 
         # Compile data for sample summary: Similar to above for datasets
         df = Sample.objects.exclude_private(self.request.user) \
-                           .summary('sample_type', 'geo_loc_name')
+                           .summary('seqsample__sample_type', 'geo_loc_name')
         conf = DataConfig(Sample)
         head = [('', f'All samples ({df.sum().sum()})')]
         for i in df.columns:
@@ -2107,7 +2116,7 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
                 conf.filter = dict(geo_loc_name=lake)
             row = [(conf.url_query(), lake)]
             for samp_type, count in lake_counts.items():
-                conf.filter['sample_type'] = samp_type
+                conf.filter['seqsample__sample_type'] = samp_type
                 q_str = conf.url_query()
                 row.append((q_str, count))
             sample_summary_data.append(row)

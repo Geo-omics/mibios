@@ -686,6 +686,7 @@ class Sample(IDMixin, Model):
 
     class Meta:
         default_manager_name = 'objects'
+        verbose_name = 'BioSample'
         indexes = [
             GinIndex(
                 fields=['access'],
