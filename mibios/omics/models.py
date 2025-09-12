@@ -15,6 +15,8 @@ from django.core.exceptions import ValidationError
 from django.core.files.storage import storages
 from django.db import connection, models
 from django.db.transaction import atomic
+from django.urls import reverse
+from django.urls.exceptions import NoReverseMatch
 
 from mibios.data import TableConfig
 from mibios.ncbi_taxonomy.models import TaxNode
@@ -36,6 +38,97 @@ from .utils import get_fasta_sequence
 log = getLogger(__name__)
 
 
+class IDMixin:
+    """ model mixin to support standard ID/accession patterns """
+
+    id_prefix = None
+    """ The implementing model must set this. """
+
+    id_attr = None
+    """ Name of the attribute (usually a field) used to store the ID/accession
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.id_attr is None:
+            self.id_attr = self._meta.model_name + '_id'
+
+    def get_record_id_no(self):
+        """
+        Strip ID prefix and return the record's ID number (as int)
+
+        Raises ValueError if the ID does not conform to convention.  We want to
+        be rather strict when parsing the ID as elsewhere we do the reverse,
+        re-creating the ID from the number. This may not result in the original
+        value.  E.g. int() is lossy as in int(' 123 ') == 123 is True.
+        """
+        value = getattr(self, self.id_attr).removeprefix(self.id_prefix)
+        if not value.isdecimal():
+            raise ValueError('value without prefix must be decimal')
+        return int(value)
+
+    @classmethod
+    def _get_url_template(cls):
+        """
+        Helper to get record URL
+
+        This runs reverse() with a placeholder.  Nature and number of args to
+        pass to reverse depends on the url pattern.
+        """
+        try:
+            return cls._url_template
+        except AttributeError:
+            # try common glamr url patterns
+            try:
+                # model name must also be URL name
+                # arg number and order must correspond to url conf
+                cls._url_template = reverse(
+                    cls._meta.model_name,
+                    args=['_KEY_'],
+                )
+            except NoReverseMatch:
+                cls._url_template = reverse(
+                    'record',
+                    args=[cls._meta.model_name, '_KEY_'],
+                )
+
+            return cls._url_template
+
+    @classmethod
+    def get_record_url(cls, key, ktype=None):
+        """
+        Get the URL for detail view of record with given ID/accession.
+
+        key:
+            Something to identify the objects.  Can be the objects itself, or
+            its PK or natural key.
+        ktype:
+            Key type, allowed values match what's in the url pattern
+        """
+        if ktype is None:
+            ktype = 'natkey'
+        elif ktype not in ['pk', 'natkey']:
+            raise ValueError(f'illegal key type: {ktype=}')
+
+        if isinstance(key, cls):
+            # object given
+            if ktype == 'natkey':
+                try:
+                    key = key.get_record_id_no()
+                except ValueError:
+                    # unusual id/accession, degrade to pk: url style
+                    ktype = 'pk'
+
+            if ktype == 'pk':
+                key = key.pk
+
+        key = f'{"" if ktype == "natkey" else ktype + ":"}{key}'
+        return cls._get_url_template().replace('_KEY_', key)
+
+    def get_absolute_url(self):
+        return self.get_record_url(self)
+
+
 class AbstractAbundance(Model):
     """
     abundance vs <something>
@@ -51,7 +144,7 @@ class AbstractAbundance(Model):
         abstract = True
 
 
-class SeqSample(Model):
+class SeqSample(IDMixin, Model):
     TYPE_AMPLICON = 'amplicon'
     TYPE_METAGENOME = 'metagenome'
     TYPE_METATRANS = 'metatranscriptome'
@@ -124,6 +217,9 @@ class SeqSample(Model):
                 name='seqsample_access_gin',
             ),
         ]
+
+    id_prefix = 'samp_'
+    id_attr = 'sample_id'
 
     def __str__(self):
         return self.sample_id

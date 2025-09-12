@@ -19,7 +19,7 @@ from django.urls import reverse
 from django.utils.dateparse import parse_datetime, parse_date, parse_time
 
 from mibios import __version__ as mibios_version
-from mibios.omics.models import AbstractDataset
+from mibios.omics.models import AbstractDataset, IDMixin
 from mibios.umrad.fields import AccessionField
 from mibios.umrad.manager import Manager
 from mibios.umrad.models import Model
@@ -37,84 +37,6 @@ from .managers import dbstatManager
 from .queryset import (
     DatasetQuerySet, SampleQuerySet, SearchableQuerySet, UniqueWordQuerySet,
 )
-
-
-class IDMixin:
-    """ model mixin to support the standard GLAMR ID pattern """
-
-    ID_PREFIX = None
-    """ The implementing model must set this. """
-
-    def get_record_id_no(self):
-        """
-        Strip ID prefix and return the record's ID number (as int)
-
-        Raises ValueError if the ID does not conform to convention.  We want to
-        be rather strict when parsing the ID as elsewhere we do the reverse,
-        re-creating the ID from the number. This may not result in the original
-        value.  E.g. int() is lossy as in int(' 123 ') == 123 is True.
-
-        Implementing model must have a {model_name}_id field/attribute to hold
-        the record ID.
-        """
-        id_attr = self._meta.model_name + '_id'
-        value = getattr(self, id_attr).removeprefix(self.ID_PREFIX)
-        if not value.isdecimal():
-            raise ValueError('value without prefix must be decimal')
-        return int(value)
-
-    @classmethod
-    def _get_url_template(cls):
-        """
-        Helper to get record URL
-
-        This runs reverse() with a placeholder.  Nature and number of args to
-        pass to reverse depends on the url pattern.
-        """
-        try:
-            return cls._url_template
-        except AttributeError:
-            # model name must also be URL name
-            # arg number and order must correspond to url conf
-            cls._url_template = reverse(
-                cls._meta.model_name,
-                args=['_KEY_'],
-            )
-            return cls._url_template
-
-    @classmethod
-    def get_record_url(cls, key, ktype=None):
-        """
-        Get the URL for detail view of the record.
-
-        key:
-            Something to identify the objects.  Can be the objects itself, or
-            its PK or natural key.
-        ktype:
-            Key type, allowed values match what's in the url pattern
-        """
-        if ktype is None:
-            ktype = 'natkey'
-        elif ktype not in ['pk', 'natkey']:
-            raise ValueError(f'illegal key type: {ktype=}')
-
-        if isinstance(key, cls):
-            # object given
-            if ktype == 'natkey':
-                try:
-                    key = key.get_record_id_no()
-                except ValueError:
-                    # unusual sample_id, degrade to pk: url style
-                    ktype = 'pk'
-
-            if ktype == 'pk':
-                key = key.pk
-
-        key = f'{"" if ktype == "natkey" else ktype + ":"}{key}'
-        return cls._get_url_template().replace('_KEY_', key)
-
-    def get_absolute_url(self):
-        return self.get_record_url(self)
 
 
 class AboutInfo(Model):
@@ -389,7 +311,7 @@ class Dataset(IDMixin, AbstractDataset):
     EXTERNAL_ACCN_FIELDS = \
         ['bioproject', 'jgi_project', 'gold_id', 'mgrast_study']
 
-    ID_PREFIX = 'set_'
+    id_prefix = 'set_'
 
     @classmethod
     def get_internal_fields(cls):
@@ -529,7 +451,7 @@ class Reference(IDMixin, Model):
 
     default_internal_fields = ('id', 'reference_id', 'short_reference',
                                'last_author')
-    ID_PREFIX = 'paper_'
+    id_prefix = 'paper_'
 
     def __str__(self):
         maxlen = 60
@@ -682,7 +604,7 @@ class Sample(IDMixin, Model):
     objects = Manager.from_queryset(SampleQuerySet)()
     loader = SampleLoader.from_queryset(SampleQuerySet)()
 
-    ID_PREFIX = 'samp_'
+    id_prefix = 'samp_'
 
     class Meta:
         default_manager_name = 'objects'

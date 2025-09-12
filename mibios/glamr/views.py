@@ -39,8 +39,8 @@ from mibios.views import (
     TextRenderer, TextRendererZipped, VersionInfoMixin,
 )
 from mibios.omics.models import (
-    CompoundAbundance, Contig, FuncAbundance, ReadAbundance, TaxonAbundance,
-    SampleTracking, SeqSample,
+    CompoundAbundance, Contig, FuncAbundance, IDMixin, ReadAbundance,
+    SampleTracking, SeqSample, TaxonAbundance,
 )
 from mibios.ncbi_taxonomy.models import TaxNode
 from mibios.umrad.models import FuncRefDBEntry, UniRef100
