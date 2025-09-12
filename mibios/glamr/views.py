@@ -573,6 +573,7 @@ class GenericModelMixin:
         'omics.bin',
         'omics.contig',
         'omics.readabundance',
+        'omics.seqsample',
         'omics.taxonabundance',
         'ncbi_taxonomy.taxname',
         'ncbi_taxonomy.taxnode',
