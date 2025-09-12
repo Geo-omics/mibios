@@ -22,6 +22,7 @@
 
 {% if has_abundance %}[<a href="{%url 'record_abundance' model=object_model_name pk=object.pk%}">abundance</a>]{%endif%}
 
+{% block 'details' %}
 <div class="card mb-2 mt-2">
         <div style="display: flex; flex-direction: row" class="card-header">
     <h6 class="card-title m-1">Details</h6>
@@ -39,6 +40,7 @@
         </tbody></table>
         </div>
 </div>
+{% endblock %}
 
 {% for name, model_name, qs, field in relations %}
 <div class="card mb-2">

@@ -2201,6 +2201,8 @@ class SampleView(MapMixin, RecordView):
     def get_queryset(self):
         qs = super().get_queryset()
         qs = qs.select_related('dataset', 'dataset__primary_ref')
+        qs = qs.prefetch_related('seqsample_set', 'seqsample_set__tracking')
+        qs = qs.prefetch_related('seqsample_set__file_set')
         return qs
 
     def get_ordered_fields(self):
@@ -2224,69 +2226,61 @@ class SampleView(MapMixin, RecordView):
         value = self.object.format_collection_timestamp()
         return (name, info, [(value, None)], None)
 
-    def get_header_links(self):
-        """ a list of lists of pairs (url, link text) """
-        obj = self.object
-        tr = {i.flag for i in obj.tracking.all()}
+    def get_seqsample_data(self):
+        """ get URLs and context data to display seqsample info """
+        data = []
+        for seqsamp in self.object.seqsample_set.all():
+            flags = {i.flag for i in seqsamp.tracking.all()}
+            urls = {}
 
-        krona_url = None
-        taxabund_url = None
-        if SampleTracking.Flag.TAXABUND in tr:
-            krona_url = reverse(
-                'krona', kwargs=dict(samp_no=obj.get_record_id_no())
-            )
-            taxabund_url = reverse(
-                'relations',
-                kwargs=dict(
-                    obj_model='sample',
-                    pk=obj.pk,
-                    field='taxonabundance',
-                ),
-            )
-        abund_links = [
-            (krona_url, 'krona chart'),
-            (taxabund_url, 'abundance/taxa'),
-        ]
-
-        if obj.sample_type == 'metagenome':
-            funcabund_url = None
-            if SampleTracking.Flag.UR1ABUND in tr:
-                funcabund_url = reverse(
+            if SampleTracking.Flag.TAXABUND in flags:
+                urls['krona chart'] = reverse(
+                    'krona', kwargs=dict(samp_no=seqsamp.get_record_id_no())
+                )
+                urls['abundance/taxa'] = reverse(
                     'relations',
                     kwargs=dict(
-                        obj_model='sample',
-                        pk=obj.pk,
-                        field='functional_abundance',
+                        obj_model='seqsample',
+                        pk=seqsamp.pk,
+                        field='taxonabundance',
                     ),
                 )
-            abund_links.append((funcabund_url, 'abundance/functions'))
-            bin_url = None
-            if SampleTracking.Flag.BINNING in tr:
-                bin_url = reverse(
-                    'relations',
-                    kwargs=dict(
-                        obj_model='sample',
-                        pk=obj.pk,
-                        field='bin',
-                    ),
+
+            if seqsamp.sample_type == 'metagenome':
+                if SampleTracking.Flag.UR1ABUND in flags:
+                    urls['abundance/functions'] = reverse(
+                        'relations',
+                        kwargs=dict(
+                            obj_model='seqsample',
+                            pk=seqsamp.pk,
+                            field='functional_abundance',
+                        ),
+                    )
+                if SampleTracking.Flag.BINNING in flags:
+                    urls['MAGs'] = reverse(
+                        'relations',
+                        kwargs=dict(
+                            obj_model='seqsample',
+                            pk=seqsamp.pk,
+                            field='bin',
+                        ),
+                    )
+
+            if seqsamp.file_set.exists():
+                urlkw = dict(
+                    obj_model='seqsample',
+                    pk=seqsamp.pk,
+                    field='file',
                 )
-            abund_links.append((bin_url, 'MAGs'))
-
-        if obj.file_set.exists():
-            urlkw = dict(
-                obj_model='sample',
-                pk=obj.pk,
-                field='file',
-            )
-            dl_url = reverse('relations', kwargs=urlkw)
-        else:
-            dl_url = None
-
-        return [abund_links, [(dl_url, 'file downloads')]]
+                urls['file downloads'] = reverse('relations', kwargs=urlkw)
+            seqsamp.urls = urls
+            data.append(seqsamp)
+        return data
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['header_link_groups'] = self.get_header_links()
+        # ctx['header_link_groups'] = self.get_header_links()
+        ctx['seqsample_table'] = tables.SeqSampleTable(self.get_seqsample_data())
         return ctx
 
 

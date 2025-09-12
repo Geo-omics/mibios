@@ -710,6 +710,62 @@ class SampleTable(Table):
         return record.format_collection_timestamp()
 
 
+class SeqSampleTable(Table):
+    """
+    table of SeqSamples belonging to one bio sample
+
+    for display on bio sample detail page
+    """
+    sample_type = Column(orderable=False)
+    accession = Column(orderable=False, empty_values=[''])
+    has_paired_data = Column(orderable=False)
+    amplicon_target = Column(orderable=False)
+    primers = Column(orderable=False, empty_values=[])
+    links = Column(
+        verbose_name='Data analysis',
+        orderable=False,
+        empty_values=[]
+    )
+
+    html_fields = (
+        'sample_type', 'has_paired_data', 'amplicon_target', 'primers',
+    )
+
+    class Meta:
+        model = omics_models.SeqSample
+        sequence = [
+            'sample_type', 'sra_accession', 'has_paired_data',
+            'amplicon_target',
+            'primers',
+        ]
+        empty_text = 'no sample sequencing data available'
+
+    def render_accession(self, record):
+        accn = ' '.join((
+            str(i) for i in
+            [record.sra_accession, record.gold_analysis_id, record.gold_seq_id]
+            if i
+        ))
+        # TODO linkify these
+        return accn
+
+    def render_primers(self, record):
+        return ' / '.join((
+            i for i in
+            (record.fwd_primer, record.rev_primer)
+            if i
+        ))
+
+    def render_links(self, record):
+        urls = []
+        for txt, url in record.urls.items():
+            urls.append(format_html(
+                '<a href="{url}">{txt}</a>',
+                url=url, txt=txt,
+            ))
+        return mark_safe(' | '.join(urls))
+
+
 class ChainedTableData(TableData):
     """
     django_table2's TableData that works with ChainedQuerySet data
