@@ -86,8 +86,8 @@ class FileQuerySet(QuerySet):
             print('[OK]')
 
     def exclude_private(self, credentials=None):
-        Sample = get_sample_model()
-        samples = Sample.objects.exclude_private(credentials)
+        SeqSample = apps.get_model('omics', 'SeqSample')
+        samples = SeqSample.objects.exclude_private(credentials)
         return self.filter(sample__in=samples)
 
 
@@ -379,6 +379,6 @@ class SeqSampleQuerySet(QuerySet):
         print(f'UniRef100 accessions written to {outname}')
 
     def exclude_private(self, credentials=None):
-        # this is a no-op in omics, as FileQueryset depends on it.  Inheriting
-        # classes implement it as needed.
-        return self
+        Sample = get_sample_model()
+        samples = Sample.objects.exclude_private(credentials)
+        return self.filter(parent__in=samples)
