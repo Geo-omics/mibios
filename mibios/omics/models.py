@@ -45,13 +45,8 @@ class IDMixin:
     """ The implementing model must set this. """
 
     id_attr = None
-    """ Name of the attribute (usually a field) used to store the ID/accession
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        if self.id_attr is None:
-            self.id_attr = self._meta.model_name + '_id'
+    """ Name of the attribute (usually a field) used to store the ID/accession.
+    This must be set by an inheriting class. """
 
     def get_record_id_no(self):
         """

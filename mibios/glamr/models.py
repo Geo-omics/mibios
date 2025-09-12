@@ -312,6 +312,7 @@ class Dataset(IDMixin, AbstractDataset):
         ['bioproject', 'jgi_project', 'gold_id', 'mgrast_study']
 
     id_prefix = 'set_'
+    id_attr = 'dataset_id'
 
     @classmethod
     def get_internal_fields(cls):
@@ -452,6 +453,7 @@ class Reference(IDMixin, Model):
     default_internal_fields = ('id', 'reference_id', 'short_reference',
                                'last_author')
     id_prefix = 'paper_'
+    id_attr = 'reference_id'
 
     def __str__(self):
         maxlen = 60
@@ -605,6 +607,7 @@ class Sample(IDMixin, Model):
     loader = SampleLoader.from_queryset(SampleQuerySet)()
 
     id_prefix = 'samp_'
+    id_attr = 'sample_id'
 
     class Meta:
         default_manager_name = 'objects'

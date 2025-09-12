@@ -1647,7 +1647,10 @@ class RecordView(BaseMixin, DetailView):
         natural key from the URL.  It should return a dict that can be used as
         kwargs in QuerySet.filter().
         """
-        return dict(pk=key)
+        if issubclass(self.model, IDMixin):
+            return {self.model.id_attr: f'{self.model.id_prefix}{key}'}
+        else:
+            return dict(pk=key)
 
     def get_object(self, lookups=None, queryset=None):
         if queryset is None:
@@ -1921,10 +1924,6 @@ class DatasetView(MapMixin, RecordView):
     ]
     exclude = ['restricted_to']
 
-    def get_natural_object_lookups(self, key):
-        """ implement lookup via set number """
-        return dict(dataset_id=f'set_{key}')
-
     def get_sample_queryset(self):
         return self.object.sample_set.all()
 
@@ -2141,10 +2140,6 @@ class ReferenceView(RecordView):
     def get_queryset(self):
         return super().get_queryset().prefetch_related('dataset_set')
 
-    def get_natural_object_lookups(self, key):
-        """ implement lookup via paper number """
-        return dict(reference_id=f'paper_{key}')
-
     def get_publication_detail(self, field, item):
         name, info, values, unit = item
         values = [(f'{self.object.publication} ({self.object.year})', None)]
@@ -2206,10 +2201,6 @@ class SampleView(MapMixin, RecordView):
         qs = super().get_queryset()
         qs = qs.select_related('dataset', 'dataset__primary_ref')
         return qs
-
-    def get_natural_object_lookups(self, key):
-        """ implement lookup via sample number """
-        return dict(sample_id=f'samp_{key}')
 
     def get_ordered_fields(self):
         fields = []
