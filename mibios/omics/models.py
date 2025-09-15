@@ -170,7 +170,8 @@ class SeqSample(IDMixin, Model):
         choices=SAMPLE_TYPES_CHOICES,
         **opt,
     )
-    sra_accession = models.TextField(max_length=16, **ch_opt)
+    sra_accession = models.TextField(max_length=16, **ch_opt,
+                                     verbose_name='SRA accession')
     gold_analysis_id = models.TextField(max_length=32, **ch_opt)
     gold_seq_id = models.TextField(max_length=32, **ch_opt)
     amplicon_target = models.TextField(max_length=16, **ch_opt)
