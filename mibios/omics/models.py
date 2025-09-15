@@ -139,6 +139,82 @@ class AbstractAbundance(Model):
         abstract = True
 
 
+class AmpliconTarget(Model):
+    hmm = models.TextField(
+        max_length=30, verbose_name='HMM name',
+        help_text='Short name of the HMM model.',
+    )
+    tax_group = models.TextField(
+        max_length=30,
+        verbose_name='taxonomic group',
+        help_text='Name of the targeted organism or taxonomic group',
+    )
+    gene = models.TextField(
+        max_length=30, verbose_name='target gene name',
+        help_text='Common name of the targed gene',
+    )
+    start = models.PositiveSmallIntegerField(
+        help_text='Start position of the amplicon target per HMM',
+    )
+    end = models.PositiveSmallIntegerField(
+        help_text='End position of the amplicon target per HMM',
+    )
+    region = models.TextField(
+        max_length=30, **ch_opt,
+        verbose_name='variable region',
+        help_text='Common name of the targeted variable region(s) if any.'
+    )
+
+    class Meta:
+        constraints = (
+            models.UniqueConstraint(
+                'tax_group', 'gene', 'start', 'end',
+                name='uniq_amplicon_target',
+            ),
+        )
+
+    def __str__(self):
+        if self.regions:
+            regions = f'/{self.regions}'
+        return f'{self.tax_group}/{self.gene}{regions}'
+
+
+class ASV(IDMixin, Model):
+    accession = models.TextField(max_length=12, unique=True, **ch_opt)
+    type = models.ForeignKey(AmpliconTarget, **fk_req, verbose_name='target')
+    seq = models.TextField(verbose_name='sequence')
+    taxon = models.ForeignKey(
+        TaxNode, **fk_opt,
+        verbose_name='taxonomic classification',
+    )
+
+    class Meta:
+        constraints = (
+            models.UniqueConstraint('type', 'seq', name='uniq_asv'),
+            models.CheckConstraint(
+                check=models.Q(seq__regex=r'^[atgc]+$'),
+                name='sequence_atgc',
+            ),
+        )
+
+    id_prefix = 'ASV'
+    id_attr = 'accession'
+
+
+class ASVAbundance(Model):
+    sample = models.ForeignKey('SeqSample', **fk_req)
+    asv = models.ForeignKey(ASV, **fk_req)
+    count = models.PositiveIntegerField()
+    relabund = models.FloatField(
+        verbose_name='relative abundance',
+    )
+
+    class Meta:
+        constraints = (
+            models.UniqueConstraint('sample', 'asv', name='uniq_asv_abund'),
+        )
+
+
 class SeqSample(IDMixin, Model):
     TYPE_AMPLICON = 'amplicon'
     TYPE_METAGENOME = 'metagenome'
@@ -165,16 +241,18 @@ class SeqSample(IDMixin, Model):
         settings.OMICS_SAMPLE_MODEL,
         **fk_req,
     )
+
     sample_type = models.CharField(
         max_length=32,
         choices=SAMPLE_TYPES_CHOICES,
         **opt,
     )
+    amplicon_target = models.ForeignKey(AmpliconTarget, **fk_opt)
     sra_accession = models.TextField(max_length=16, **ch_opt,
                                      verbose_name='SRA accession')
     gold_analysis_id = models.TextField(max_length=32, **ch_opt)
     gold_seq_id = models.TextField(max_length=32, **ch_opt)
-    amplicon_target = models.TextField(max_length=16, **ch_opt)
+    amplicon_target_label = models.TextField(max_length=16, **ch_opt)
     fwd_primer = models.TextField(max_length=32, **ch_opt)
     rev_primer = models.TextField(max_length=32, **ch_opt)
 
