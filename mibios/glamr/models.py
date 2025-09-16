@@ -606,7 +606,7 @@ class Sample(IDMixin, Model):
     objects = Manager.from_queryset(SampleQuerySet)()
     loader = SampleLoader.from_queryset(SampleQuerySet)()
 
-    id_prefix = 'samp_'
+    id_prefix = 'bios_'
     id_attr = 'sample_id'
 
     class Meta:

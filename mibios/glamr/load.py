@@ -372,7 +372,7 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
         """ Remove leading "SAMPLE_" from accession value """
         return value.removeprefix('Sample_')
 
-    sample_id_pat = re.compile(r'^samp_[0-9]+$')
+    sample_id_pat = re.compile(r'^bios_[0-9]+$')
 
     def check_sample_id(self, value, **ctx):
         """
