@@ -1,4 +1,5 @@
 from collections import Counter
+from itertools import groupby
 from logging import getLogger
 
 from django.apps import apps
@@ -331,6 +332,91 @@ class SampleQuerySet(QuerySet):
                 # is public, 0 is not used as PK in Group table.
                 obj.access = [0]
         return self.model.objects.bulk_update(qs, ['access'])
+
+    def deduplicate_denovo(self):
+        """ find duplicate records """
+        keys = ('id', 'sample_id')
+        ignore = ('access', )
+        qs = self.values()
+
+        for row in qs:
+            for i in ignore:
+                del row[i]
+
+        data = {}
+        for row in qs:
+            row0 = {k: v for k, v in row.items() if k not in keys}
+            row0 = tuple(row0.items())
+            if row0 not in data:
+                data[row0] = []
+            data[row0].append({k: v for k, v in row.items() if k in keys})
+
+        stats = Counter()
+        for num, (row, uniques) in enumerate(data.items(), start=1):
+            if len(uniques) == 1:
+                stats[1] += 1
+                continue
+            print(f'{num:>3}: {uniques}')
+            stats[len(uniques)] += 1
+        print(f'Stats: group sizes: {stats}')
+
+    def dedup_biosample(self):
+        """
+        Helper tool to see if samples with sample NCBI Biosample are the same
+        """
+        uniq_keys = ('id', 'sample_id')  # fields that are unique regardless
+        ignore = ('access', )  # has non-hashable value, get out of the way
+
+        # 1. get objects
+        qs = self.exclude(biosample='')
+        # 2. separately get values
+        values = {
+            row['id']: row
+            for row in self.values()
+        }
+        # 3. attach values in deterministic hashable format
+        for obj in qs:
+            obj.row_values = values[obj.pk]
+            for i in uniq_keys + ignore:
+                del obj.row_values[i]
+            obj.row_values = tuple(sorted(obj.row_values.items()))
+
+        # 4. sort and group objects by values
+        data = sorted(qs, key=lambda x: x.biosample)
+
+        singles = 0
+        good = 0
+        bad = 0
+        for biosample, grp in groupby(data, key=lambda x: x.biosample):
+            grp = list(grp)
+            if len(grp) == 1:
+                singles += 1
+                continue
+            vals = set(i.row_values for i in grp)
+            if len(vals) == 1:
+                # Case A: a good group, print some SeqSample values
+                good += 1
+                print('    ', biosample)
+                for i in grp:
+                    sqs = i.seqsample_set.all().get()
+                    print(f'      {i.sample_id} ({sqs.sample_type}) '
+                          f'{sqs.fwd_primer}//{sqs.rev_primer}')
+            else:
+                # Case B: bad group, print values that differ within group
+                bad += 1
+                print(f'[EE] {biosample}')
+                diffs0 = []
+                for items in zip(*(i.row_values for i in grp), strict=True):
+                    if len(set(items)) > 1:
+                        diffs0.append(items)
+
+                diffs = zip(*diffs0, strict=True)  # transpose diff
+                for obj, diff_vals in zip(grp, diffs):
+                    print(f'[EE]   {obj.sample_id}:',
+                          *(f'{k}={v}' for k, v in diff_vals))
+
+            print()
+        print(f'Stats: {singles=} {good=} {bad=}')
 
 
 class ts_headline(Func):
