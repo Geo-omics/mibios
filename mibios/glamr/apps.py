@@ -1,4 +1,4 @@
-from django.apps import AppConfig as _AppConfig
+from django.apps import apps, AppConfig as _AppConfig
 from django.core.checks import register as register_checks
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models.signals import m2m_changed, post_save
@@ -17,25 +17,31 @@ class AppConfig(_AppConfig):
         # This requires the extra attrs module to be prepared.  It seems, that
         # these runtime changes, e.g. overwriting verbose_name attributes, are
         # not detected by the makemigration, which is good.
+        Sample = self.get_model('Sample')
+        SeqSample = apps.get_model('omics', 'SeqSample')
+        extra_field_attrs = {}
         try:
-            sample_field_attrs = import_string(
-                f'{self.name}.extra_field_attributes.extra_sample_field_attrs'
+            extra_field_attrs[Sample] = import_string(
+                f'{self.name}.extra_field_attributes.extra_biosample_field_attrs'  # noqa:E501
+            )
+            extra_field_attrs[SeqSample] = import_string(
+                f'{self.name}.extra_field_attributes.extra_seqsample_field_attrs'  # noqa:E501
             )
         except ImportError as e:
             print(f'[WARNING] Skip adding extra model field attributes: '
                   f'{e.__class__.__name__}: {e}')
         else:
-            Sample = self.get_model('Sample')
-            for field_name, attrs in sample_field_attrs.items():
-                try:
-                    field = Sample._meta.get_field(field_name)
-                    for attr_name, value in attrs.items():
-                        setattr(field, attr_name, value)
-                except FieldDoesNotExist as e:
-                    # skip this, just issue a warning
-                    print(f'WARNING: Patching field attributes: {e}')
-                    print('This means that the Sample model and the '
-                          'extra_field_attributes module are out of sync.')
+            for model, attrs0 in extra_field_attrs.items():
+                for field_name, attrs in attrs0.items():
+                    try:
+                        field = model._meta.get_field(field_name)
+                        for attr_name, value in attrs.items():
+                            setattr(field, attr_name, value)
+                    except FieldDoesNotExist as e:
+                        # skip this, just issue a warning
+                        print(f'WARNING: Patching field attributes: {e}')
+                        print(f'This means that the {model} model and the '
+                              'extra_field_attributes module are out of sync.')
 
         # Monkey patching concrete fields of Searchable:
         # since the searchvector field is a generated column, we can't let the

@@ -1,3 +1,4 @@
+from ast import literal_eval
 from pathlib import Path
 import re
 
@@ -7,6 +8,7 @@ from django.core.exceptions import FieldDoesNotExist
 from django.core.management.base import BaseCommand, CommandError
 
 from mibios.glamr.models import Sample
+from mibios.omics.models import SeqSample
 
 
 TEMPLATE = 'extra_field_attributes.py.template'
@@ -34,7 +36,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         infile = settings.GLAMR_META_ROOT / UNITS_SHEET
-        data = {}
+        biosample_data = {}
+        seqsample_data = {}
         with infile.open() as ifile:
             header = ifile.readline().rstrip('\n').split('\t')
             colindex = {}
@@ -101,27 +104,47 @@ class Command(BaseCommand):
                     continue
 
                 try:
-                    Sample._meta.get_field(field_name)
+                    biosample_field = Sample._meta.get_field(field_name)
                 except FieldDoesNotExist:
+                    biosample_field = None
+
+                try:
+                    seqsample_field = SeqSample._meta.get_field(field_name)
+                except FieldDoesNotExist:
+                    seqsample_field = None
+
+                if biosample_field is None and seqsample_field is None:
                     print(f'[WARNING]: input line {lineno}: no such field: '
                           f'{field_name}, skipping offending line:\n'
                           f'{line.rstrip()}')
                     continue
+                elif biosample_field is not None:
+                    if seqsample_field is not None:
+                        raise CommandError(
+                            f'Is a field in both models: {field_name}'
+                        )
+                    # it's a (Bio)Sample field
+                    if field_name in biosample_data:
+                        raise CommandError(
+                            f'duplicate biosample field name: {field_name}'
+                        )
+                    biosample_data[field_name] = attrs
+                else:
+                    # it's a SeqSample field
+                    if field_name in seqsample_data:
+                        raise CommandError(
+                            f'duplicate seqsample field name: {field_name}'
+                        )
+                    seqsample_data[field_name] = attrs
 
-                if field_name in data:
-                    raise CommandError(
-                        f'ERROR: duplicate django field name in input file: '
-                        f'{field_name}'
-                    )
-
-                data[field_name] = attrs
-
+        # check unlisted for (Bio)Sample only
         unlisted = [
             i.name for i in Sample._meta.get_fields()
-            if i.name not in data and not i.many_to_one and not i.one_to_many
+            if i.name not in biosample_data
+            and not i.many_to_one and not i.one_to_many
         ]
         if unlisted:
-            print('[Notice] Fields not listed in units sheet:')
+            print('[Notice] (Bio)Sample fields not listed in units sheet:')
             for i in unlisted:
                 print('   ', i)
 
@@ -133,14 +156,42 @@ class Command(BaseCommand):
         out_path = Path(options['output_file'])
 
         with templ_path.open() as templ, out_path.open('w') as ofile:
+            found_bio = False
+            found_seq = False
             for line in templ:
-                if line.strip().startswith('# PLACEHOLDER'):
-                    for field_name, attrs in data.items():
-                        # write literal dict (field name to attr dict) items,
-                        # single indentation:
-                        ofile.write(f"    '{field_name}': {attrs},\n")
-                else:
-                    ofile.write(line)
+                if line.strip().startswith('#') and 'PLACEHOLDER' in line:
+                    if 'BIOSAMPLE' in line:
+                        data = biosample_data
+                        found_bio = True
+                    elif 'SEQSAMPLE' in line:
+                        data = seqsample_data
+                        found_seq = True
+                    else:
+                        data = None
+
+                    if data:
+                        for field_name, attrs in data.items():
+                            attrs_str = repr(attrs)
+                            try:
+                                # Unsure if code injection can still happen
+                                # after repr() so check that this thing
+                                # evaluates to a literal
+                                literal_eval(attrs_str)
+                            except Exception as e:
+                                raise CommandError(
+                                    f'code injection check tripped: '
+                                    f'{e.__class__.__name__}: {e} '
+                                    f'{field_name=} {attrs=}'
+                                )
+                            # write literal dict (field name to attr dict)
+                            # items, single indentation:
+                            ofile.write(f"    '{field_name}': {attrs_str},\n")
+                        continue
+                # copy from template
+                ofile.write(line)
+
+            if not found_bio or not found_seq:
+                raise CommandError('templte is missing a placeholder')
 
         print(f'[OK] Saved as {out_path} --- Move the file into the correct '
               f'package directory, e.g. to:\n{app_conf.path}/')

@@ -5,6 +5,10 @@ This module is compiled via the compile_extra_field_attributes command.  The
 module file should be tracked by revision control but not be manually edited.
 """
 
-extra_sample_field_attrs = {
-# PLACEHOLDER
+extra_biosample_field_attrs = {
+# BIOSAMPLE_PLACEHOLDER
+}
+
+extra_seqsample_field_attrs = {
+# SEQSAMPLE_PLACEHOLDER
 }
