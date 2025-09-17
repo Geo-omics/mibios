@@ -5,17 +5,11 @@ This module is compiled via the compile_extra_field_attributes command.  The
 module file should be tracked by revision control but not be manually edited.
 """
 
-extra_sample_field_attrs = {
-    'project_id': {'verbose_name': 'NCBI BioProject'},
+extra_biosample_field_attrs = {
+    'project_id': {'verbose_name': 'NCBI BioProject} | {'},
     'biosample': {'verbose_name': 'NCBI BioSample'},
-    'sra_accession': {'verbose_name': 'SRA accession'},
-    'gold_analysis_id': {'verbose_name': 'GOLD analysis projectID'},
-    'gold_seq_id': {'verbose_name': 'GOLD sequencing projectID'},
     'jgi_study': {'verbose_name': 'JGI study'},
     'jgi_biosample': {'verbose_name': 'JGI biosample'},
-    'amplicon_target': {'verbose_name': 'amplicon target'},
-    'fwd_primer': {'verbose_name': 'forward primer'},
-    'rev_primer': {'verbose_name': 'reverse primer'},
     'temp': {'verbose_name': 'Temperature', 'unit': '°C'},
     'depth': {'verbose_name': 'Sample collection depth', 'info_text': 'collection depth below water surface', 'unit': 'm'},
     'depth_sediment': {'verbose_name': 'Sediment depth', 'info_text': 'collection depth below sediment surface', 'unit': 'm'},
@@ -80,8 +74,8 @@ extra_sample_field_attrs = {
     'qPCR_total': {'verbose_name': 'qPCR; Phytoxigene total cyanobacteria', 'unit': 'copies/mL'},
     'qPCR_mcyE': {'verbose_name': 'qPCR; Phytoxigene mcyE', 'unit': 'copies/mL'},
     'qPCR_sxtA': {'verbose_name': 'qPCR; Phytoxigene sxtA', 'unit': 'copies/mL'},
-    'wind_speed': {'unit': 'knots'},
-    'wave_height': {},
+    'wind_speed': {'verbose_name': 'Wind speed', 'unit': 'knots'},
+    'wave_height': {'verbose_name': 'Wave height'},
     'sky': {},
     'tot_nit': {'verbose_name': 'Total nitrogen', 'unit': 'μmol/L'},
     'green_algae': {'verbose_name': 'Green algae', 'unit': 'µg/L'},
@@ -102,4 +96,13 @@ extra_sample_field_attrs = {
     'cyano_sonde': {'verbose_name': 'AlgaeTorch Cyanobacterial abundance', 'info_text': 'AlgaeTorch Cyanobacterial abundance detection (cyanobacteria chlorophyll-a)', 'unit': 'c/L'},
     'total_sonde': {'verbose_name': 'AlgaeTorch total', 'info_text': 'AlgaeTorch total chlorophyll-a detection', 'unit': 'c/L'},
     'sampling_device': {'verbose_name': 'sample collection device', 'info_text': 'Method or device employed for collecting sample'},
+}
+
+extra_seqsample_field_attrs = {
+    'sra_accession': {'verbose_name': 'SRA accession'},
+    'gold_analysis_id': {'verbose_name': 'GOLD analysis projectID'},
+    'gold_seq_id': {'verbose_name': 'GOLD sequencing projectID'},
+    'amplicon_target': {'verbose_name': 'amplicon target'},
+    'fwd_primer': {'verbose_name': 'forward primer'},
+    'rev_primer': {'verbose_name': 'reverse primer'},
 }
