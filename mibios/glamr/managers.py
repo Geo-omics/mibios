@@ -58,13 +58,15 @@ def check_dataset_access(app_configs, **kwargs):
 
 def check_sample_access(app_configs, **kwargs):
     """
-    System check for Sample.access
+    System check for SeqSample.access and Sample.access
 
     check that access field is synchronized with Dataset.restricted_to
     """
-    Sample = apps.get_model('glamr.Sample')
-    qs = Sample.objects.only('access', 'dataset_id')
-    qs = qs.prefetch_related('dataset__restricted_to')
+    SeqSample = apps.get_model('omics', 'SeqSample')
+    qs = SeqSample.objects.only(
+        'access', 'parent__access', 'parent__dataset__dataset_id',
+    )
+    qs = qs.prefetch_related('parent__dataset__restricted_to')
     good = []
     bad = []
 
@@ -72,19 +74,20 @@ def check_sample_access(app_configs, **kwargs):
         qs_list = list(qs)
     except Exception as e:
         return [checks.Warning(
-            f'Unable to check Sample.access consistency: {e}',
+            f'Unable to check access fields consistency: {e}',
             hint='apply all migrations, ensure you have a DB connection',
             id='glamr.W012',
         )]
 
     for obj in qs_list:
-        groupids = sorted((i.pk for i in obj.dataset.restricted_to.all()))
+        groupids = sorted(i.pk for i in obj.parent.dataset.restricted_to.all())
         if not groupids:
             groupids = [0]
-        if groupids == obj.access:
+        if groupids == obj.access == obj.parent.access:
             good.append(obj)
         else:
             bad.append(obj)
+            print(f'BORK {obj=}')
 
     errors = []
     if bad:

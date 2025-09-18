@@ -6,15 +6,53 @@ from urllib.parse import quote_plus
 
 from django.apps import apps
 from django.conf import settings
+from django.db import connection
 from django.db.transaction import atomic, set_rollback
 from django.utils.module_loading import import_string
 
 from mibios import __version__ as version
 from mibios.umrad.manager import QuerySet
 
-from . import get_sample_model
 from .managers import fkmap_cache_reset
 from .utils import gentle_int, Timestamper
+
+
+class AccessMixin:
+    """ mixin for queryset for models with access field """
+    def exclude_private(self, credentials=None):
+        """
+        Exclude samples of private datasets unless user is member of allowed
+        group.
+
+        credentials:
+            This can be auth.User instance, AnonymousUser, or list of Group PKs
+            or None.
+        """
+        if connection.vendor == 'postgresql':
+            return self.filter(access__overlap=self._get_groupids(credentials))
+        else:
+            # fallback for sqlite (noop)
+            return self
+
+    @classmethod
+    def _get_groupids(cls, credentials):
+        """
+        Helper to turn a User into sorted group ids
+        """
+        try:
+            group_manager = credentials.groups
+        except AttributeError:
+            if credentials is None:
+                groupids = set()
+            else:
+                # assume credentials is list of Group PKs
+                groupids = set(credentials)
+        else:
+            groupids = set(group_manager.values_list('pk', flat=True))
+
+        # ensure we got a 0 and it's sorted
+        groupids.add(0)
+        return tuple(sorted(groupids))
 
 
 class FileQuerySet(QuerySet):
@@ -91,7 +129,8 @@ class FileQuerySet(QuerySet):
         return self.filter(sample__in=samples)
 
 
-class SeqSampleQuerySet(QuerySet):
+class SeqSampleQuerySet(AccessMixin, QuerySet):
+
     def get_ready(self, only=None, sort_by_sample=False):
         """
         Return Job instances which are ready to go (but not yet done).
@@ -378,7 +417,3 @@ class SeqSampleQuerySet(QuerySet):
                 ofile.write(f'{i}\n')
         print(f'UniRef100 accessions written to {outname}')
 
-    def exclude_private(self, credentials=None):
-        Sample = get_sample_model()
-        samples = Sample.objects.exclude_private(credentials)
-        return self.filter(parent__in=samples)

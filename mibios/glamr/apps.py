@@ -68,9 +68,13 @@ class AppConfig(_AppConfig):
         Dataset = self.get_model('Dataset')
         DatasetQuerySet = import_string('mibios.glamr.queryset.DatasetQuerySet')  # noqa:E501
         SampleQuerySet = import_string('mibios.glamr.queryset.SampleQuerySet')
+        SeqSampleQuerySet = import_string('mibios.omics.queryset.SeqSampleQuerySet')  # noqa:E501
         m2m_changed.connect(DatasetQuerySet.clear_allowed_pks, Dataset.restricted_to.through)  # noqa:E501
         m2m_changed.connect(SampleQuerySet.clear_allowed_pks, Dataset.restricted_to.through)  # noqa:E501
+        m2m_changed.connect(SeqSampleQuerySet.clear_allowed_pks, Dataset.restricted_to.through)  # noqa:E501
         post_save.connect(DatasetQuerySet.clear_allowed_pks, sender=User)
         post_save.connect(SampleQuerySet.clear_allowed_pks, sender=User)
+        post_save.connect(SeqSampleQuerySet.clear_allowed_pks, sender=User)
         m2m_changed.connect(DatasetQuerySet.clear_allowed_pks, User.groups.through)  # noqa:E501
         m2m_changed.connect(SampleQuerySet.clear_allowed_pks, User.groups.through)  # noqa:E501
+        m2m_changed.connect(SeqSampleQuerySet.clear_allowed_pks, User.groups.through)  # noqa:E501
