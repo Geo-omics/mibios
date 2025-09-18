@@ -202,7 +202,7 @@ class SeqSample(IDMixin, Model):
     )
 
     objects = Manager.from_queryset(SeqSampleQuerySet)()
-    loader = managers.MetaDataLoader.from_queryset(SeqSampleQuerySet)()
+    loader = managers.SeqSampleLoader.from_queryset(SeqSampleQuerySet)()
 
     class Meta:
         indexes = [

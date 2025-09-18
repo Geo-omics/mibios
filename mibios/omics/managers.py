@@ -15,9 +15,11 @@ import sys
 import tempfile
 from textwrap import dedent
 
+from django.apps import apps
 from django.conf import settings
 from django.db.models import F, Window
 from django.db.models.functions import FirstValue
+from django.db.models.signals import post_save
 from django.db.transaction import atomic
 from django.utils.module_loading import import_string
 
@@ -48,7 +50,7 @@ def resolve_glob(path, pat):
 
 
 class SampleLoadMixin:
-    """ Mixin for Loader class that loads per-sample files """
+    """ Mixin for Loader class that loads per-seqsample files """
 
     sample = None
     """ sample is set by load_sample() for use in per-field helper methods """
@@ -830,7 +832,7 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
               f'{self.model._meta.model_name}')
 
 
-class SampleLoader(MetaDataLoader):
+class SeqSampleLoader(MetaDataLoader):
     """ Loader manager for Sample """
 
     @classmethod
@@ -852,6 +854,52 @@ class SampleLoader(MetaDataLoader):
             )
         else:
             return most_recent_file
+
+    def get_file(self):
+        return settings.GLAMR_META_ROOT / 'Great_Lakes_Omics_Datasets.xlsx - sequencing.tsv'  # noqa:E501
+
+    spec = CSV_Spec(
+        ('SeqSampleID', 'sample_id'),
+        ('SRA accession', 'sra_accession'),
+        ('sample_type', 'sample_type'),
+        ('SampleName', 'sample_name'),
+        ('BioSampleID', 'parent'),
+        ('GOLD_analysis_projectID', 'gold_analysis_id'),
+        ('GOLD_sequencing_projectID', 'gold_seq_id'),
+        # ('sequencing_type', 'sequencing_type'),  TODO
+        ('amplicon_target', 'amplicon_target'),
+        ('F_primer', 'fwd_primer'),
+        ('R_primer', 'rev_primer'),
+        ('Notes', 'notes'),
+    )
+
+    @atomic_dry
+    def load(self, **kwargs):
+        """ loads meta data from google sequencing sheet """
+        SampleTracking = apps.get_model('omics', 'SampleTracking')
+        self._saved_samples = []
+        post_save.connect(self.on_save, sender=self.model)
+        self.blocklist = {
+            key: [i for i in field_list if i != 'omics']
+            for key, field_list in get_sample_blocklist().items()
+        }
+        super().load(**kwargs)
+        # TODO: consider adding SeqSample.access
+        # if connections['default'].vendor == 'postgresql':
+        #     self.model.objects.update_access()
+        flag = SampleTracking.Flag.METADATA
+        for i in self._saved_samples:
+            tr, new = SampleTracking.objects.get_or_create(sample=i, flag=flag)
+            if not new:
+                tr.save()  # update timestamp
+
+    def on_save(self, instance=None, **kwargs):
+        """
+        callback for seqsample post_save
+
+        Remember seqsamples for tracking while doing load()
+        """
+        self._saved_samples.append(instance)
 
     @atomic_dry
     def update_from_pipeline_registry(
@@ -909,7 +957,7 @@ class SampleLoader(MetaDataLoader):
                 else:
                     raise RuntimeError(msg)
 
-            objs = self.select_related('dataset') \
+            objs = self.select_related('parent__dataset') \
                        .in_bulk(field_name='sample_id')
 
             if source_file is None:
@@ -955,6 +1003,8 @@ class SampleLoader(MetaDataLoader):
                     nosuccess += 1
                     continue
 
+                # Check consistency -- for these attrs: sample_id, dataset_id,
+                # or sample_type the omics import listing is not authoritive
                 try:
                     obj = objs[sample_id]
                 except KeyError:
@@ -963,10 +1013,10 @@ class SampleLoader(MetaDataLoader):
                     notfound += 1
                     continue
 
-                if obj.dataset.dataset_id != dataset:
+                if obj.parent.dataset.dataset_id != dataset:
                     err(
                         f'line {lineno}: {obj} dataset changed: '
-                        f'{obj.dataset.dataset_id} -> {dataset}'
+                        f'{obj.parent.dataset.dataset_id} -> {dataset}'
                     )
                     continue
 
@@ -977,22 +1027,19 @@ class SampleLoader(MetaDataLoader):
                     )
                     continue
 
+                # process attributes for which the omics import listing is
+                # authoritive, only the analysis_dir currently
                 analysis_dir = analysis_dir.removeprefix('data/omics/')
-
-                updateable = ['analysis_dir']
-                change_set = []
-                for attr in updateable:
-                    val = locals()[attr]
-                    if getattr(obj, attr) != val:
-                        setattr(obj, attr, val)
-                        change_set.append(attr)
-                if change_set:
-                    need_save = True
-                    save_info = (f'INFO update: {obj} change_set: '
-                                 f'{", ".join(change_set)}')
-                else:
+                if analysis_dir == obj.analysis_dir:
                     need_save = False
                     unchanged += 1
+                else:
+                    need_save = True
+                    save_info = (
+                        f'INFO update: {obj} analysis_dir: {obj.analysis_dir} '
+                        f'-> {analysis_dir}'
+                    )
+                    obj.analysis_dir = analysis_dir
 
                 if need_save:
                     obj.full_clean()

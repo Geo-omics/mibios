@@ -10,20 +10,17 @@ from django.contrib.auth.models import Group
 from django.contrib.postgres.search import SearchQuery
 from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.db import connections, transaction, NotSupportedError
-from django.db.models.signals import post_save
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 from django.utils.html import escape as escape_html
 from django.utils.module_loading import import_string
 
 from mibios.omics.models import SeqSample
-from mibios.omics.managers import SampleLoader as OmicsSampleLoader
 from mibios.umrad.manager import (
     InputFileError, Loader, MetaDataLoader, Manager,
 )
 from mibios.umrad.model_utils import delete_all_objects_quickly
 from mibios.umrad.utils import CSV_Spec, atomic_dry, SkipRow, SpecError
-from mibios.omics.models import SampleTracking
 from mibios.omics.utils import get_sample_blocklist
 
 from .search_fields import search_fields
@@ -293,6 +290,12 @@ class SampleInputSpec(CSV_Spec):
                 row = line.rstrip('\n').split('\t')
                 col_name = row[col_name_col]
                 field_name = row[field_name_col]
+                try:
+                    SeqSample._meta.get_field(field_name)
+                except FieldDoesNotExist:
+                    pass
+                else:
+                    continue
                 if not field_name:
                     if col_name in base_spec:
                         raise RuntimeError('field name missing in meta data')
@@ -329,11 +332,10 @@ class SampleInputSpec(CSV_Spec):
         # from the file:
         fields_accounted_for = set((i[1] for i in specs))
         fields_accounted_for.add('access')  # set/updated in load()
-        required = [  # fields from SeqSample that we want to check for
-            'sample_id', 'sample_name', 'sample_type', 'has_paired_data',
-            'sra_accession', 'amplicon_target', 'fwd_primer', 'rev_primer',
+        required = [  # fields from Sample that we want to check for
+            'sample_id',
         ]
-        for i in SeqSample._meta.get_fields():
+        for i in loader.model._meta.get_fields():
             if i.name not in required:
                 fields_accounted_for.add(i.name)
         for i in loader.model._meta.get_fields():
@@ -343,7 +345,7 @@ class SampleInputSpec(CSV_Spec):
         super().setup(loader, column_specs=specs, **kwargs)
 
 
-class SampleLoader(BoolColMixin, OmicsSampleLoader):
+class SampleLoader(BoolColMixin, MetaDataLoader):
     """ loader for Great_Lakes_Omics_Datasets.xlsx """
     empty_values = ['NA', 'Not Listed', 'NF', '#N/A', 'ND', 'not applicable',
                     'N/A']
@@ -357,11 +359,16 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
         """
         Reference = import_string('mibios.glamr.models.Reference')
         Dataset = import_string('mibios.glamr.models.Dataset')
+        SeqSample = apps.get_model('omics', 'SeqSample')
         with transaction.atomic():
             Reference.loader.load()
             Dataset.loader.load()
             self.load()
-            self.update_from_pipeline_registry(quiet=True, skip_on_error=True)
+            SeqSample.loader.load()
+            SeqSample.loader.update_from_pipeline_registry(
+                quiet=True,
+                skip_on_error=True,
+            )
             if dry_run:
                 transaction.set_rollback(True)
 
@@ -428,6 +435,7 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
 
         # step 0. temp fix for some input
         value = value.removesuffix('TNA')
+        value = value.removesuffix('TNOTIME')
 
         orig_value = value
         del value
@@ -520,20 +528,12 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
         ('SampleID', 'sample_id', check_sample_id),  # A
         # id_fixed B  --> ignore
         # sample_input_complete C  --> ignore
-        ('SampleName', 'sample_name'),  # D
+        # ('SampleName', 'sample_name'),  # D
         ('StudyID', 'dataset.dataset_id'),  # E
         ('ProjectID', 'project_id'),  # F
         ('Biosample', 'biosample'),  # G
-        ('Accession_Number', 'sra_accession'),  # H
-        ('GOLD_analysis_projectID', 'gold_analysis_id'),  # I
-        ('GOLD_sequencing_projectID', 'gold_seq_id'),  # J
         ('JGI_study', 'jgi_study'),  # K
         ('JGI_biosample', 'jgi_biosample'),  # L
-        ('sample_type', 'sample_type'),  # M
-        ('has_paired_data', 'has_paired_data', 'parse_bool'),  # N
-        ('amplicon_target', 'amplicon_target'),  # O
-        ('F_primer', 'fwd_primer'),  # P
-        ('R_primer', 'rev_primer'),  # Q
         # columns after Q, mostly defined by units sheet
         ('collection_date', 'collection_timestamp', process_timestamp),  # V
         (CSV_Spec.CALC_VALUE, 'collection_ts_partial', None),
@@ -551,8 +551,6 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
     @atomic_dry
     def load(self, **kwargs):
         """ samples meta data """
-        self._saved_samples = []
-        post_save.connect(self.on_save, sender=self.model)
         self.blocklist = {
             key: [i for i in field_list if i != 'omics']
             for key, field_list in get_sample_blocklist().items()
@@ -560,19 +558,6 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
         super().load(**kwargs)
         if connections['default'].vendor == 'postgresql':
             self.model.objects.update_access()
-        flag = SampleTracking.Flag.METADATA
-        for i in self._saved_samples:
-            tr, new = SampleTracking.objects.get_or_create(sample=i, flag=flag)
-            if not new:
-                tr.save()  # update timestamp
-
-    def on_save(self, instance=None, **kwargs):
-        """
-        callback for sample post_save
-
-        Remember samples for tracking
-        """
-        self._saved_samples.append(instance)
 
 
 class SearchableManager(Loader):
