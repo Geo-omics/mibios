@@ -9,9 +9,11 @@ import sys
 from time import time
 
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.core.files.storage import storages
-from django.db import models
+from django.db import connection, models
 from django.db.transaction import atomic
 
 from mibios.data import TableConfig
@@ -80,7 +82,6 @@ class SeqSample(Model):
         choices=SAMPLE_TYPES_CHOICES,
         **opt,
     )
-    has_paired_data = models.BooleanField(**opt)
     sra_accession = models.TextField(max_length=16, **ch_opt)
     gold_analysis_id = models.TextField(max_length=32, **ch_opt)
     gold_seq_id = models.TextField(max_length=32, **ch_opt)
@@ -106,15 +107,34 @@ class SeqSample(Model):
         **opt,
         help_text='number of reads mapped to genes',
     )
+    notes = models.TextField(**ch_opt)
+    access = ArrayField(
+        models.SmallIntegerField(**opt),
+        default=None, null=True, blank=True,
+    )
 
     objects = Manager.from_queryset(SeqSampleQuerySet)()
     loader = managers.SampleLoader.from_queryset(SeqSampleQuerySet)()
 
     class Meta:
-        pass
+        indexes = [
+            GinIndex(
+                fields=['access'],
+                opclasses=['array_ops'],
+                name='seqsample_access_gin',
+            ),
+        ]
 
     def __str__(self):
         return self.sample_id
+
+    def _do_insert(self, manager, using, fields, returning_fields, raw):
+        if connection.vendor != 'postgresql':
+            # saving access fails on sqlite
+            # TODO: replace this with DB-defined defaults in Django 5.0
+            fields = [i for i in fields if not i.name == 'access']
+        ret = super()._do_insert(manager, using, fields, returning_fields, raw)
+        return ret
 
     default_internal_fields = ['id', 'analysis_dir', 'sample_id']
     """ see also the overriding get_internal_fields() """
