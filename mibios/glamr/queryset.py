@@ -8,7 +8,9 @@ from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.search import \
     SearchQuery, SearchRank, TrigramDistance
 from django.db import connections
-from django.db.models import Count, F, Func, Q, TextField, Value, Window
+from django.db.models import (
+    Count, F, Func, OuterRef, Q, Subquery, TextField, Value, Window
+)
 from django.db.models.functions import FirstValue, Length, RowNumber
 from django.db.transaction import atomic
 from django.utils.module_loading import import_string
@@ -184,6 +186,7 @@ class DatasetQuerySet(QuerySet):
                      'primary_ref__title', 'primary_ref__short_reference')
         return qs
 
+    @atomic
     def update_access(self):
         """
         Synchronize content of the access column
@@ -191,17 +194,55 @@ class DatasetQuerySet(QuerySet):
         This method will only work on postgres, not sqlite.
 
         Generally, all changes to the access field should go through this
-        method.
+        method.  update_access() methods for Sample and SeqSample delegate to
+        here as it makes sense to keep the whole relation in sync.
         """
-        qs = self.all().prefetch_related('restricted_to')
+        Dataset = self.model
+        Sample = apps.get_model('glamr', 'Sample')
+        SeqSample = apps.get_model('omics', 'SeqSample')
+
+        qs = self.prefetch_related('restricted_to')
+        qs = qs.prefetch_related('sample_set', 'sample_set__seqsample_set')
+
+        dset_objs = []
         for obj in qs:
-            groups = list(obj.restricted_to.all())
-            if groups:
-                obj.access = sorted([i.pk for i in groups])
-            else:
-                # is public
-                obj.access = [0]
-        return self.model.objects.bulk_update(qs, ['access'])
+            group_ids = sorted(i.pk for i in obj.restricted_to.all())
+            if not group_ids:
+                # is public access, 0 is not used as PK in Group table.
+                group_ids = [0]
+
+            if obj.access != group_ids:
+                obj.access = group_ids
+                dset_objs.append(obj)
+
+        self.model.objects.bulk_update(dset_objs, ['access'])
+
+        # Something like update(access=F('dataset__access') is not implemented
+        # by Django, but using this subquery is a super clever way to do the
+        # same thing:
+        subq = Subquery(
+            Dataset.objects
+                   .filter(pk=OuterRef('dataset__pk'))
+                   .values('access')[:1]
+        )
+        count = Sample.objects \
+            .filter(dataset__in=self) \
+            .exclude(access=subq) \
+            .update(access=subq)
+        print(f'Sample.access updated for {count} records')
+
+        subq = Subquery(
+            Sample.objects
+                  .filter(pk=OuterRef('parent__pk'))
+                  .values('access')[:1]
+        )
+        count = SeqSample.objects \
+            .filter(parent__dataset__in=self) \
+            .exclude(access=subq) \
+            .update(access=subq)
+        print(f'SeqSample.access updated for {count} records')
+
+        return len(dset_objs)  # what bulk_update would return
 
 
 class SampleQuerySet(QuerySet):
@@ -325,35 +366,8 @@ class SampleQuerySet(QuerySet):
         Generally, all changes to the access field should go through this
         method.  This will also update access on all SeqSamples.
         """
-        qs = self.all().select_related('dataset')
-        qs = qs.prefetch_related('dataset__restricted_to')
-        qs = qs.prefetch_related('seqsample_set')
-
-        bios_objs = []
-        seqs_objs = []
-        for obj in qs:
-            group_ids = sorted(i.pk for i in obj.dataset.restricted_to.all())
-            if not group_ids:
-                # is public access, 0 is not used as PK in Group table.
-                group_ids = [0]
-
-            if obj.access != group_ids:
-                obj.access = group_ids
-                bios_objs.append(obj)
-
-            for seqs_obj in obj.seqsample_set.all():
-                if seqs_obj.access != group_ids:
-                    seqs_obj.access = group_ids
-                    seqs_objs.append(seqs_obj)
-
-        if not bios_objs and not seqs_objs:
-            print('All up-to-date -- no changes')
-            return 0  # what bulk_update would return
-
-        SeqSample = apps.get_model('omics', 'SeqSample')
-        SeqSample.objects.bulk_update(seqs_objs, ['access'])
-
-        return self.model.objects.bulk_update(bios_objs, ['access'])
+        Dataset = self.model._meta.get_field('dataset').related_model
+        Dataset.objects.filter(sample__in=self).update_access()
 
     def deduplicate_denovo(self):
         """ find duplicate records """

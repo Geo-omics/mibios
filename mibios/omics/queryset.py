@@ -417,3 +417,11 @@ class SeqSampleQuerySet(AccessMixin, QuerySet):
                 ofile.write(f'{i}\n')
         print(f'UniRef100 accessions written to {outname}')
 
+    def update_access(self):
+        """
+        Make values of access field consistent with parent samples and Datasets
+
+        Delegates to the parents' queryset method update_access()
+        """
+        Sample = self.model._meta.get_field('parent').related_model
+        Sample.objects.filter(seqsample__in=self).update_access()

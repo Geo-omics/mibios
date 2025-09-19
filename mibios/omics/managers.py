@@ -17,6 +17,7 @@ from textwrap import dedent
 
 from django.apps import apps
 from django.conf import settings
+from django.db import connection
 from django.db.models import F, Window
 from django.db.models.functions import FirstValue
 from django.db.models.signals import post_save
@@ -884,9 +885,8 @@ class SeqSampleLoader(MetaDataLoader):
             for key, field_list in get_sample_blocklist().items()
         }
         super().load(**kwargs)
-        # TODO: consider adding SeqSample.access
-        # if connections['default'].vendor == 'postgresql':
-        #     self.model.objects.update_access()
+        if connection.vendor == 'postgresql':
+            self.model.objects.update_access()
         flag = SampleTracking.Flag.METADATA
         for i in self._saved_samples:
             tr, new = SampleTracking.objects.get_or_create(sample=i, flag=flag)
