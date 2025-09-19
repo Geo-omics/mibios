@@ -33,7 +33,7 @@ from .load import (
     DatasetLoader, ReferenceLoader, SampleLoader,
     SearchableManager, UniqueWordManager,
 )
-from .managers import dbstatManager
+from .managers import dbstatManager, DatasetManager
 from .queryset import (
     DatasetQuerySet, SampleQuerySet, SearchableQuerySet, UniqueWordQuerySet,
 )
@@ -295,7 +295,7 @@ class Dataset(IDMixin, AbstractDataset):
 
     accession_fields = ('dataset_id', )
 
-    objects = Manager.from_queryset(DatasetQuerySet)()
+    objects = DatasetManager.from_queryset(DatasetQuerySet)()
     loader = DatasetLoader()
 
     class Meta:

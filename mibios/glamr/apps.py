@@ -1,7 +1,7 @@
 from django.apps import apps, AppConfig as _AppConfig
 from django.core.checks import register as register_checks
 from django.core.exceptions import FieldDoesNotExist
-from django.db.models.signals import m2m_changed, post_save
+from django.db.models.signals import m2m_changed
 from django.utils.module_loading import import_string
 
 from mibios import __version__
@@ -64,17 +64,5 @@ class AppConfig(_AppConfig):
         register_checks()(import_string('mibios.glamr.managers.check_sample_access'))  # noqa:E501
 
         # some signal connections here, avoiding circular imports
-        User = import_string('django.contrib.auth.models.User')
         Dataset = self.get_model('Dataset')
-        DatasetQuerySet = import_string('mibios.glamr.queryset.DatasetQuerySet')  # noqa:E501
-        SampleQuerySet = import_string('mibios.glamr.queryset.SampleQuerySet')
-        SeqSampleQuerySet = import_string('mibios.omics.queryset.SeqSampleQuerySet')  # noqa:E501
-        m2m_changed.connect(DatasetQuerySet.clear_allowed_pks, Dataset.restricted_to.through)  # noqa:E501
-        m2m_changed.connect(SampleQuerySet.clear_allowed_pks, Dataset.restricted_to.through)  # noqa:E501
-        m2m_changed.connect(SeqSampleQuerySet.clear_allowed_pks, Dataset.restricted_to.through)  # noqa:E501
-        post_save.connect(DatasetQuerySet.clear_allowed_pks, sender=User)
-        post_save.connect(SampleQuerySet.clear_allowed_pks, sender=User)
-        post_save.connect(SeqSampleQuerySet.clear_allowed_pks, sender=User)
-        m2m_changed.connect(DatasetQuerySet.clear_allowed_pks, User.groups.through)  # noqa:E501
-        m2m_changed.connect(SampleQuerySet.clear_allowed_pks, User.groups.through)  # noqa:E501
-        m2m_changed.connect(SeqSampleQuerySet.clear_allowed_pks, User.groups.through)  # noqa:E501
+        m2m_changed.connect(Dataset.objects.restriction_changed, sender=Dataset.restricted_to.through)  # noqa:E501

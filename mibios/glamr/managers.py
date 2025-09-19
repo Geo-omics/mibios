@@ -1,9 +1,11 @@
 from django.apps import apps
 from django.core import checks
-from django.db.models import Manager
+from django.db.models import Manager as DjangoManager
+
+from mibios.umrad.manager import Manager
 
 
-class dbstatManager(Manager):
+class dbstatManager(DjangoManager):
     def get_queryset(self):
         # see: https://www.sqlite.org/dbstat.html
         # use extra+where instead of filter() since aggregate is not a field
@@ -87,7 +89,6 @@ def check_sample_access(app_configs, **kwargs):
             good.append(obj)
         else:
             bad.append(obj)
-            print(f'BORK {obj=}')
 
     errors = []
     if bad:
@@ -106,3 +107,27 @@ def check_sample_access(app_configs, **kwargs):
                 id='glamr.W010',
             ))
     return errors
+
+
+class DatasetManager(Manager):
+    def restriction_changed(self, **kwargs):
+        """
+        Update access fields when restricted_to relation changes
+
+        Receiver for signals when restricted_to m2m relation is changed
+        """
+        # NOTE: it's not clear to me why this signal receiver works as regular
+        # method, how is self populated?
+        instance = kwargs.get('instance')
+        action = kwargs.get('action')
+
+        if action not in ('post_add', 'post_remove', 'post_clear'):
+            return
+
+        if kwargs.get('reverse'):
+            raise RuntimeError('not implemented, what to do here?')
+
+        if isinstance(instance, self.model):
+            self.all().filter(pk=instance.pk).update_access()
+        else:
+            raise RuntimeError('what to do here?')

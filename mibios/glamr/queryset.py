@@ -13,10 +13,10 @@ from django.db.models import (
 )
 from django.db.models.functions import FirstValue, Length, RowNumber
 from django.db.transaction import atomic
-from django.utils.module_loading import import_string
 
 import pandas
 
+from mibios.omics.queryset import AccessMixin
 from mibios.umrad.manager import QuerySet
 from . import GREAT_LAKES
 from .search_utils import SearchResult
@@ -24,25 +24,6 @@ from .utils import split_query
 
 
 log = getLogger(__name__)
-
-
-def _get_groupids(credentials):
-    """
-    Helper to turn a User into sorted group ids
-    """
-    if credentials is None:
-        return (0,)
-
-    User = import_string('django.contrib.auth.models.User')
-    AnonymousUser = import_string('django.contrib.auth.models.AnonymousUser')
-    if isinstance(credentials, (AnonymousUser, User)):
-        groupids = set(credentials.groups.values_list('pk', flat=True))
-    else:
-        # assume list of Group PKs
-        groupids = set(credentials)
-    # ensure we got a 0 and it's sorted
-    groupids.add(0)
-    return tuple(sorted(groupids))
 
 
 def exclude_private_data(queryset, credentials=None):
@@ -68,59 +49,15 @@ def exclude_private_data(queryset, credentials=None):
         return qs
 
     if connections[queryset.db].vendor == 'postgresql':
-        f = {f'{field.name}__access__overlap': _get_groupids(credentials)}
+        f = {f'{field.name}__access__overlap':
+             AccessMixin._get_groupids(credentials)}
     else:
-        # fallback for sqlite
-        f = {
-            f'{field.name}__pk__in':
-            field.related_model.objects.get_allowed_pks(credentials)
-        }
+        # fallback for sqlite is a noop
+        f = {}
     return qs.filter(**f)
 
 
-class DatasetQuerySet(QuerySet):
-
-    _allowed_pks = {}
-    """ class-level cache, PKs that a user is allowed """
-
-    @classmethod
-    def _get_allowed_pks(cls, model, credentials):
-        groupids = _get_groupids(credentials)
-        if groupids not in cls._allowed_pks:
-            q = Q(restricted_to=None)  # no restrictions
-            if len(groupids) > 1:
-                # there's something else besides zero
-                q = q | Q(restricted_to__pk__in=[i for i in groupids if i])
-
-            qs = model.objects.filter(q).values_list('pk', flat=True)
-            cls._allowed_pks[groupids] = tuple(qs)
-        return cls._allowed_pks[groupids]
-
-    @classmethod
-    def clear_allowed_pks(cls, **kwargs):
-        """
-        Clear the allowed PKs cache
-
-        Should be called whenever the Dataset.restricted_to relation changes
-        """
-        cls._allowed_pks = {}
-
-    def get_allowed_pks(self, credentials):
-        """
-        Get allowed PKs -- to contol access with sqlite
-        """
-        # this is a wrapper just to inject the model into the class method
-        return self._get_allowed_pks(self.model, credentials)
-
-    def exclude_private(self, credentials=None):
-        """
-        Exclude private datasets for which user is not member of allowed group.
-        """
-        if connections[self.db].vendor == 'postgresql':
-            return self.filter(access__overlap=_get_groupids(credentials))
-        else:
-            # fallback for sqlite
-            return self.filter(pk__in=self.get_allowed_pks(credentials))
+class DatasetQuerySet(AccessMixin, QuerySet):
 
     def summary(
             self,
@@ -245,51 +182,7 @@ class DatasetQuerySet(QuerySet):
         return len(dset_objs)  # what bulk_update would return
 
 
-class SampleQuerySet(QuerySet):
-
-    _allowed_pks = {}
-
-    @classmethod
-    def _get_allowed_pks(cls, model, credentials):
-        groupids = _get_groupids(credentials)
-        if groupids not in cls._allowed_pks:
-            Dataset = model._meta.get_field('dataset').related_model
-            qs = model.objects.filter(
-                dataset__in=Dataset.objects.exclude_private(groupids)
-            )
-            qs = qs.values_list('pk', flat=True)
-            cls._allowed_pks[groupids] = tuple(qs)
-        return cls._allowed_pks[groupids]
-
-    def get_allowed_pks(self, credentials):
-        """
-        Get allowed PKs -- to contol access with sqlite
-        """
-        # this is a wrapper just to inject the model into the class method
-        return self._get_allowed_pks(self.model, credentials)
-
-    @classmethod
-    def clear_allowed_pks(cls, **kwargs):
-        """
-        Clear the allowed PKs cache
-
-        Should be called whenever the Dataset.restricted_to relation changes
-        """
-        cls._allowed_pks = {}
-
-    def exclude_private(self, credentials=None):
-        """
-        Exclude samples of private datasets unless user is member of allowed
-        group.
-
-        credentials:
-            This can be auth.User instance or list of Group PKs or None.
-        """
-        if connections[self.db].vendor == 'postgresql':
-            return self.filter(access__overlap=_get_groupids(credentials))
-        else:
-            # fallback for sqlite
-            return self.filter(pk__in=self.get_allowed_pks(credentials))
+class SampleQuerySet(AccessMixin, QuerySet):
 
     def basic_counts(self, *fields, exclude_blank_fields=[]):
         """
