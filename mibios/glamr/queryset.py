@@ -61,7 +61,7 @@ class DatasetQuerySet(AccessMixin, QuerySet):
 
     def summary(
             self,
-            column_field='seqsqmple__sample_type',
+            column_field='seqsample__sample_type',
             row_field='geo_loc_name',
             as_dataframe=True,
             otherize=True,
