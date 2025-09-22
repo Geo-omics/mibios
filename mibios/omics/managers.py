@@ -836,6 +836,8 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
 class SeqSampleLoader(MetaDataLoader):
     """ Loader manager for Sample """
 
+    empty_values = ['NA', 'NF']
+
     @classmethod
     def get_omics_import_file(cls):
         """ get the omics data import log """
