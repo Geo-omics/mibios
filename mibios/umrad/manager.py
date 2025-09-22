@@ -521,8 +521,8 @@ class BaseLoader(MibiosBaseManager):
                         else:
                             skipped_log_not_logged += 1
                         break  # skips line / avoids for-else block
-                    except Exception as e:
-                        if skip_on_error and isinstance(e, InputFileError):
+                    except InputFileError as e:
+                        if skip_on_error:
                             # skip line on expected errors
                             skipped_log.append(dict(
                                 lineno=lineno,
@@ -534,9 +534,17 @@ class BaseLoader(MibiosBaseManager):
                             ))
                             break  # skips line / avoids for-else block
                         else:
-                            print(f'\nERROR at line {lineno} / field {field}: '
-                                  f'value was "{value}" -- {e}')
+                            print(
+                                f'\nERROR at line {lineno} / field {field} '
+                                f'[set skip_on_error=True to proceed after bad'
+                                f'line]: value was "{value}" -- {e}'
+                            )
                             raise
+                    except Exception as e:
+                        print(f'\nERROR at line {lineno} / field {field}: '
+                              f'value was "{value}" -- {e.__class__.__name__}:'
+                              f' {e}')
+                        raise
 
                 if value is self.spec.IGNORE_COLUMN or field is None:
                     continue  # next column
