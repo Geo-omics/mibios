@@ -6,7 +6,7 @@ module file should be tracked by revision control but not be manually edited.
 """
 
 extra_biosample_field_attrs = {
-    'project_id': {'verbose_name': 'NCBI BioProject} | {'},
+    'project_id': {'verbose_name': 'NCBI BioProject'},
     'biosample': {'verbose_name': 'NCBI BioSample'},
     'jgi_study': {'verbose_name': 'JGI study'},
     'jgi_biosample': {'verbose_name': 'JGI biosample'},
