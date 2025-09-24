@@ -838,6 +838,9 @@ class MapMixin():
             item['sample_url'] = sample.get_absolute_url()
             item['dataset_url'] = sample.dataset.get_absolute_url()
             item['dataset_name'] = dataset_name[sample.dataset_id]
+            item['sample_type'] = '/'.join(sorted(set(
+                i.sample_type for i in sample.seqsample_set.all()
+            )))
 
             # types_at_location: construct a CSS selector prefix for the map
             # marker/icon.  The map javascript will add '-icon'.  Assumes that
@@ -2280,7 +2283,8 @@ class SampleView(MapMixin, RecordView):
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         # ctx['header_link_groups'] = self.get_header_links()
-        ctx['seqsample_table'] = tables.SeqSampleTable(self.get_seqsample_data())
+        ctx['seqsample_table'] = \
+            tables.SeqSampleTable(self.get_seqsample_data())
         return ctx
 
 
