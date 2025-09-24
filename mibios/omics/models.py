@@ -227,19 +227,9 @@ class SeqSample(IDMixin, Model):
         ret = super()._do_insert(manager, using, fields, returning_fields, raw)
         return ret
 
-    default_internal_fields = ['id', 'analysis_dir', 'sample_id']
-    """ see also the overriding get_internal_fields() """
-
-    @classmethod
-    def get_internal_fields(cls):
-        """
-        Return list of fields with non-public usage
-        """
-        return cls.default_internal_fields + [
-            i.name
-            for i in cls._meta.get_fields()
-            if i.name.endswith(('_ok', '_loaded'))
-        ]
+    default_internal_fields = [
+        'id', 'analysis_dir', 'sample_id', 'notes', 'access',
+    ]
 
     def get_metagenome_path(self):
         """
