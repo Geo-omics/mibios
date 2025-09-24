@@ -342,15 +342,9 @@ class SeqSample(IDMixin, Model):
         # Check that file names follow SRA fasterq-dump output file naming
         # conventions as expected
         if len(files) == 1:
-            if self.has_paired_data:
-                print(f'WARNING: {self}: {self.has_paired_data=} / expected '
-                      f'two files, got: {files}')
             if files[0].name != self.get_fastq_prefix() + '.fastq':
                 raise RuntimeError(f'unexpected single-end filename: {files}')
         elif len(files) == 2:
-            if not self.has_paired_data and self.has_paired_data is not None:
-                print(f'WARNING: {self}: {self.has_paired_data=} / expected '
-                      f'single file, got: {files}')
             fnames = sorted([i.name for i in files])
             if fnames[0] != self.get_fastq_prefix() + '_1.fastq':
                 raise RuntimeError(f'unexpected paired filename: {fnames[0]}')

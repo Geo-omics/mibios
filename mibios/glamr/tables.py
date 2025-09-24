@@ -718,7 +718,6 @@ class SeqSampleTable(Table):
     """
     sample_type = Column(orderable=False)
     accession = Column(orderable=False, empty_values=[''])
-    has_paired_data = Column(orderable=False)
     amplicon_target = Column(orderable=False)
     primers = Column(orderable=False, empty_values=[])
     links = Column(
@@ -728,15 +727,13 @@ class SeqSampleTable(Table):
     )
 
     html_fields = (
-        'sample_type', 'has_paired_data', 'amplicon_target', 'primers',
+        'accession', 'sample_type', 'amplicon_target', 'primers',
     )
 
     class Meta:
         model = omics_models.SeqSample
         sequence = [
-            'sample_type', 'sra_accession', 'has_paired_data',
-            'amplicon_target',
-            'primers',
+            'sample_type', 'sra_accession', 'amplicon_target', 'primers',
         ]
         empty_text = 'no sample sequencing data available'
 
