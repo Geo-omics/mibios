@@ -289,29 +289,33 @@ class SampleQuerySet(AccessMixin, QuerySet):
             stats[len(uniques)] += 1
         print(f'Stats: group sizes: {stats}')
 
-    def dedup_biosample(self):
+    def dedup_biosample(self, outfile=None):
         """
         Helper tool to see if samples with sample NCBI Biosample are the same
+
+        Only consider the biosample field.  Non-empty jgi_biosample values are
+        already unique, so they are ignored.
         """
         uniq_keys = ('id', 'sample_id')  # fields that are unique regardless
         ignore = ('access', )  # has non-hashable value, get out of the way
 
         # 1. get objects
-        qs = self.exclude(biosample='')
+        qs = self.exclude(biosample='').prefetch_related('seqsample_set')
+        qs = qs.order_by('pk')
         # 2. separately get values
-        values = {
-            row['id']: row
-            for row in self.values()
-        }
         # 3. attach values in deterministic hashable format
-        for obj in qs:
-            obj.row_values = values[obj.pk]
+        for obj, row_values in zip(qs, qs.values(), strict=True):
             for i in uniq_keys + ignore:
-                del obj.row_values[i]
-            obj.row_values = tuple(sorted(obj.row_values.items()))
+                del row_values[i]
+            obj.row_values = tuple(sorted(row_values.items()))
 
-        # 4. sort and group objects by values
+        # 4. sort and group objects by biosample
         data = sorted(qs, key=lambda x: x.biosample)
+
+        if outfile:
+            outf = open(outfile, 'w')
+        else:
+            outf = None
 
         singles = 0
         good = 0
@@ -325,15 +329,18 @@ class SampleQuerySet(AccessMixin, QuerySet):
             if len(vals) == 1:
                 # Case A: a good group, print some SeqSample values
                 good += 1
-                print('    ', biosample)
+                print('    ', biosample, file=outf)
                 for i in grp:
-                    sqs = i.seqsample_set.all().get()
-                    print(f'      {i.sample_id} ({sqs.sample_type}) '
-                          f'{sqs.fwd_primer}//{sqs.rev_primer}')
+                    for sqs in i.seqsample_set.all():
+                        prim = "//".join(
+                            p for p in (sqs.fwd_primer, sqs.rev_primer) if p
+                        )
+                        print(f'      {i.sample_id} {sqs.sample_type} {prim}',
+                              file=outf)
             else:
                 # Case B: bad group, print values that differ within group
                 bad += 1
-                print(f'[EE] {biosample}')
+                print(f'[EE] {biosample}', file=outf)
                 diffs0 = []
                 for items in zip(*(i.row_values for i in grp), strict=True):
                     if len(set(items)) > 1:
@@ -342,10 +349,10 @@ class SampleQuerySet(AccessMixin, QuerySet):
                 diffs = zip(*diffs0, strict=True)  # transpose diff
                 for obj, diff_vals in zip(grp, diffs):
                     print(f'[EE]   {obj.sample_id}:',
-                          *(f'{k}={v}' for k, v in diff_vals))
+                          *(f'{k}={v}' for k, v in diff_vals), file=outf)
 
-            print()
-        print(f'Stats: {singles=} {good=} {bad=}')
+            print(file=outf)
+        print(f'Stats: {singles=} {good=} {bad=}', file=outf)
 
 
 class ts_headline(Func):
