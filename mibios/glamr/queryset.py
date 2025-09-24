@@ -18,6 +18,7 @@ import pandas
 
 from mibios.omics.queryset import AccessMixin
 from mibios.umrad.manager import QuerySet
+from mibios.umrad.utils import atomic_dry
 from . import GREAT_LAKES
 from .search_utils import SearchResult
 from .utils import split_query
@@ -289,9 +290,9 @@ class SampleQuerySet(AccessMixin, QuerySet):
             stats[len(uniques)] += 1
         print(f'Stats: group sizes: {stats}')
 
-    def dedup_biosample(self, outfile=None):
+    def dedup_biosample_group(self):
         """
-        Helper tool to see if samples with sample NCBI Biosample are the same
+        Helper to collect data to deduplicate NCBI Biosamples
 
         Only consider the biosample field.  Non-empty jgi_biosample values are
         already unique, so they are ignored.
@@ -312,6 +313,57 @@ class SampleQuerySet(AccessMixin, QuerySet):
         # 4. sort and group objects by biosample
         data = sorted(qs, key=lambda x: x.biosample)
 
+        return groupby(data, key=lambda x: x.biosample)
+
+    def dedup_biosample(self):
+        """
+        Get Sample objects that can be readily deduplicated
+
+        Returns a dict, mapping Sample objects "from -> to" to be interpreted
+        as work order: The SeqSample objects of the "from" biosample will be
+        moved to the the "to" biosample.  The "from" biosample can then be
+        deleted (deduplicated.)  Biosamples mapping to None will be kept.  All
+        other biosamples will also be kept.
+        """
+        data = {}
+        for biosample, grp in self.dedup_biosample_group():
+            grp = list(grp)
+            if len(grp) == 1:
+                continue
+
+            vals = set(i.row_values for i in grp)
+            if len(vals) > 1:
+                continue
+
+            data[grp[0]] = None  # to be kept
+            for obj in grp[1:]:
+                # SeqSamples to be re-assigned to group leader
+                data[obj] = grp[0]
+
+        return data
+
+    @atomic_dry
+    def dedup_biosample_migrate(self):
+        """
+        Implements the biosample deduplication
+
+        This will only deduplicate those biosamples that are clearly identical.
+        This can be run on subsets of the data and repeatedly as needed until
+        all biosamples are deduplicated.
+        """
+        for obj_from, obj_to in self.dedup_biosample().items():
+            if obj_to is None:
+                continue
+            obj_to.seqsample_set.add(*obj_from.seqsample_set.all())
+            obj_from.delete()
+
+    def dedup_biosample_print(self, outfile=None):
+        """
+        Helper tool to see if samples with sample NCBI Biosample are the same
+
+        Only consider the biosample field.  Non-empty jgi_biosample values are
+        already unique, so they are ignored.
+        """
         if outfile:
             outf = open(outfile, 'w')
         else:
@@ -320,7 +372,7 @@ class SampleQuerySet(AccessMixin, QuerySet):
         singles = 0
         good = 0
         bad = 0
-        for biosample, grp in groupby(data, key=lambda x: x.biosample):
+        for biosample, grp in self.dedup_biosample_group():
             grp = list(grp)
             if len(grp) == 1:
                 singles += 1
