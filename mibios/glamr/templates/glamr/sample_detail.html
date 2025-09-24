@@ -8,7 +8,7 @@
 {% block 'details' %}
 <div class="card mb-2 mt-2">
     <div style="display: flex; flex-direction: row" class="card-header">
-        <h6 class="card-title m-1">Sequencing data</h6>
+        <h6 class="card-title m-1">Sequencing data <small>[<a href="{% url 'relations' object|meta:"model_name" object.pk 'seqsample' %}">full table</a>]</small></h6>
     </div>
     <div class="card-body">
     {% render_table seqsample_table %}
