@@ -1,0 +1,37 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools ~= 78.0", "setuptools-scm~=8.0"]
+
+[project]
+name = "mibios"
+requires-python = "~=3.13.0"
+dynamic = ["version"]
+dependencies = [
+"biopython ~= 1.85.0",
+"crispy-bootstrap5 ~= 2024.0",
+"defusedxml~=0.7.1",
+"django ~= 4.2.0",
+"django-crispy-forms ~= 2.4",
+"django-extensions~=4.1",
+"django-filter~=25.1",
+"djangorestframework~=3.16.0",
+"django_tables2 ~= 2.7.0",
+"matplotlib ~= 3.10.0",
+"pandas~=2.2.0",
+"psycopg2~=2.9.0",
+"xlrd~=2.0",
+"zipstream~=1.1.0",
+"pygraphviz~=1.14",
+]
+   
+[project.scripts]
+manage-mibios = "mibios.ops:manage"
+
+[tool.setuptools.packages.find]
+where = ["./"]
+include = ["mibios*", "mibios_seq*"]
+namespaces= true
+
+[tool.setuptools_scm]
+write_to = "mibios/_version.py"
+git_describe_command = "git describe --dirty --tags --long --match 'v[0-9]*'"
