@@ -58,9 +58,9 @@ class FileTable(Table):
 
 
 class SampleTrackingTable(Table):
-    sample__dataset__dataset_id = Column(
+    sample__parent__dataset__dataset_id = Column(
         verbose_name='Dataset',
-        order_by=('sample__dataset__get_record_id_no', 'sample_id_num'),
+        order_by=('parent__dataset__get_record_id_no', 'sample_id_num'),
     )
     sample__sample_id = Column(
         verbose_name='Sample',
@@ -78,7 +78,7 @@ class SampleTrackingTable(Table):
 
         model = get_sample_model()
         fields = [
-            'sample__dataset__dataset_id',
+            'sample__parent__dataset__dataset_id',
             'sample__sample_id',
         ] + flags + [
             'sample__analysis_dir',
@@ -86,6 +86,14 @@ class SampleTrackingTable(Table):
             'sample__reads_mapped_contigs',
             'sample__reads_mapped_genes',
         ]
+        order_by = ('sample__sample_id',)
+
+    def render_sample__parent__dataset__dataset_id(self, record):
+        return format_html(
+            '<a href="{url}">{dataset_id}</a>',
+            url=get_record_url(record['sample'].parent.dataset),
+            dataset_id=record['sample'].parent.dataset.dataset_id,
+        )
 
     def render_sample__sample_id(self, record):
         return format_html(

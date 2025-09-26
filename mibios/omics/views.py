@@ -9,8 +9,7 @@ from django.views.generic import DetailView
 from django_tables2 import SingleTableView
 
 from mibios.views import StaffLoginRequiredMixin
-from . import get_sample_model
-from .models import Contig, File, SampleTracking, TaxonAbundance
+from .models import Contig, File, SampleTracking, SeqSample, TaxonAbundance
 from .tables import FileTable, SampleTrackingTable
 
 
@@ -96,18 +95,15 @@ class SampleTrackingView(StaffLoginRequiredMixin, SingleTableView):
         """
         returns a list of dict
         """
-        Samples = get_sample_model()
-
         sample_fields = (
             'sample_id', 'sample_name', 'analysis_dir', 'read_count',
-            'reads_mapped_contigs', 'reads_mapped_genes',
-            'biosample',
+            'reads_mapped_contigs', 'reads_mapped_genes', 'parent',
         )
 
         samples = (
-            Samples._meta.base_manager.all()
-            .only(*sample_fields, 'access', 'dataset__dataset_id',)
-            .select_related('dataset')
+            SeqSample.objects.all()
+            .only(*sample_fields, 'access', 'parent__dataset__dataset_id',)
+            .select_related('parent__dataset')
             .in_bulk()
         )
 
