@@ -1,0 +1,8 @@
+{% load glamr_extras %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+      {% for item in breadcrumbs %}
+      {%if forloop.last %}<li class="breadcrumb-item active" aria-current="page">{{ item.text|capfirstsmart }}{%if item.secondary %} ({% if item.alternative %}<a href="{{item.alternative.url}}">{{item.alternative.text}}</a> | {%endif%}{{ item.secondary }}){%endif%}</li>{%else%}
+      <li class="breadcrumb-item"><a href="{{ item.url }}">{{ item.text|capfirstsmart }}</a></li>{% endif %}{% endfor %}
+  </ol>
+</nav>

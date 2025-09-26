@@ -45,6 +45,8 @@
     </ul>
 {% endblock %}
 
+{% block breadcrumbs %}{% if breadcrumbs %}{% include 'glamr/breadcrumbs.html' %}{% endif %}{% endblock %}
+
 {% block notifications %}{% if messages %}
     {% for message in messages %}
     <div class="alert {{ message.tags }} d-flex align-items-center" role="alert">

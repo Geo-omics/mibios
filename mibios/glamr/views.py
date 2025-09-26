@@ -622,6 +622,75 @@ class GenericModelMixin:
             raise Http404(f'not supported: {model}')
 
 
+class BreadCrumbMixin:
+    """
+    Mixin for views to display breadcrumbs
+
+    Inheriting view must inherit from ContextMixin.  This is to support the
+    generic data-displaying views.
+    """
+    @staticmethod
+    def _build_graph():
+        """
+        Build a common, shared, class-level graph (directed, non-cyclic) of
+        models and their FK relations, that may take part in generating
+        breadcumbs.
+        """
+        gr = {Dataset: None}  # breadcrumbs are rooted in Dataset
+        models = set(GenericModelMixin.get_allowed_models())
+        models.remove(Dataset)
+        while models:
+            for m in models:
+                for f in m._meta.get_fields():
+                    if not f.many_to_one:
+                        continue  # not a FK
+                    if f.related_model is m:
+                        continue  # FK on self
+                    if f.related_model in gr:
+                        gr[m] = f
+                        break
+            count = len(models)
+            for m in gr:
+                models.discard(m)
+            if len(models) == count:
+                # no change, abort here
+                for m in models:
+                    # add these as "root" models, disjoint from the rest
+                    # TODO: do we need these?
+                    gr[m] = None
+
+        return gr
+
+    _graph = _build_graph()
+    """ The graph, build at initial module load, usually during ready(), and
+    shared by all inheriting views. """
+
+    def get_breadcrumb_fks(self, model):
+        """
+        Get sequence of ForeignKeys to follow back to root of breadcrumb graph
+        """
+        fields = []
+        while fk := self._graph.get(model):
+            fields.append(fk)
+            model = fk.related_model
+        return fields
+
+    def get_breadcrumb_data(self):
+        """
+        The initial breadcumb, a link back to home
+
+        Inheriting views should override this method (typically) by first
+        calling super().get breadcrumb_data() and adding to and return its
+        result.
+        """
+        return [dict(url=reverse('frontpage'), text='Home'),]
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['breadcrumbs'] = self.get_breadcrumb_data()
+        return ctx
+
+
 _estimated_row_totals_cache = {}
 
 
@@ -1008,6 +1077,30 @@ class ObjectRelatedMixin:
         qs = qs.filter(**{self.field.remote_field.name: self.object})
         return qs
 
+    def get_breadcrumb_data(self):
+        # Only get the base breadcrumb, skip addition by ModelTableMixin
+        data = super(ModelTableMixin, self).get_breadcrumb_data()
+
+        middle = []
+        obj = self.object
+        for fk in self.get_breadcrumb_fks(self.obj_model):
+            obj = getattr(obj, fk.name)
+            if obj is None:
+                break
+            url = get_record_url(obj)
+            text = fk.related_model._meta.verbose_name
+            middle.append(dict(url=url, text=text))
+        data += reversed(middle)
+        data.append(dict(
+            url=get_record_url(self.object),
+            text=self.obj_model._meta.verbose_name)
+        )
+        data.append(dict(
+            url=None,
+            text=self.model._meta.verbose_name_plural,
+        ))
+        return data
+
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['object'] = self.object
@@ -1199,8 +1292,8 @@ class SearchMixin(SearchFormMixin):
         return ctx
 
 
-class TableView(FilterMixin, MapMixin, ModelTableMixin, BaseMixin,
-                SingleTableView):
+class TableView(FilterMixin, MapMixin, ModelTableMixin, BreadCrumbMixin,
+                BaseMixin, SingleTableView):
     template_name = 'glamr/filter_list.html'
 
     _views = None
@@ -1250,6 +1343,17 @@ class TableView(FilterMixin, MapMixin, ModelTableMixin, BaseMixin,
             # using a model-specific view, so remove model from kwargs
             del kwargs['model']
         return view(request, *args, **kwargs)
+
+    def get_breadcrumb_data(self):
+        text = self.model._meta.verbose_name_plural
+        item = dict(url=None, text=text)
+        if self.filter and self.filter.applied_filters:
+            alt_url = reverse('generic_table', kwargs=dict(
+                model=self.model._meta.model_name,
+            ))
+            item['alternative'] = dict(url=alt_url, text='all')
+            item['secondary'] = 'filtered'
+        return super().get_breadcrumb_data() + [item]
 
 
 class ObjRelTableView(ObjectRelatedMixin, TableView):
@@ -1591,7 +1695,7 @@ class DBInfoView(StaffLoginRequiredMixin, BaseMixin, SingleTableView):
         return qs.filter(q)
 
 
-class RecordView(BaseMixin, DetailView):
+class RecordView(BaseMixin, BreadCrumbMixin, DetailView):
     """
     View details of a single object of any model
     """
@@ -1670,6 +1774,42 @@ class RecordView(BaseMixin, DetailView):
             raise Http404(f'no {self.model} matching query {lookups=}')
 
         return obj
+
+    def get_breadcrumb_data(self):
+        data = super().get_breadcrumb_data()
+
+        middle = []
+        obj = self.object
+        parental_fk = None
+        parental_obj = None
+        for fk in self.get_breadcrumb_fks(self.model):
+            obj = getattr(obj, fk.name)
+            if parental_fk is None:
+                parental_fk = fk
+                parental_obj = obj
+            if obj is None:
+                break
+            url = get_record_url(obj)
+            text = fk.related_model._meta.verbose_name
+            middle.append(dict(url=url, text=text))
+        data += reversed(middle)
+
+        item = dict(
+            url=None,
+            text=self.model._meta.verbose_name,
+            secondary='detail',
+        )
+        if parental_fk is not None:
+            # add link to list of siblings
+            item['alternative'] = {
+                'url': reverse('relations', kwargs=dict(
+                    obj_model=parental_fk.related_model._meta.model_name,
+                    pk=parental_obj.pk,
+                    field=parental_fk.remote_field.name,
+                )),
+                'text': 'all',
+            }
+        return data + [item]
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
@@ -2405,8 +2545,8 @@ class SearchResultListView(SearchResultMixin, SearchMixin, BaseMixin,
     template_name = 'glamr/result_list.html'
 
 
-class AdvFilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
-                          BaseMixin, SingleTableView):
+class AdvFilteredListView(SearchFormMixin, BreadCrumbMixin, MapMixin,
+                          ModelTableMixin, BaseMixin, SingleTableView):
     """
     View for the advanced filtering option
 
