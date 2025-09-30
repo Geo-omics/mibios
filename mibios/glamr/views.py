@@ -1484,7 +1484,8 @@ class AboutHistoryView(BaseMixin, SingleTableView):
     table_class = tables.AboutHistoryTable
 
 
-class AbundanceView(MapMixin, ModelTableMixin, BaseMixin, SingleTableView):
+class AbundanceView(MapMixin, BreadCrumbMixin, ModelTableMixin, BaseMixin,
+                    SingleTableView):
     """
     Lists abundance data for a single object of certain models
     """
@@ -1546,6 +1547,15 @@ class AbundanceView(MapMixin, ModelTableMixin, BaseMixin, SingleTableView):
 
         qs = exclude_private_data(qs, self.request.user)
         return qs
+
+    def get_breadcrumb_data(self):
+        data = super().get_breadcrumb_data()
+        data.append(dict(
+            url=get_record_url(self.object),
+            text=self.object_model._meta.verbose_name,
+        ))
+        data.append(dict(url=None, text=self.model._meta.verbose_name))
+        return data
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
