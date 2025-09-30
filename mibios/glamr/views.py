@@ -1495,22 +1495,22 @@ class AbundanceView(MapMixin, ModelTableMixin, BaseMixin, SingleTableView):
         'taxnode': {
             'model': TaxonAbundance,
             'table_class': tables.TaxonAbundanceTable,
-            'sample_filter_key': 'taxonabundance__taxon',
+            'sample_filter_key': 'seqsample__taxonabundance__taxon',
         },
         'uniref100': {
             'model': ReadAbundance,
             'table_class': tables.ReadAbundanceTable,
-            'sample_filter_key': 'functional_abundance__ref',
+            'sample_filter_key': 'seqsample__functional_abundance__ref',
         },
         'funcrefdbentry': {
             'model': FuncAbundance,
             'table_class': tables.FunctionAbundanceTable,
-            'sample_filter_key': 'funcabundance__function',
+            'sample_filter_key': 'seqsample__funcabundance__function',
         },
         'compoundrecord': {
             'model': CompoundAbundance,
             'table_class': tables.CompoundAbundanceTable,
-            'sample_filter_key': 'compoundabundance__compound',
+            'sample_filter_key': 'seqsample__compoundabundance__compound',
         },
     }
 
