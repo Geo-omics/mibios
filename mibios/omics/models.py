@@ -165,6 +165,8 @@ class AmpliconTarget(Model):
         help_text='Common name of the targeted variable region(s) if any.'
     )
 
+    objects = managers.AmpliconTargetManager()
+
     class Meta:
         constraints = (
             models.UniqueConstraint(
@@ -188,7 +190,10 @@ class ASV(IDMixin, Model):
         verbose_name='taxonomic classification',
     )
 
+    loader = managers.ASVLoader()
+
     class Meta:
+        verbose_name = 'ASV'
         constraints = (
             models.UniqueConstraint('type', 'seq', name='uniq_asv'),
             models.CheckConstraint(
@@ -209,7 +214,10 @@ class ASVAbundance(Model):
         verbose_name='relative abundance',
     )
 
+    loader = managers.ASVAbundanceLoader()
+
     class Meta:
+        verbose_name = 'ASV abundance'
         constraints = (
             models.UniqueConstraint('sample', 'asv', name='uniq_asv_abund'),
         )

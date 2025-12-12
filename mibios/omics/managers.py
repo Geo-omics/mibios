@@ -24,6 +24,8 @@ from django.db.models.signals import post_save
 from django.db.transaction import atomic
 from django.utils.module_loading import import_string
 
+from pypelib.amplicon import dispatch
+
 from mibios.models import QuerySet
 from mibios.ncbi_taxonomy.models import (
     DeletedNode, MergedNodes, TaxNode, TaxName,
@@ -135,6 +137,206 @@ class TaxNodeMixin:
             print(f'Found {self.deleted_count} rows with deleted taxids. '
                   f'TaxNode field set to None.')
         del self.merged, self.merged_count, self.deleted, self.deleted_count
+
+
+class AmpliconTargetManager(Manager):
+    def get_or_create_from_hmm(self, hmm, fwd_primer_name, rev_primer_name):
+        """ Create instance from amplicon pipeline target guessing data """
+        for i in hmm.fwd_primers:
+            if fwd_primer_name == i.name:
+                fwd_primer = i
+                break
+        else:
+            raise ValueError('not a fwd primer valid for {hmm}')
+
+        for i in hmm.rev_primers:
+            if rev_primer_name == i.name:
+                rev_primer = i
+                break
+        else:
+            raise ValueError('not a rev primer valid for {hmm}')
+
+        f_region = None
+        r_region = None
+        if fwd_primer.region:
+            f_region = fwd_primer.region.rstrip('-')
+        if rev_primer.region:
+            r_region = rev_primer.region.lstrip('-')
+        if f_region or r_region:
+            if f_region == r_region:
+                region = f_region  # a single region
+            else:
+                # spans multiple regions
+                region = f'{f_region or "?"}-{r_region or "?"}'
+        else:
+            region = ''  # e.g. no common name for region
+
+        others = dict(
+            tax_group='?',  # TODO
+            gene=fwd_primer.gene_target,
+            region=region,
+        )
+        obj, new = self.get_or_create(
+            hmm=hmm.name,
+            start=fwd_primer.end,
+            end=rev_primer.start,
+            defaults=others,
+        )
+        if not new:
+            # Check that the existing instance has the other attributes as
+            # expected
+            for attr in others.keys():
+                if getattr(obj, attr) != others[attr]:
+                    print(f'WARNING: AmpliconTarget mismatch of {attr}: '
+                          f'{obj=} vs. {others=}')
+        return obj, new
+
+
+class ASVAbundanceLoader(SampleLoadMixin, BulkLoader):
+    @atomic_dry
+    def load_dataset(self, dataset):
+        """
+        Load amplicon data for one dataset
+
+        This is the primary entrypoint to load amplicon data
+        """
+        # TODO handle case where data is already loaded for some target but not
+        # other
+        AmpliconTarget = import_string('mibios.omics.models.AmpliconTarget')
+        SeqSample = import_string('mibios.omics.models.SeqSample')
+        proj_dir = (
+            settings.OMICS_PIPELINE_ROOT / 'data' / 'projects'
+            / dataset.dataset_id
+        )
+        # Get all samples' target assignments, these come as a dict mapping
+        # sample IDs to tuples (hmm, fprim, rprim)
+        targets0 = dispatch.get_assignments(
+            dataset.dataset_id,
+            settings.OMICS_PIPELINE_ROOT,
+        )
+        targets0 = sorted(targets0.items(), key=lambda x: x[1])
+        targets0 = groupby(targets0, key=lambda x: x[1])
+
+        # Re-package samples vs targets
+        targets = {}
+        for (hmm, fwdprim, revprim), grp in targets0:
+            target, new = AmpliconTarget.objects.get_or_create_from_hmm(
+                hmm,
+                fwdprim.name,
+                revprim.name,
+            )
+            if new:
+                print(f'Saved new amplicon target instance: {target}')
+
+            dada2_dir_name = '.'.join(
+                ('dada2', hmm.name, fwdprim.name, revprim.name, 'results')
+            )
+
+            # combo key: for simplicity loading is per dada2 run, but
+            # theoretically we may have different primer pairs (from which the
+            # dada2 directory name is derived) mapping to the same
+            # AmpliconTarget instance because the primer pairs select sequences
+            # at exactly the same coordinates.
+            key = (proj_dir / dada2_dir_name, target)
+            if key not in targets:
+                targets[key] = []
+
+            for sample_id, _ in grp:
+                targets[key].append(SeqSample.objects.get(
+                    sample_id=sample_id,
+                    sample_type=SeqSample.TYPE_AMPLICON,
+                ))
+
+        # load data, per dada2 results directory
+        for (dada2_dir, target), samples in targets.items():
+            print(f'Loading amplicon data for {target} and {len(samples)} '
+                  f'samples...')
+            self.load_for_target(dataset, dada2_dir, target, samples)
+
+    def load_for_target(self, dataset, dada2_dir, target, samples):
+        ASV = import_string('mibios.omics.models.ASV')
+
+        samples = {i.sample_id: i for i in samples}
+        fasta = dada2_dir / 'rep_seqs.fasta'
+        asvs = ASV.loader.load(target, dataset, fasta)
+
+        objs = []
+        with open(dada2_dir / 'asv_table.tsv') as ifile:
+            _, *asv_names = ifile.readline().rstrip('\n').split('\t')
+            if len(asvs) != len(asv_names) or set(asvs) != set(asv_names):
+                raise ValueError(
+                    'dada2 asv name mismatch between fastq and abundance?'
+                )
+            asvs = [asvs[i] for i in asv_names]
+
+            for line in ifile:
+                sample_id, *counts = line.rstrip('\n').split('\t')
+                counts = [int(i) for i in counts]
+                total = sum(counts)
+                for asv, count in zip(asvs, counts, strict=True):
+                    count = int(count)
+                    if count == 0:
+                        continue
+                    objs.append(self.model(
+                        sample=samples[sample_id],
+                        asv=asv,
+                        count=count,
+                        relabund=count / total,
+                    ))
+
+        self.bulk_create(objs)
+
+
+class ASVLoader(BulkLoader):
+    @atomic_dry
+    def load(self, target, dataset, file=None, bulk=True, validate=False):
+        """
+        Load ASVs from fasta file
+
+        Returns dada2-given accessions paired with instances.
+        """
+        dada2_accns = []
+        objs = []
+        templ = {'seq': '', 'type': target}
+        with open(file) as ifile:
+            fields = None
+            for line in ifile:
+                line = line.strip()
+                if line.startswith('>'):
+                    if fields is not None:
+                        objs.append(self.model(**fields))
+                    fields = templ.copy()
+                    dada2_accn = line.removeprefix('>')
+                    dada2_accns.append(dada2_accn)
+                    fields['accession'] = (
+                        f'provisional.{str(target).replace(" ", "_")}'
+                        f'.{dataset.dataset_id}'
+                        f'.{dada2_accn}'
+                    )
+                else:
+                    fields['seq'] += line.lower()
+            # do final record
+            if fields is not None:
+                objs.append(self.model(**fields))
+
+        old_qs = self.filter(type=target, seq__in=[i.seq for i in objs])
+        if old := {i.seq: i for i in old_qs}:
+            print(f'ASVs: {len(old)} of {len(objs)} already exist')
+            objs = [old.get(i.seq, i) for i in objs]
+            new_objs = [i for i in objs if i.pk is None]
+        else:
+            new_objs = objs
+
+        if validate:
+            for i in new_objs:
+                i.full_clean()
+        if bulk:
+            self.bulk_create(new_objs)
+        else:
+            for i in objs:
+                i.save()
+
+        return dict(zip(dada2_accns, objs, strict=True))
 
 
 class BinLoader(SampleLoadMixin, BulkLoader):

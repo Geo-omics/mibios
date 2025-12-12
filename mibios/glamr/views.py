@@ -570,6 +570,8 @@ class GenericModelMixin:
         'glamr.sample',
         'glamr.dataset',
         'glamr.reference',
+        'omics.amplicontarget',
+        'omics.asv',
         'omics.bin',
         'omics.contig',
         'omics.readabundance',
@@ -2400,7 +2402,7 @@ class SampleView(MapMixin, RecordView):
                     ),
                 )
 
-            if seqsamp.sample_type == 'metagenome':
+            if seqsamp.sample_type == SeqSample.TYPE_METAGENOME:
                 if SampleTracking.Flag.UR1ABUND in flags:
                     urls['abundance/functions'] = reverse(
                         'relations',
@@ -2417,6 +2419,16 @@ class SampleView(MapMixin, RecordView):
                             obj_model='seqsample',
                             pk=seqsamp.pk,
                             field='bin',
+                        ),
+                    )
+            elif seqsamp.sample_type == SeqSample.TYPE_AMPLICON:
+                if seqsamp.asvabundance_set.exists():  # TODO repl w/flag test
+                    urls['ASV abundance'] = reverse(
+                        'relations',
+                        kwargs=dict(
+                            obj_model='seqsample',
+                            pk=seqsamp.pk,
+                            field='asvabundance',
                         ),
                     )
 
