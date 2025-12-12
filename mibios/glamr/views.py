@@ -820,6 +820,7 @@ class ModelTableMixin(GenericModelMixin, ExportMixin):
             else:
                 # regular FK field
                 kwargs['linkify'] = tables.linkify_value
+                kwargs['verbose_name'] = i.related_model._meta.verbose_name
             cols.append((i.name, Column(**kwargs)))
         return cols
 
