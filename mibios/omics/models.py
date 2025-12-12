@@ -170,15 +170,14 @@ class AmpliconTarget(Model):
     class Meta:
         constraints = (
             models.UniqueConstraint(
-                'tax_group', 'gene', 'start', 'end',
+                'hmm', 'start', 'end',
                 name='uniq_amplicon_target',
             ),
         )
 
     def __str__(self):
-        if self.regions:
-            regions = f'/{self.regions}'
-        return f'{self.tax_group}/{self.gene}{regions}'
+        region = f':{self.region}' if self.region else ''
+        return f'{self.hmm}:{self.start}-{self.end}{region}'
 
 
 class ASV(IDMixin, Model):
