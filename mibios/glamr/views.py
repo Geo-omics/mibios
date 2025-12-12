@@ -1810,7 +1810,7 @@ class RecordView(BaseMixin, BreadCrumbMixin, DetailView):
             text=self.model._meta.verbose_name,
             secondary='detail',
         )
-        if parental_fk is not None:
+        if parental_obj is not None:
             # add link to list of siblings
             item['alternative'] = {
                 'url': reverse('relations', kwargs=dict(
