@@ -255,12 +255,14 @@ class ASVAbundanceLoader(SampleLoadMixin, BulkLoader):
 
     def load_for_target(self, dataset, dada2_dir, target, samples):
         ASV = import_string('mibios.omics.models.ASV')
+        SeqSample = import_string('mibios.omics.models.SeqSample')
 
         samples = {i.sample_id: i for i in samples}
         fasta = dada2_dir / 'rep_seqs.fasta'
         asvs = ASV.loader.load(target, dataset, fasta)
 
         objs = []
+        samples_upd = []
         with open(dada2_dir / 'asv_table.tsv') as ifile:
             _, *asv_names = ifile.readline().rstrip('\n').split('\t')
             if len(asvs) != len(asv_names) or set(asvs) != set(asv_names):
@@ -271,20 +273,31 @@ class ASVAbundanceLoader(SampleLoadMixin, BulkLoader):
 
             for line in ifile:
                 sample_id, *counts = line.rstrip('\n').split('\t')
+                sample = samples.pop(sample_id)
                 counts = [int(i) for i in counts]
                 total = sum(counts)
+                sample.amplicon_target = target
+                sample.read_count = total
+                samples_upd.append(sample)
                 for asv, count in zip(asvs, counts, strict=True):
                     count = int(count)
                     if count == 0:
                         continue
                     objs.append(self.model(
-                        sample=samples[sample_id],
+                        sample=sample,
                         asv=asv,
                         count=count,
                         relabund=count / total,
                     ))
+            if samples:
+                print(f'[WARNING] {len(samples)} samples were not listed in '
+                      f'{ifile.name}')
 
         self.bulk_create(objs)
+        SeqSample.objects.bulk_update(
+            samples_upd,
+            fields=('amplicon_target', 'read_count'),
+        )
 
 
 class ASVLoader(BulkLoader):
