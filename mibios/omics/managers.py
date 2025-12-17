@@ -179,8 +179,8 @@ class AmpliconTargetManager(Manager):
         )
         obj, new = self.get_or_create(
             hmm=hmm.name,
-            start=fwd_primer.end,
-            end=rev_primer.start,
+            start=fwd_primer.end + 1,
+            end=rev_primer.start - 1,
             defaults=others,
         )
         if not new:
