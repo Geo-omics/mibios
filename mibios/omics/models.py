@@ -177,7 +177,16 @@ class AmpliconTarget(Model):
 
     def __str__(self):
         region = f':{self.region}' if self.region else ''
-        return f'{self.hmm}:{self.start}-{self.end}{region}'
+        return f'{self.spec()}{region}'
+
+    def spec(self):
+        """
+        Get unique identifier string for target
+
+        Used to identify the correct dada2 output directory, distinct from
+        __str__().
+        """
+        return f'{self.hmm}.{self.start}-{self.end}'
 
 
 class ASV(IDMixin, Model):

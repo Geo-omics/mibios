@@ -25,6 +25,7 @@ from django.db.transaction import atomic
 from django.utils.module_loading import import_string
 
 from pypelib.amplicon import dispatch
+from pypelib.amplicon.hmm import HMM
 
 from mibios.models import QuerySet
 from mibios.ncbi_taxonomy.models import (
@@ -209,17 +210,31 @@ class ASVAbundanceLoader(SampleLoadMixin, BulkLoader):
             / dataset.dataset_id
         )
         # Get all samples' target assignments, these come as a dict mapping
-        # sample IDs to tuples (hmm, fprim, rprim)
-        targets0 = dispatch.get_assignments(
+        # sample IDs to target string identifiers
+        targets00 = dispatch.get_assignments(
             dataset.dataset_id,
             settings.OMICS_PIPELINE_ROOT,
         )
-        targets0 = sorted(targets0.items(), key=lambda x: x[1])
-        targets0 = groupby(targets0, key=lambda x: x[1])
+        targets00 = sorted(targets00.items(), key=lambda x: x[1])
+        targets0 = groupby(targets00, key=lambda x: x[1])
 
         # Re-package samples vs targets
         targets = {}
-        for (hmm, fwdprim, revprim), grp in targets0:
+        for target_str, grp in targets0:
+            grp = list(grp)
+            if target_str == dispatch.UNKNOWN:
+                print(f'[WARNING] Ignoring {len(grp)} samples with unknown '
+                      f'target')
+                continue
+            elif target_str == dispatch.SKIP:
+                print(
+                    f'[INFO] Skipping {len(grp)} samples marked {target_str}'
+                )
+                continue
+
+            dada2_dir_name = dispatch.target2dada2_dir(target_str)
+
+            hmm, fwdprim, revprim = HMM.parse_target(target_str)
             target, new = AmpliconTarget.objects.get_or_create_from_hmm(
                 hmm,
                 fwdprim.name,
@@ -227,10 +242,6 @@ class ASVAbundanceLoader(SampleLoadMixin, BulkLoader):
             )
             if new:
                 print(f'Saved new amplicon target instance: {target}')
-
-            dada2_dir_name = '.'.join(
-                ('dada2', hmm.name, fwdprim.name, revprim.name, 'results')
-            )
 
             # combo key: for simplicity loading is per dada2 run, but
             # theoretically we may have different primer pairs (from which the
@@ -290,8 +301,8 @@ class ASVAbundanceLoader(SampleLoadMixin, BulkLoader):
                         relabund=count / total,
                     ))
             if samples:
-                print(f'[WARNING] {len(samples)} samples were not listed in '
-                      f'{ifile.name}')
+                print(f'[WARNING] For {len(samples)} samples abundance data is'
+                      f'missing from {ifile.name}')
 
         self.bulk_create(objs)
         SeqSample.objects.bulk_update(
