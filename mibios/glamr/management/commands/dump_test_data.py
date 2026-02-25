@@ -4,10 +4,11 @@ from tempfile import TemporaryDirectory
 import subprocess
 
 from django.apps import apps
+from django.core.exceptions import EmptyResultSet
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
-from mibios.glamr.models import Sample
+from mibios.omics.models import SeqSample
 
 
 AUTH_MODELS = (
@@ -20,9 +21,11 @@ GLAMR_MODELS = (
     'dataset_restricted_to', 'dataset_references',
 )
 
+OMICS_MODELS_SMALL = ('SeqSample', 'File', 'SampleTracking')
+
 OMICS_SAMPLE_REL_MODELS = (
-    'ReadAbundance', 'Bin', 'File', 'TaxonAbundance', 'Contig',
-    'FuncAbundance', 'SampleTracking',
+    'ReadAbundance', 'TaxonAbundance', 'Contig',
+    'FuncAbundance',
 )
 
 TAX_MODELS = ('Division', 'Gencode', 'TaxNode', 'TaxName', 'MergedNodes',
@@ -34,9 +37,10 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            'sample',
-            nargs='+',
-            help='Sample IDs',
+            'seqsample',
+            nargs='*',
+            default=[],
+            help='SeqSample IDs',
         )
         parser.add_argument(
             '-o', '--output-file',
@@ -46,11 +50,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         self.options = options
-        sample_qs = Sample.objects.filter(sample_id__in=options['sample'])
-        self.samples = list(sample_qs)
+        seqs_qs = SeqSample.objects.filter(sample_id__in=options['seqsample'])
+        self.samples = list(seqs_qs)
 
         ids = set((i.sample_id for i in self.samples))
-        for i in options['sample']:
+        for i in options['seqsample']:
             if i not in ids:
                 raise CommandError(f'No such sample: {i}')
         del ids
@@ -91,12 +95,17 @@ class Command(BaseCommand):
             model = apps.get_model('glamr', i)
             self.dump(model=model)
 
+        # small omics models
+        for i in OMICS_MODELS_SMALL:
+            model = apps.get_model('omics', i)
+            self.dump(model=model)
+
         # get whole taxonomy
         for i in TAX_MODELS:
             model = apps.get_model('ncbi_taxonomy', i)
             self.dump(model=model)
 
-        # uniref100s related to samnples (via ReadAbundance)
+        # uniref100s related to samples (via ReadAbundance)
         UniRef100 = apps.get_model('umrad', 'UniRef100')
         ur100_qs = UniRef100.objects\
             .filter(abundance__sample__in=self.samples)\
@@ -129,12 +138,22 @@ class Command(BaseCommand):
         else:
             # queryset given
             table_name = queryset.model._meta.db_table
-            sql = f'COPY ( {queryset.query} ) TO STDOUT'
+            try:
+                query = str(queryset.query)
+            except EmptyResultSet:
+                # It knows it's empty from where clause, probably because no
+                # sample was given on the command line
+                sql = None
+            else:
+                sql = f'COPY ( {query} ) TO STDOUT'
 
         out = self.tmp / f'{table_name}.dump.text'
         print(f'{out.name:<37}', end=' ', flush=True)
         if queryset is None:
             print('[whole]', end=' ', flush=True)
+        elif sql is None:
+            print('[empty]  (skip)')
+            return
         else:
             print('[ part]', end=' ', flush=True)
 
