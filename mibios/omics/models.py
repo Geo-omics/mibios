@@ -177,8 +177,9 @@ class AmpliconTarget(Model):
 
     def __str__(self):
         region = f':{self.region}' if self.region else ''
-        return f'{self.spec()}{region}'
+        return f'{self.spec}{region}'
 
+    @property
     def spec(self):
         """
         Get unique identifier string for target
