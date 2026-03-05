@@ -57,9 +57,9 @@ class Job:
             status = Status.DONE.name
         elif self.is_ready():
             status = Status.READY.name
-        elif Status.WAITING in self.status:
+        elif Status.WAITING in self.status():
             status = Status.WAITING.name
-        elif Status.MISSING in self.status:
+        elif Status.MISSING in self.status():
             status = Status.MISSING.name
         else:
             status = self.status()
