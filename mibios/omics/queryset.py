@@ -131,7 +131,7 @@ class FileQuerySet(QuerySet):
 
 class SeqSampleQuerySet(AccessMixin, QuerySet):
 
-    def get_ready(self, only=None, sort_by_sample=False):
+    def get_ready(self, only=None, sort_by_sample=False, verbose=False):
         """
         Return Job instances which are ready to go (but not yet done).
 
@@ -142,9 +142,13 @@ class SeqSampleQuerySet(AccessMixin, QuerySet):
         sort_by_sample:
             Sort jobs by sample.  The default is to sort jobs by the flag, in
             order as defined in SampleTracking.Flag.
+        verbose [bool]:
+            If True, then print non-ready jobs with status indicated and list
+            of missing files.
         """
         SampleTracking = import_string('mibios.omics.models.SampleTracking')
         job_registry = import_string('mibios.omics.tracking.registry')
+        Status = import_string('mibios.omics.tracking.Status')
 
         if only is not None:
             _only = set()
@@ -181,9 +185,18 @@ class SeqSampleQuerySet(AccessMixin, QuerySet):
             ready_jobs = []
             for tr in sample.tracking.all():
                 for job in tr.job.before:
-                    if job.is_ready() and job not in ready_jobs:
-                        if only is None or type(job) in only:
-                            ready_jobs.append(job)
+                    if only is not None and type(job) not in only:
+                        continue
+                    if job in ready_jobs:
+                        continue
+                    if job.is_ready():
+                        ready_jobs.append(job)
+                    elif verbose:
+                        print(f'not ready: {job}')
+                        if Status.MISSING in job.status():
+                            for missing_file in job.status()[Status.MISSING]:
+                                print(f'   missing: {missing_file}')
+
             if sort_by_sample:
                 jobs += ready_jobs
             else:
