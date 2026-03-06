@@ -1,5 +1,7 @@
-from .models import Bin, Contig, File, ReadAbundance, DataTracking, \
-    SeqSample, TaxonAbundance
+from .models import (
+    ASVAbundance, Bin, Contig, File, ReadAbundance, DataTracking, SeqSample,
+    TaxonAbundance,
+)
 from .tracking import BaseJob, DatasetJob, SeqSampleJob
 
 
@@ -74,3 +76,26 @@ class LoadBins(SeqSampleJob):
     ]
     run = Bin.loader.load_sample
     undo = Bin.loader.unload_sample
+
+
+class LoadASVAbund(DatasetJob):
+    flag = DataTracking.Flag.ASVABUND
+    after = [RegisterWithPipeline]
+    sample_types = [SeqSample.TYPE_AMPLICON]
+    required_files = [
+        File.Type.DADA_ASV,
+        File.Type.DADA_ABUND,
+    ]
+    run = ASVAbundance.loader.load_dataset
+    undo = ASVAbundance.loader.unload_dataset
+
+    def get_params(self):
+        """
+        Spawn one subjob per amplicon target
+        """
+        return [
+            # cf. FileType.DADA_ASV etc
+            {'amplicon_target': target}
+            for _, target
+            in self.subject.get_amplicon_pipeline_results().keys()
+        ]

@@ -1,6 +1,7 @@
 from collections import defaultdict
 from contextlib import ExitStack
 from datetime import datetime, timedelta
+from itertools import groupby
 from logging import getLogger
 from pathlib import Path
 import re
@@ -17,6 +18,9 @@ from django.db import connection, models
 from django.db.transaction import atomic
 from django.urls import reverse
 from django.urls.exceptions import NoReverseMatch
+
+from pypelib.amplicon import dispatch
+from pypelib.amplicon.hmm import HMM
 
 from mibios.data import TableConfig
 from mibios.ncbi_taxonomy.models import TaxNode
@@ -594,6 +598,69 @@ class AbstractDataset(Model):
             FileType.path template parameters besides dataset id.
         """
         return File.objects.get_instance(filetype, dataset=self, **kwargs)
+
+    def get_amplicon_pipeline_results(self):
+        """
+        Get a handle to available results from the amplicon pipeline (if any.)
+
+        This is a helper for loading data.  Returns a dict mapping the dada2
+        output directory and correspondning AmpliconTarget instance to a list
+        of SeqSamples.
+        """
+        # get sample->target mapping
+        try:
+            targets00 = dispatch.get_assignments(
+                self.dataset_id,
+                settings.OMICS_PIPELINE_ROOT,
+            )
+        except FileNotFoundError:
+            # target assignment file does not exist yet
+            return {}
+
+        # sort and group by target
+        targets00 = sorted(targets00.items(), key=lambda x: x[1])
+        targets0 = groupby(targets00, key=lambda x: x[1])
+
+        # Re-package samples vs targets
+        results = {}
+        for target_str, grp in targets0:
+            grp = list(grp)
+            if target_str == dispatch.UNKNOWN:
+                print(f'[WARNING] Ignoring {len(grp)} samples with unknown '
+                      f'target')
+                continue
+            elif target_str == dispatch.SKIP:
+                print(
+                    f'[INFO] Skipping {len(grp)} samples marked {target_str}'
+                )
+                continue
+
+            dada2_dir_name = dispatch.target2dada2_dir(target_str)
+
+            hmm, fwdprim, revprim = HMM.parse_target(target_str)
+            target, new = AmpliconTarget.objects.get_or_create_from_hmm(
+                hmm,
+                fwdprim.name,
+                revprim.name,
+            )
+            if new:
+                print(f'Saved new amplicon target instance: {target}')
+
+            # combo key: for simplicity loading is per dada2 run, but
+            # theoretically we may have different primer pairs (from which the
+            # dada2 directory name is derived) mapping to the same
+            # AmpliconTarget instance because the primer pairs select sequences
+            # at exactly the same coordinates.
+            key = (self.analysis_dir / dada2_dir_name, target)
+            if key not in results:
+                results[key] = []
+
+            for sample_id, _ in grp:
+                results[key].append(SeqSample.objects.get(
+                    sample_id=sample_id,
+                    sample_type=SeqSample.TYPE_AMPLICON,
+                ))
+        return results
 
     @classmethod
     @property
@@ -1678,6 +1745,7 @@ class DataTracking(Model):
     """
     class Flag(models.TextChoices):
         ASSEMBLY = 'ASM', 'assembly loaded'
+        ASVABUND = 'ASV', 'ASV abundance loaded'
         BINNING = 'BIN', 'bins loaded'
         CABUND = 'CAB', 'contig abundance loaded'
         METADATA = 'MD', 'meta data loaded'

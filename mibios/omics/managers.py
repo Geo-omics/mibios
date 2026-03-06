@@ -24,9 +24,6 @@ from django.db.models.signals import post_save
 from django.db.transaction import atomic
 from django.utils.module_loading import import_string
 
-from pypelib.amplicon import dispatch
-from pypelib.amplicon.hmm import HMM
-
 from mibios.models import QuerySet
 from mibios.ncbi_taxonomy.models import (
     DeletedNode, MergedNodes, TaxNode, TaxName,
@@ -193,82 +190,39 @@ class AmpliconTargetManager(Manager):
         return obj, new
 
 
-class ASVAbundanceLoader(SampleLoadMixin, BulkLoader):
+class ASVAbundanceLoader(BulkLoader):
     @atomic_dry
-    def load_dataset(self, dataset):
+    def load_dataset(self, dataset, amplicon_target, **kwargs):
         """
-        Load amplicon data for one dataset
+        Load amplicon data for one dataset and amplicon target.
 
         This is the primary entrypoint to load amplicon data
         """
-        # TODO handle case where data is already loaded for some target but not
-        # other
-        AmpliconTarget = import_string('mibios.omics.models.AmpliconTarget')
-        SeqSample = import_string('mibios.omics.models.SeqSample')
-        proj_dir = (
-            settings.OMICS_PIPELINE_ROOT / 'data' / 'projects'
-            / dataset.dataset_id
-        )
         # Get all samples' target assignments, these come as a dict mapping
         # sample IDs to target string identifiers
-        targets00 = dispatch.get_assignments(
-            dataset.dataset_id,
-            settings.OMICS_PIPELINE_ROOT,
-        )
-        targets00 = sorted(targets00.items(), key=lambda x: x[1])
-        targets0 = groupby(targets00, key=lambda x: x[1])
-
-        # Re-package samples vs targets
-        targets = {}
-        for target_str, grp in targets0:
-            grp = list(grp)
-            if target_str == dispatch.UNKNOWN:
-                print(f'[WARNING] Ignoring {len(grp)} samples with unknown '
-                      f'target')
-                continue
-            elif target_str == dispatch.SKIP:
-                print(
-                    f'[INFO] Skipping {len(grp)} samples marked {target_str}'
-                )
-                continue
-
-            dada2_dir_name = dispatch.target2dada2_dir(target_str)
-
-            hmm, fwdprim, revprim = HMM.parse_target(target_str)
-            target, new = AmpliconTarget.objects.get_or_create_from_hmm(
-                hmm,
-                fwdprim.name,
-                revprim.name,
+        results = dataset.get_amplicon_pipeline_results()
+        for (dada2_dir, target), samples in results.items():
+            if target == amplicon_target:
+                break
+        else:
+            raise LookupError(
+                f'Amplicon target {amplicon_target} not found in dada2 result '
+                f'set for {dataset.accession}'
             )
-            if new:
-                print(f'Saved new amplicon target instance: {target}')
 
-            # combo key: for simplicity loading is per dada2 run, but
-            # theoretically we may have different primer pairs (from which the
-            # dada2 directory name is derived) mapping to the same
-            # AmpliconTarget instance because the primer pairs select sequences
-            # at exactly the same coordinates.
-            key = (proj_dir / dada2_dir_name, target)
-            if key not in targets:
-                targets[key] = []
+        print(f'Loading amplicon data for {target} and {len(samples)} '
+              f'samples...')
+        self.load_for_target(dataset, dada2_dir, target, samples)
 
-            for sample_id, _ in grp:
-                targets[key].append(SeqSample.objects.get(
-                    sample_id=sample_id,
-                    sample_type=SeqSample.TYPE_AMPLICON,
-                ))
-
-        # load data, per dada2 results directory
-        for (dada2_dir, target), samples in targets.items():
-            print(f'Loading amplicon data for {target} and {len(samples)} '
-                  f'samples...')
-            self.load_for_target(dataset, dada2_dir, target, samples)
+    def unload_dataset(self, dataset):
+        raise NotImplementedError()
 
     def load_for_target(self, dataset, dada2_dir, target, samples):
         ASV = import_string('mibios.omics.models.ASV')
         SeqSample = import_string('mibios.omics.models.SeqSample')
 
         samples = {i.sample_id: i for i in samples}
+        dada2_dir = settings.OMICS_PIPELINE_DATA / dada2_dir
         fasta = dada2_dir / 'rep_seqs.fasta'
         asvs = ASV.loader.load(target, dataset, fasta)
 
