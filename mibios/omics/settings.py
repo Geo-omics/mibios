@@ -53,7 +53,7 @@ DATABASES = get_db_settings()
 INTERNAL_DEPLOYMENT = False
 
 OMICS_PIPELINE_ROOT = Path('/nosuchdirectory')
-OMICS_PIPELINE_DATA = OMICS_PIPELINE_ROOT / 'data' / 'omics'
+OMICS_PIPELINE_DATA = OMICS_PIPELINE_ROOT / 'data'
 GLOBUS_STORAGE_ROOT = Path('/nosuchdirectory')
 """ path to root of publicly accessible directory tree on staging server, leave
 at None on other deployments """

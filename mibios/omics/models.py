@@ -281,7 +281,7 @@ class SeqSample(IDMixin, Model):
     analysis_dir = models.TextField(
         **opt,
         help_text='path to results of analysis, relative to '
-        'OMICS_PIPELINE_DATA',
+        'OMICS_PIPELINE_DATA / \'omics\'',
     )
     # mapping data / header items from bbmap output:
     read_count = models.PositiveIntegerField(
@@ -338,7 +338,7 @@ class SeqSample(IDMixin, Model):
 
         DEPRECATED - use get_omics_file()
         """
-        path = settings.OMICS_PIPELINE_DATA / 'metagenomes' \
+        path = settings.OMICS_PIPELINE_DATA / 'omics' / 'metagenomes' \
             / self.sample_id
         now = time()
         for i in path.iterdir():
@@ -564,12 +564,24 @@ class AbstractDataset(Model):
             conf.filter['dataset__pk'] = self.pk
         return conf.url()
 
-    def get_analysis_dir(self):
-        """ Get path where omics pipeline output is stored """
+    @property
+    def project_dir(self):
+        """
+        Absolute path where omics pipeline output is stored.
+        """
         return (
             settings.OMICS_PIPELINE_ROOT / 'data' / 'projects'
             / self.dataset_id
         )
+
+    @property
+    def analysis_dir(self):
+        """
+        Path where analysis results are stored, relative to OMICS_PIPELINE_DATA
+
+        This is analog to SeqSample field with same name. Returns pathlib.Path.
+        """
+        return self.project_dir.relative_to(settings.OMICS_PIPELINE_DATA)  # noqa:E501
 
     def get_omics_file(self, filetype, **kwargs):
         """
@@ -1602,8 +1614,8 @@ class RNACentral(Model):
         (27, 'vault_RNA'),
         (28, 'Y_RNA'),
     )
-    INPUT_FILE = (settings.OMICS_PIPELINE_DATA / 'NCRNA' / 'RNA_CENTRAL'
-                  / 'rnacentral_clean.fasta.gz')
+    INPUT_FILE = (settings.OMICS_PIPELINE_DATA / 'omics' / 'NCRNA'
+                  / 'RNA_CENTRAL' / 'rnacentral_clean.fasta.gz')
 
     accession = AccessionField()
     taxon = models.ForeignKey(TaxNode, **fk_req)

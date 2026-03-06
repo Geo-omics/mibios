@@ -397,8 +397,7 @@ class BaseDatasetQuerySet(AccessMixin, LoadMixin, QuerySet):
         stats['new'] = 0
 
         for obj in qs:
-            data_dir = obj.get_analysis_dir()
-            if data_dir.is_dir():
+            if obj.project_dir.is_dir():
                 tr, new = DatasetTracking.objects.get_or_create(
                     subject=obj,
                     flag=DatasetTracking.Flag.PIPELINE,
@@ -408,7 +407,7 @@ class BaseDatasetQuerySet(AccessMixin, LoadMixin, QuerySet):
                 else:
                     tr.save()  # update timestamp
             else:
-                print(f'[WARNING] no such directory: {data_dir}')
+                print(f'[WARNING] no such directory: {obj.project_dir}')
 
         return stats
 

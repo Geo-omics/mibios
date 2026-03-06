@@ -12,7 +12,7 @@ class DataPathField(OldPathField):
     Class remains to support migrations
     """
     description = 'a path under the data root directory'
-    default_base = settings.OMICS_PIPELINE_DATA
+    default_base = settings.OMICS_PIPELINE_DATA / 'omics'
 
 
 class ReadOnlyFileField(FileField):

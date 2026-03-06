@@ -1601,7 +1601,7 @@ class FileManager(Manager):
         params = kwargs.copy()
         if dataset:
             params['dataset'] = dataset
-            base_dir = Path('projects') / dataset.dataset_id
+            base_dir = dataset.analysis_dir
         elif sample:
             params['sample'] = sample
             if not sample.analysis_dir:
