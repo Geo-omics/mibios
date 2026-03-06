@@ -1,12 +1,10 @@
 from collections import defaultdict
-from contextlib import ExitStack
-from datetime import datetime, timedelta
+from datetime import datetime
 from itertools import groupby
 from logging import getLogger
 from pathlib import Path
 import re
 from subprocess import PIPE, Popen, TimeoutExpired
-import sys
 from time import time
 
 from django.conf import settings
@@ -788,25 +786,6 @@ class ReadAbundance(Model):
         verbose_name = 'functional abundance'
 
 
-'''
-class AmpliconAnalysisUnit(Model):
-    """ a collection of amplicon samples to be analysed together """
-    dataset = models.ForeignKey(settings.OMICS_DATASET_MODEL, **fk_req)
-    seq_platform = models.CharField(max_length=32)
-    is_paired_end = models.BooleanField()
-    target_gene = models.CharField(max_length=16)
-    fwd_primer = models.CharField(max_length=16)
-    rev_primer = models.CharField(max_length=16)
-    trim_params = models.CharField(max_length=128)
-
-    class Meta:
-        unique_together = (
-            ('dataset', 'seq_platform', 'is_paired_end', 'fwd_primer',
-             'rev_primer',),
-        )
-'''
-
-
 class Bin(Model):
     """ Metagenomic assembly bin """
     name = models.TextField(max_length=20, unique=True)
@@ -1081,180 +1060,6 @@ class File(Model):
     @property
     def description(self):
         return f'{self.get_filetype_display()} for {self.sample}'
-
-    @classmethod
-    def update_omics_pipeline_checkout(cls, current=None, dry_run=True):
-        """
-        Compile and save list of timestamped pipeline output files
-
-        This is a utility for development and testing purpose until the omics
-        pipeline/snakemake learns how to writes such a file.  The purpose is to
-        avoid reading partially written pipeline output files in a robust way
-        when running load_omics_data().
-
-        current:
-            Path-like to checkout text file.  This file will be appended to if
-            not in dry_run mode.
-
-        dry_run:
-            If True, then write output to stdout.  If False, then append to the
-            current file.  Other values are interpreted as path-like to which
-            the new data is written (appended, too.)
-
-        DEPRECATED -- the GLAMR omics pipeline now knows how to make and
-        maintain this file.
-        """
-        LOCK = settings.OMICS_PIPELINE_ROOT / '.snakemake/locks/0.output.lock'
-        Sample = cls._meta.get_field('sample').related_model
-
-        if current is None:
-            current = settings.OMICS_CHECKOUT_FILE
-
-        if cls.pipeline_checkout is None:
-            cls.load_pipeline_checkout(current)
-
-        # 1. get existing file to mtime mapping
-        old_data = cls.pipeline_checkout
-        print(f'Previously known files: {len(old_data)}')
-
-        # 2. get omics sample data
-        sample_data = []
-        with Sample.loader.get_omics_import_file().open() as ifile:
-            got_header = False
-            for line in ifile:
-                row = line.split('\t', maxsplit=5)
-                sample_id, _, _, sample_type, sample_dir, *_ = row
-                if not got_header:
-                    if sample_id != 'SampleID':
-                        raise RuntimeError(f'unexpected header in: {line}')
-                    if sample_type != 'sample_type':
-                        raise RuntimeError(f'unexpected header in: {line}')
-                    if sample_dir != 'sample_dir':
-                        raise RuntimeError(f'unexpected header in: {line}')
-                    got_header = True
-                    continue
-
-                if sample_dir.startswith('data/omics/'):
-                    sample_dir = sample_dir.removeprefix('data/omics/')
-                    sample_data.append((sample_id, sample_type, sample_dir))
-        print(f'Samples registered in pipeline: {len(sample_data)}')
-
-        # 3. Read snakemake output lock file
-        # These are paths relative to OMICS_PIPELINE_ROOT, keeping those under
-        # data root.
-        locked_files = set()
-        if LOCK.exists():
-            data_root = cls._meta.get_field('file_pipeline').storage.location
-            data_pref = data_root.relative_to(settings.OMICS_PIPELINE_ROOT)
-            with open(LOCK) as ifile:
-                for lineno, line in enumerate(ifile):
-                    path = Path(line.rstrip('\n'))
-                    try:
-                        # rm data_pref to make these paths comparable with
-                        # File.file_pipeline.name
-                        path = path.relative_to(data_pref)
-                    except ValueError:
-                        # locked file is not relative to our data root, ignore
-                        continue
-                    locked_files.add(path)
-            del data_root, data_pref, path, line, ifile
-            print(f'Lock file: {len(locked_files)}/{lineno + 1} files under '
-                  f'data root')
-        elif LOCK.parent.exists():
-            # TODO: what does this mean?  Pipeline not running at this time?
-            # can it be ignored?
-            print(f'NOTICE: snakemake lock file does not exist: {LOCK}')
-        else:
-            # shouldn't ignore this
-            raise RuntimeError(f'no snakemake lock directory: {LOCK.parent}')
-
-        # 4. check file stats
-        data = {}
-        num_same = num_new = num_updated = num_too_recent = num_locked = 0
-        now = datetime.now().astimezone()
-        one_day = timedelta(days=1)
-        warn_os_error = True
-        print('Checking file stats... ', end='', flush=True)
-        for sid, styp, sdir in sample_data:
-            for j in cls.Type:
-                sample = Sample(
-                    sample_id=sid,
-                    sample_type=styp,
-                    analysis_dir=sdir,
-                )
-                try:
-                    file_obj = sample.get_omics_file(j)
-                except ValueError:
-                    if j not in cls.PATH_TAILS:
-                        # type is not in File.PATH_TAILS
-                        continue
-                    else:
-                        raise
-                file = file_obj.file_pipeline
-
-                try:
-                    st = Path(file.path).stat()
-                except OSError:
-                    # e.g. file not found, permissions
-                    continue
-                else:
-                    warn_os_error = False
-
-                path = Path(file.name)
-                dt = datetime.fromtimestamp(st.st_mtime).astimezone()
-
-                use_dt = True
-                if path in old_data:
-                    if path in data:
-                        # faulty sample data
-                        raise RuntimeError(f'dupe: {path}')
-
-                    if old_data[path] < dt:
-                        num_updated += 1
-                        print(f'{old_data[path]} -> {dt} {path}',
-                              file=sys.stderr)  # DEBUG
-                    else:
-                        # is up-to-date
-                        num_same += 1
-                        use_dt = False
-                else:
-                    num_new += 1
-
-                if (now - dt) < one_day:
-                    num_too_recent += 1
-                    use_dt = False
-
-                if path in locked_files:
-                    num_locked += 1
-                    use_dt = False
-
-                if use_dt:
-                    data[path] = dt
-        print('[done]')
-
-        print(f'up-to-date: {num_same}')
-        print(f'newer time: {num_updated}')
-        print(f'  new file: {num_new}')
-        print(f'too recent: {num_too_recent}')
-        print(f'    locked: {num_locked}')
-
-        if sample_data and warn_os_error:
-            print('WARNING: no files could be access, check storage mount etc')
-
-        # 4. write out data
-        with ExitStack() as estack:
-            if dry_run is True:
-                outpath = None
-                ofile = sys.stdout
-            else:
-                outpath = current if dry_run is False else dry_run
-                ofile = estack.enter_context(open(outpath, 'a'))
-                print(f'Saving as {ofile.name} ...', end='', flush=True)
-
-            for path, dt in data.items():
-                ofile.write(f'{dt}\t\t\t{path}\n')
-        if outpath:
-            print('[OK]')
 
     @classmethod
     def load_pipeline_checkout(cls, path):
