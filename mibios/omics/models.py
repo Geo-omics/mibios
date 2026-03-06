@@ -31,6 +31,7 @@ from mibios.umrad.utils import ProgressPrinter
 from . import managers, get_sample_model, sra
 from .amplicon import get_target_genes, quick_analysis, quick_annotation
 from .fields import DataPathField, ReadOnlyFileField
+from .filetypes import FileType
 from .queryset import FileQuerySet, SeqSampleQuerySet
 from .utils import get_fasta_sequence
 
@@ -343,13 +344,18 @@ class SeqSample(IDMixin, Model):
                 raise RuntimeError('too new')
         return path
 
-    def get_omics_file(self, filetype):
+    def get_omics_file(self, filetype, **kwargs):
         """
         Convenience method to get an omics file instance
 
-        filetype: File.Type enum object or its name
+        filetype:
+            File.Type enum object or its name
+        kwargs:
+            Any extra key/values required to determine the file.  These are
+            FileType.path template parameters besides sample or dataset id.
+            These can also be job parameters, see the tracking module.
         """
-        return File.objects.get_instance(self, filetype)
+        return File.objects.get_instance(filetype, sample=self, **kwargs)
 
     def get_fq_paths(self):
         # DEPRECATED
@@ -554,6 +560,25 @@ class AbstractDataset(Model):
             conf.filter['dataset__pk'] = self.pk
         return conf.url()
 
+    def get_analysis_dir(self):
+        """ Get path where omics pipeline output is stored """
+        return (
+            settings.OMICS_PIPELINE_ROOT / 'data' / 'projects'
+            / self.dataset_id
+        )
+
+    def get_omics_file(self, filetype, **kwargs):
+        """
+        Convenience method to get an omics file instance
+
+        filetype:
+            File.Type enum object or its name
+        kwargs:
+            Any extra key/values required to determine the file.  These are
+            FileType.path template parameters besides dataset id.
+        """
+        return File.objects.get_instance(filetype, dataset=self, **kwargs)
+
     @classmethod
     @property
     def orphans(cls):
@@ -740,25 +765,7 @@ class Bin(Model):
 
 class File(Model):
     """ An omics product file, analysis pipeline result """
-
-    class Type(models.IntegerChoices):
-        METAG_ASM = 1, 'metagenomic assembly, fasta format'
-        """ e.g. samp_14/assembly/megahit_noNORM/final.contigs.renamed.fa """
-        METAT_ASM = 2, 'metatranscriptome assembly, fasta format'
-        """ TODO """
-        FUNC_ABUND = 3, 'functional abundance, csv format'
-        """ e.g. samp_14/samp_14_tophit_report """
-        TAX_ABUND = 4, 'taxonomic abundance, csv format'
-        """ *_lca_abund_summarized.tsv """
-        FUNC_ABUND_TPM = 5, 'functional abundance (TPM) [csv]'
-        CONT_ABUND = 6, 'contig abundance [csv]'
-        CONT_LCA = 7, 'contig taxonomy [csv]'
-        BIN_COV = 8, 'bin abundance'
-        """ {sample}/bins/coverage_drep_bins.tsv """
-        BIN_CLASS_ARC = 9, 'GTDB Archaea bin classification'
-        BIN_CLASS_BAC = 10, 'GTDB Bacteria bin classification'
-        BIN_CHECKM = 11, 'CheckM results'
-        BIN_CONTIG = 12, 'binning results'
+    Type = FileType  # convenience access to the file type enum
 
     file_pipeline = ReadOnlyFileField(upload_to=None,
                                       storage=storages['omics_pipeline'],
@@ -779,7 +786,8 @@ class File(Model):
         verbose_name='MD5 sum',
     )
     modtime = models.DateTimeField(verbose_name='modification time')
-    sample = models.ForeignKey(SeqSample, **fk_req)
+    sample = models.ForeignKey(SeqSample, **fk_opt)
+    dataset = models.ForeignKey(settings.OMICS_DATASET_MODEL, **fk_opt)
 
     objects = managers.FileManager.from_queryset(FileQuerySet)()
 
@@ -789,10 +797,6 @@ class File(Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(
-                fields=['sample', 'filetype'],
-                name='%(app_label)s_%(class)s_sample_ftype_unique',
-            ),
             models.UniqueConstraint(
                 fields=['file_pipeline'],
                 condition=~models.Q(file_pipeline=''),  # blank is okay
@@ -809,22 +813,6 @@ class File(Model):
                 name='%(app_label)s_%(class)s_file_globus_unique',
             ),
         ]
-
-    PATH_TAILS = {
-        Type.METAG_ASM:
-            Path('assembly', 'megahit_noNORM', 'final.contigs.renamed.fa'),
-        Type.TAX_ABUND: '{sample.sample_id}_lca_abund_summarized.tsv',
-        Type.FUNC_ABUND: '{sample.sample_id}_tophit_report',
-        Type.FUNC_ABUND_TPM: '{sample.sample_id}_tophit_TPM.tsv',
-        Type.CONT_ABUND: '{sample.sample_id}_contig_abund.tsv',
-        Type.CONT_LCA: '{sample.sample_id}_contig_lca.tsv',
-        Type.BIN_COV: 'bins/coverage_drep_bins.tsv',
-        Type.BIN_CLASS_ARC: 'bins/GTDB/gtdbtk.ar53.summary.tsv',
-        Type.BIN_CLASS_BAC: 'bins/GTDB/gtdbtk.bac120.summary.tsv',
-        Type.BIN_CHECKM: 'bins/all_raw_bins/checkm.txt',
-        Type.BIN_CONTIG: 'bins/contig_bins.rds',
-    }
-    """ file location, relative to a sample's data dir """
 
     def __str__(self):
         return str(self.file_pipeline)
@@ -885,7 +873,12 @@ class File(Model):
 
         This may hit the database to retrieve the file's sample.
         """
-        return self.sample.is_public()
+        if self.sample is not None:
+            return self.sample.is_public()
+        elif self.dataset is not None:
+            return self.dataset.is_public()
+        else:
+            raise RuntimeError(f'{self}: has no sample nor dataset')
 
     def compute_local_path(self):
         """
@@ -1691,14 +1684,12 @@ class SampleTracking(Model):
             self.job.run_undo()
 
 
-'''
 class Dataset(AbstractDataset):
     """
     Placeholder model implementing a dataset
     """
     class Meta:
         swappable = 'OMICS_DATASET_MODEL'
-'''
 
 
 class Sample(Model):

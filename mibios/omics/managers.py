@@ -1571,37 +1571,68 @@ class TaxonAbundanceManager(Manager):
 
 
 class FileManager(Manager):
-    def get_instance(self, sample, filetype, only_new=False):
+    def get_instance(self, filetype, only_new=False, **kwargs):
         """
         Get object, if possible from the DB, but don't save a new object.
         """
         if isinstance(filetype, str):
             filetype = self.model.Type[filetype]
 
-        try:
-            obj = self.all().get(sample=sample, filetype=filetype)
-        except self.model.DoesNotExist as e:
-            if filetype not in self.model.PATH_TAILS:
+        dataset = kwargs.pop('dataset', None)
+        sample = kwargs.pop('sample', None)
+        if dataset and sample:
+            raise ValueError('Either pass dataset or sample, not both!')
+
+        query = dict(filetype=filetype)
+        if filetype.with_dataset:
+            if dataset:
+                query['dataset'] = dataset
+            elif sample:
+                query['dataset'] = sample.parent.dataset
+            else:
                 raise ValueError(
-                    f'File type:{filetype} is not supported by this method (I '
-                    f'don\'t know how to compute the path to the file.'
+                    f'dataset or sample required with {filetype.name}'
                 )
+        else:
+            if sample is None:
+                raise ValueError(f'sample is required with {filetype.name}')
+            query['sample'] = sample
 
-            tail = self.model.PATH_TAILS[filetype]
-            if isinstance(tail, str):
-                tail = tail.format(sample=sample)
-
+        params = kwargs.copy()
+        if dataset:
+            params['dataset'] = dataset
+            base_dir = Path('projects') / dataset.dataset_id
+        elif sample:
+            params['sample'] = sample
             if not sample.analysis_dir:
                 raise RuntimeError(
-                    f'can\'t create instance: sample.analysis_dir is blank '
-                    f'for {sample}'
-                ) from e
+                    f'can\'t get/create file instance for {sample}: '
+                    f'sample.analysis_dir is blank '
+                )
+            base_dir = Path(sample.analysis_dir)
+        try:
+            path = base_dir / str(filetype.path).format(**params)
+        except KeyError as e:
+            # required param missing in kwargs?
+            raise ValueError(
+                f'required to resolve the file of type {filetype.name}: {e}'
+            )
+        query['file_pipeline'] = str(path)
 
+        try:
+            obj = self.all().get(**query)
+        except self.model.DoesNotExist:
             obj = self.model(
-                file_pipeline=str(Path(sample.analysis_dir, tail)),
+                file_pipeline=str(path),
                 filetype=filetype,
                 sample=sample,
+                dataset=dataset,
             )
+        except self.model.MultipleObjectsReturned as e:
+            raise ValueError(
+                f'Given parameters do not unambigiously specify file of type '
+                f'{filetype.name}: {e}'
+            ) from e
         else:
             if only_new:
                 raise RuntimeError(f'File object already exists: {obj}')
