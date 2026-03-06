@@ -296,7 +296,7 @@ class Dataset(IDMixin, AbstractDataset):
     accession_fields = ('dataset_id', )
 
     objects = DatasetManager.from_queryset(DatasetQuerySet)()
-    loader = DatasetLoader()
+    loader = DatasetLoader.from_queryset(DatasetQuerySet)()
 
     class Meta:
         default_manager_name = 'objects'

@@ -12,6 +12,7 @@ from django.utils.module_loading import import_string
 
 from mibios import __version__ as version
 from mibios.umrad.manager import QuerySet
+from mibios.umrad.utils import atomic_dry
 
 from .managers import fkmap_cache_reset
 from .utils import gentle_int, Timestamper
@@ -129,9 +130,14 @@ class FileQuerySet(QuerySet):
         return self.filter(sample__in=samples)
 
 
-class SeqSampleQuerySet(AccessMixin, QuerySet):
+class LoadMixin:
+    """
+    Mixin for QuerySet to orchestrate loading data
 
-    def get_ready(self, only=None, sort_by_sample=False, verbose=False):
+    This requires a corresponding models.DataTracking table for our model.
+    """
+
+    def get_ready(self, only=None, sort_by_subject=False, verbose=False):
         """
         Return Job instances which are ready to go (but not yet done).
 
@@ -139,14 +145,14 @@ class SeqSampleQuerySet(AccessMixin, QuerySet):
             Only return jobs of the given type.  A list of Job classes or class
             names may be passed.  If None, the default, then all our samples'
             ready jobs are returned.
-        sort_by_sample:
+        sort_by_subject:
             Sort jobs by sample.  The default is to sort jobs by the flag, in
             order as defined in SampleTracking.Flag.
         verbose [bool]:
             If True, then print non-ready jobs with status indicated and list
             of missing files.
         """
-        SampleTracking = import_string('mibios.omics.models.SampleTracking')
+        DataTracking = self.model._meta.get_field('tracking').related_model
         job_registry = import_string('mibios.omics.tracking.registry')
         Status = import_string('mibios.omics.tracking.Status')
 
@@ -173,17 +179,17 @@ class SeqSampleQuerySet(AccessMixin, QuerySet):
                   f'in blocklist')
             qs = qs.exclude(pk__in=blocklist)
 
-        qs = qs.filter(tracking__flag=SampleTracking.Flag.PIPELINE)
+        qs = qs.filter(tracking__flag=DataTracking.Flag.PIPELINE)
         qs = qs.prefetch_related('tracking')
 
-        if sort_by_sample:
+        if sort_by_subject:
             jobs = []
         else:
-            jobs = {i: [] for i in SampleTracking.Flag}
+            jobs = {i: [] for i in DataTracking.Flag}
 
-        for sample in qs:
+        for subject in qs:
             ready_jobs = []
-            for tr in sample.tracking.all():
+            for tr in subject.tracking.all():
                 for job in tr.job.before:
                     if only is not None and type(job) not in only:
                         continue
@@ -197,13 +203,13 @@ class SeqSampleQuerySet(AccessMixin, QuerySet):
                             for missing_file in job.status()[Status.MISSING]:
                                 print(f'   missing: {missing_file}')
 
-            if sort_by_sample:
+            if sort_by_subject:
                 jobs += ready_jobs
             else:
                 for i in ready_jobs:
                     jobs[i.flag].append(i)
 
-        if sort_by_sample:
+        if sort_by_subject:
             return jobs
         else:
             return list(chain(*jobs.values()))
@@ -212,7 +218,7 @@ class SeqSampleQuerySet(AccessMixin, QuerySet):
     def load_omics_data(self, jobs=None, follow_up_jobs=True,
                         publish_files=True, dry_run=False):
         """
-        Run ready omics data loading jobs for these samples.
+        Run ready omics data loading jobs for each object.
 
         jobs list:
             list of jobs to process.  If this is None, then all possible jobs
@@ -253,55 +259,58 @@ class SeqSampleQuerySet(AccessMixin, QuerySet):
             file_copy=settings.OMICS_LOADING_LOG,
         )
 
+        model_name_pl = self.model._meta.verbose_name_plural
+
         with timestamper:
             print(f'Loading omics data / version: {version}')
             if jobs is None:
-                jobs_todo = self.get_ready(sort_by_sample=True)
+                jobs_todo = self.get_ready(sort_by_subject=True)
                 if not jobs_todo:
-                    print('NOTICE: no ready jobs for these samples')
+                    print('NOTICE: no ready jobs for these {model_name_pl}')
                     return
             else:
-                sample_set = set(self)
-                jobs_todo = [i for i in jobs if i.sample in sample_set]
+                subject_set = set(self)
+                jobs_todo = [i for i in jobs if i.subject in subject_set]
                 if len(jobs) > len(jobs_todo):
                     print(f'WARNING: {len(jobs) - len(jobs_todo)} given jobs'
-                          f'are for other samples and will be skipped')
+                          f'are for other {model_name_pl} and will be skipped')
                 if not jobs_todo:
                     print('NOTICE: there are no jobs to be done')
                     return
 
             # some of the accounting below makes more sense if jobs are sorted
-            # by sample, but the logic should still work even if later jobs
-            # return to same sample.
-            jobs_per_sample = [
-                (sample, list(job_grp))
-                for sample, job_grp
-                in groupby(jobs_todo, key=lambda x: x.sample)
+            # by subject, but the logic should still work even if later jobs
+            # return to same subject.
+            jobs_per_subject = [
+                (subject, list(job_grp))
+                for subject, job_grp
+                in groupby(jobs_todo, key=lambda x: x.subject)
             ]
-            sample_count = len(set((i for i, _ in jobs_per_sample)))
+            subject_count = len(set((i for i, _ in jobs_per_subject)))
             if len(self):
-                if no_job_sample_count := len(self) - sample_count:
+                if no_job_subject_count := len(self) - subject_count:
                     if jobs:
-                        print(f'{no_job_sample_count} samples have no jobs')
+                        print(f'{no_job_subject_count} {model_name_pl} have '
+                              f'no jobs')
                     else:
-                        print(f'{no_job_sample_count} samples have no ready '
-                              f'jobs')
+                        print(f'{no_job_subject_count} {model_name_pl} have no'
+                              f' ready jobs')
             print(f'Will run a total of {len(jobs_todo)} jobs across '
-                  f'{sample_count} samples.')
+                  f'{subject_count} {model_name_pl}.')
 
         File = apps.get_model('omics', 'File')
-        template = '[ {sample} {{stage}}/{{total_stages}} {{{{timestamp}}}} ]  '  # noqa: E501
+        template = '[ {subject} {{stage}}/{{total_stages}} {{{{timestamp}}}} ]  '  # noqa: E501
         fkmap_cache_reset()
-        for num, (sample, job_grp) in enumerate(jobs_per_sample):
-            print(f'{len(jobs_todo) - num} samples to go...')
-            abort_sample = False
+        for num, (subject, job_grp) in enumerate(jobs_per_subject):
+            print(f'{len(jobs_todo) - num} {model_name_pl} to go...')
+            abort_subject = False
             # for flag, funcs in script:  # OLD
             stage = 0
             while job_grp:
                 job = job_grp.pop(0)
                 stage += 1
 
-                t = template.format(sample=sample.sample_id)
+                t = template.format(subject=subject.accession)
 
                 timestamper = Timestamper(
                     template=t.format(stage=stage, total_stages=stage + len(job_grp)),  # noqa: E501
@@ -318,28 +327,28 @@ class SeqSampleQuerySet(AccessMixin, QuerySet):
                         raise
                     except Exception as e:
                         msg = (f'FAIL: {e.__class__.__name__} "{e}": on '
-                               f'{sample.sample_id} at or near {job.run=}')
+                               f'{subject.accession} at or near {job.run=}')
                         print(msg)
                         # If we're configured to write a log file, then print
                         # the stack to a special FAIL.log file and continue
-                        # with the next sample. This optimizes for the case
+                        # with the next subject. This optimizes for the case
                         # that the error is caused by occasional unusual data
-                        # for individual samples and not a regular bug, which
-                        # would trigger on every sample.
+                        # for individual subjects and not a regular bug, which
+                        # would trigger on every subject/sample.
                         log = settings.OMICS_LOADING_LOG
                         if not log:
                             raise
                         faillog = Path(log).with_suffix(
-                            f'.{sample.sample_id}.FAIL.log'
+                            f'.{subject.accession}.FAIL.log'
                         )
                         with faillog.open('w') as ofile:
                             ofile.write(msg + '\n')
                             traceback.print_exc(file=ofile)
                         print(f'see traceback at {faillog}')
-                        # skip to next sample, do not set the flag, job() is
+                        # skip to next subject, do not set the flag, job() is
                         # assumed to have rolled back any its own changes to
                         # the DB
-                        abort_sample = True
+                        abort_subject = True
                         break
                     else:
                         if publish_files:
@@ -350,7 +359,8 @@ class SeqSampleQuerySet(AccessMixin, QuerySet):
                             except OSError as e:
                                 # not fatal, file publishing can also be done
                                 # later, manually
-                                print(f'[ERROR] trying to publish files: {e}')
+                                print(f'[ERROR] was trying to publish files: '
+                                      f'{e}')
 
                         if follow_up_jobs:
                             # add newly ready jobs
@@ -359,11 +369,51 @@ class SeqSampleQuerySet(AccessMixin, QuerySet):
                                     if i.is_ready(use_cache=False):
                                         job_grp.insert(0, i)
 
-            if abort_sample:
-                print(f'Aborting {sample.sample_id}/{sample}!', end=' ')
+            if abort_subject:
+                print(f'Aborting {subject.accession}!', end=' ')
             else:
-                print(f'Sample {sample.sample_id}/{sample} done!', end=' ')
+                print(f'{self.model._meta.verbose_name} {subject.accession} '
+                      f'done!', end=' ')
         print()
+
+
+class BaseDatasetQuerySet(AccessMixin, LoadMixin, QuerySet):
+    @atomic_dry
+    def start_tracking(self):
+        """
+        Check if dataset has a presence at the omics pipeline
+
+        Update tracking info unless dry_run is True.
+        """
+        DatasetTracking = self.model._meta.get_field('tracking').related_model
+
+        stats = {'total': self.count()}
+
+        qs = self.filter(
+            sample__seqsample__tracking__flag=DatasetTracking.Flag.PIPELINE
+        )
+        qs = qs.distinct()
+        stats['has_samples'] = qs.count()
+        stats['new'] = 0
+
+        for obj in qs:
+            data_dir = obj.get_analysis_dir()
+            if data_dir.is_dir():
+                tr, new = DatasetTracking.objects.get_or_create(
+                    subject=obj,
+                    flag=DatasetTracking.Flag.PIPELINE,
+                )
+                if new:
+                    stats['new'] += 1
+                else:
+                    tr.save()  # update timestamp
+            else:
+                print(f'[WARNING] no such directory: {data_dir}')
+
+        return stats
+
+
+class SeqSampleQuerySet(AccessMixin, LoadMixin, QuerySet):
 
     def ur100_accession_crawler(self, outname=None, verbose=False):
         """ Extract UniRef100 accessions from omics data """

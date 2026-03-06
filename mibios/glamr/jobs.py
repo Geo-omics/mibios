@@ -6,9 +6,9 @@ omics.tracking.registry.register_from_module(module_name) in AppConfig.ready()
 """
 from mibios.omics.jobs import RegisterWithPipeline
 from mibios.omics.models import SampleTracking
-from mibios.omics.tracking import Job
+from mibios.omics.tracking import SeqSampleJob
 
 
-class LoadMetaData(Job):
+class LoadMetaData(SeqSampleJob):
     flag = SampleTracking.Flag.METADATA
     before = [RegisterWithPipeline]

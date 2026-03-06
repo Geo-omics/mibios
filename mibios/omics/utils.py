@@ -311,7 +311,7 @@ def get_sample_blocklist(file=None):
 
     Lines first list the sample record ID / first field in the google
     sequencing sheet.  This ID string must be quoted if it contains white
-    space.  Optional the ID is followed by the work "omics" or any number of
+    space.  Optional the ID is followed by the word "omics" or any number of
     SeqSample field names.  Empty lines and comment lines starting with # are
     ignored.
     """

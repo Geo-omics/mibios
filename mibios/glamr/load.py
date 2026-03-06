@@ -223,6 +223,10 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
             for i in qs:
                 print('    ', i.dataset_id)
 
+    def get_omics_blocklist(self):
+        """ blocklist not implemented, stub in support of get_ready() """
+        return self.none()
+
 
 class ReferenceLoader(MetaDataLoader):
     empty_values = ['NA', 'Not Listed']

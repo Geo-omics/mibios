@@ -1639,7 +1639,7 @@ class FileManager(Manager):
         return obj
 
 
-class SampleTrackingManager(Manager):
+class DataTrackingManager(Manager):
     @cached_property
     def job_classes(self):
         """
@@ -1653,9 +1653,9 @@ class SampleTrackingManager(Manager):
             classes[cls.flag] = cls
         return classes
 
-    def ready_for_sample(self, sample):
+    def ready_for_subject(self, subject):
         ready = []
-        for obj in self.all().filter(sample=sample):
+        for obj in self.all().filter(subject=subject):
             for i in obj.job.before:
                 if i.is_ready() and i not in ready:
                     ready.append(i)

@@ -49,6 +49,10 @@ class IDMixin:
     """ Name of the attribute (usually a field) used to store the ID/accession.
     This must be set by an inheriting class. """
 
+    @property
+    def accession(self):
+        return getattr(self, self.id_attr)
+
     def get_record_id_no(self):
         """
         Strip ID prefix and return the record's ID number (as int)
@@ -1625,42 +1629,39 @@ class RNACentralRep(Model):
     history = None
 
 
-class SampleTracking(Model):
+class DataTracking(Model):
     """
     Track progress loading omics data for a sample
     """
     class Flag(models.TextChoices):
+        ASSEMBLY = 'ASM', 'assembly loaded'
+        BINNING = 'BIN', 'bins loaded'
+        CABUND = 'CAB', 'contig abundance loaded'
         METADATA = 'MD', 'meta data loaded'
         PIPELINE = 'PL', 'omics pipeline registered'
-        ASSEMBLY = 'ASM', 'assembly loaded'
+        TAXABUND = 'TAB', 'taxa abundance loaded'
         UR1ABUND = 'UAB', 'reads/UR100 abundance loaded'
         UR1TPM = 'TPM', 'reads/UR100/TPM loaded'
-        TAXABUND = 'TAB', 'taxa abundance loaded'
-        CABUND = 'CAB', 'contig abundance loaded'
-        BINNING = 'BIN', 'bins loaded'
 
     flag = models.CharField(max_length=3, choices=Flag.choices)
-    sample = models.ForeignKey(
-        SeqSample,
-        on_delete=models.CASCADE,
-        related_name='tracking',
-    )
+    subject = None  # FK to IDMixin model
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
     info = models.JSONField(blank=True, default=dict)
 
-    objects = managers.SampleTrackingManager()
+    objects = managers.DataTrackingManager()
 
     class Meta:
+        abstract = True
         constraints = [
             models.UniqueConstraint(
-                fields=['flag', 'sample'],
-                name='uniq_samptrack_flag',
+                fields=['flag', 'subject'],
+                name='uniq_%(class)s_subject_flag',
             ),
         ]
 
     def __str__(self):
-        return f'{self.sample.sample_id}/{self.flag}'
+        return f'{self.subject.accession}/{self.flag}'
 
     @property
     def job(self):
@@ -1668,7 +1669,7 @@ class SampleTracking(Model):
         # FIXME: the returned job may come from the job class-level cache and
         # then may have a different tracking instance. This may just be ugly
         # but I should re-think the surrounding design .
-        return jobcls.for_sample(self.sample, tracking=self)
+        return jobcls.for_subject(self.subject, tracking=self)
 
     def undo(self, fake=False):
         """
@@ -1682,6 +1683,22 @@ class SampleTracking(Model):
             self.job.fake_undo()
         else:
             self.job.run_undo()
+
+
+class DatasetTracking(DataTracking):
+    subject = models.ForeignKey(
+        settings.OMICS_DATASET_MODEL,
+        on_delete=models.CASCADE,
+        related_name='tracking',
+    )
+
+
+class SampleTracking(DataTracking):
+    subject = models.ForeignKey(
+        SeqSample,
+        on_delete=models.CASCADE,
+        related_name='tracking',
+    )
 
 
 class Dataset(AbstractDataset):

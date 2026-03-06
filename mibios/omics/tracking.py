@@ -7,8 +7,8 @@ from django.core.exceptions import ValidationError
 from django.db.transaction import atomic
 
 from mibios.umrad.utils import atomic_dry
-
-from .models import SampleTracking
+from . import get_dataset_model
+from .models import SeqSample
 
 
 Status = Enum('Status', ['READY', 'DONE', 'WAITING', 'MISSING'])
@@ -18,38 +18,39 @@ class NoJobParameters(Exception):
     pass
 
 
-class Job:
+class BaseJob:
+    model = None
     enabled = True
     flag = None
     after = None
     before = None
-    sample_types = None
     required_files = None
     run = None
     undo = None
 
-    def __init__(self, sample, tracking=None):
+    def __init__(self, subject, tracking=None):
         """
-        don't use this constructor directly, use for_sample() instead.
+        don't use this constructor directly, use e.g. for_subject() instead.
         """
-        if not self.is_compatible(sample):
-            raise ValueError(
-                f'{sample}: {type(self)} is not for sample type '
-                f'{sample.sample_type}'
-            )
-        self.sample = sample
+        if self.model is not None and not isinstance(subject, self.model):
+            raise TypeError(f'subject must be instance of {self.model} not '
+                            f'{type(subject)}')
+
+        if not self.is_compatible(subject):
+            raise ValueError(f'{type(self)}: job can\'t handle {subject}')
 
         if tracking is None:
-            if hasattr(sample, '_prefetched_objects_cache'):
-                for i in sample._prefetched_objects_cache.get('tracking', []):
+            if hasattr(subject, '_prefetched_objects_cache'):
+                for i in subject._prefetched_objects_cache.get('tracking', []):
                     if i.flag == self.flag.value:
                         tracking = i
                         break
         else:
             if self.flag.value != tracking.flag:
                 raise ValueError('flag mismatch')
-        self.tracking = tracking
 
+        self.subject = subject
+        self.tracking = tracking
         self.before = []
         self.after = []
         self._status = None
@@ -63,7 +64,7 @@ class Job:
         self.files = []
         for kwargs in self.params:
             files = [
-                self.sample.get_omics_file(i, **kwargs)
+                self.subject.get_omics_file(i, **kwargs)
                 for i in file_types
             ]
             if len(files) == 1:
@@ -74,7 +75,7 @@ class Job:
             self.files += files
 
     _jobs = None
-    """ object holder for for_sample(); to be initialized to {} in registry """
+    """ object holder for for_subject(); initialized to {} in registry """
 
     def __str__(self):
         if self.is_done():
@@ -88,19 +89,18 @@ class Job:
         else:
             status = self.status()
 
-        return f'{self.sample.sample_id}/{self.__class__.__name__} [{status}]'
+        return f'{self.subject.accession}/{self.__class__.__name__} [{status}]'
 
     @atomic
     def __call__(self):
         """
         Run the job
 
-        This calls the callable stored under the run attribute with the sample
-        as positional argument and tracks the success in the sample tracking
-        table.
+        This calls the callable stored under the run attribute with the subject
+        as positional argument and tracks the success in the tracking table.
 
         As part of running the job, this also tracks the files used and add a
-        sampletracking entry.
+        tracking entry.
 
         This will not check certain pre-conditions, e.g. one should call e.g.
         is_ready() beforehand.
@@ -120,16 +120,16 @@ class Job:
         self.post_check_files()
 
         if self.tracking is None:
-            self.tracking = SampleTracking(
+            self.tracking = self.subject.tracking.model(
                 flag=self.flag,
-                sample=self.sample,
+                subject=self.subject,
             )
         self.tracking.full_clean()
         self.tracking.save()
 
         # clear cached tracking data, then update status
         try:
-            del self.sample._prefetched_objects_cache['tracking']
+            del self.subject._prefetched_objects_cache['tracking']
         except (AttributeError, KeyError):
             pass
         self.status(use_cache=False)
@@ -167,7 +167,7 @@ class Job:
         if self.undo is None:
             raise NotImplementedError(
                 'The Job.undo attribute must be set to a callable that takes '
-                'the sample as argument.'
+                'the subject as argument.'
             )
 
         # guard rails
@@ -180,7 +180,7 @@ class Job:
 
         retvals = []
         for kwargs in self.params:
-            retv = self.undo(self.sample, **kwargs)
+            retv = self.undo(self.subject, **kwargs)
             retvals.append(retv)
 
         if self.tracking is not None:
@@ -193,43 +193,43 @@ class Job:
             return retvals
 
     @classmethod
-    def for_sample(cls, sample, tracking=None):
+    def for_subject(cls, subject, tracking=None):
         """
-        Get the job instance for given sample
+        Get the job instance for given subject (a.k.a. object).
 
         Use this in place of the regular constructor to ensure that jobs are
-        singleton per sample.
+        singleton per subject.
         """
-        if sample not in cls._jobs:
-            obj = cls(sample, tracking=tracking)
-            # store obj now to avoid infinite recursion trying to instatiate
+        if subject not in cls._jobs:
+            obj = cls(subject, tracking=tracking)
+            # store obj now to avoid infinite recursion trying to instantiate
             # before and after jobs.
-            cls._jobs[sample] = obj
+            cls._jobs[subject] = obj
             # FIXME: job declarations should eventually have some
             # conditionals, e.g. do next job only for some sampletype
             obj.after = []
             for jobcls in cls.after:
-                if jobcls.is_compatible(sample):
+                if jobcls.is_compatible(subject):
                     try:
-                        obj.after.append(jobcls.for_sample(sample))
+                        obj.after.append(jobcls.for_subject(subject))
                     except NoJobParameters:
                         pass
             obj.before = []
             for jobcls in cls.before:
-                if jobcls.is_compatible(sample):
+                if jobcls.is_compatible(subject):
                     try:
-                        obj.before.append(jobcls.for_sample(sample))
+                        obj.before.append(jobcls.for_subject(subject))
                     except NoJobParameters:
                         pass
-        return cls._jobs[sample]
+        return cls._jobs[subject]
 
     @classmethod
-    def is_compatible(cls, sample):
-        """ tell if job is compatible with sample """
-        if cls.sample_types:
-            return sample.sample_type in cls.sample_types
-        else:
+    def is_compatible(cls, subject):
+        """ tell if job is compatible with subject """
+        if cls.model is None:
             return True
+        else:
+            return isinstance(subject, cls.model)
 
     def pre_check_files(self):
         """
@@ -288,13 +288,13 @@ class Job:
         if self._status is None or not use_cache:
             state = {}
             if self.tracking is None:
-                # Get the tracking instance, optimize for case of self.sample
+                # Get the tracking instance, optimize for case of self.subject
                 # being member in queryset called via
                 # prefetch_related('tracking'), so no extra DB query for small
-                # cost of iterating over the samples' tracking instances.
+                # cost of iterating over the subjects' tracking instances.
                 # TODO: verify that this is not just duplicating the similar
                 # work (and DB query) in __init__()
-                for i in self.sample.tracking.all():
+                for i in self.subject.tracking.all():
                     if i.flag == self.flag.value:
                         self.tracking = i
                         break
@@ -351,6 +351,39 @@ class Job:
         self.undo = real_undo
 
 
+class DatasetJob(BaseJob):
+    model = get_dataset_model()
+
+    def __init__(self, subject, tracking=None):
+        if not self.is_compatible(subject):
+            raise ValueError('incompatible subject: {subject}')
+        if isinstance(subject, SeqSample):
+            subject = subject.parent.dataset
+        super().__init__(subject, tracking)
+
+    @classmethod
+    def is_compatible(cls, subject):
+        if isinstance(subject, SeqSample) and cls.sample_types is not None:
+            return subject.sample_type in cls.sample_types
+        else:
+            return isinstance(subject, get_dataset_model())
+
+
+class SeqSampleJob(BaseJob):
+    model = SeqSample
+    sample_types = None
+
+    @classmethod
+    def is_compatible(cls, subject):
+        """ tell if job is compatible with subject """
+        if not isinstance(subject, SeqSample):
+            return False
+        elif cls.sample_types:
+            return subject.sample_type in cls.sample_types
+        else:
+            return True
+
+
 class Registry:
     def __init__(self):
         self.jobs = {}
@@ -370,8 +403,8 @@ class Registry:
             sys.modules[module],
             lambda x: inspect.isclass(x)
             and x.__module__ == module_name
-            and issubclass(x, Job)
-            and x is not Job
+            and issubclass(x, BaseJob)
+            and x is not BaseJob
             and x.enabled  # FIXME: maybe disable later
         ))
 

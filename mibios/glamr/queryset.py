@@ -16,7 +16,7 @@ from django.db.transaction import atomic
 
 import pandas
 
-from mibios.omics.queryset import AccessMixin
+from mibios.omics.queryset import AccessMixin, BaseDatasetQuerySet
 from mibios.umrad.manager import QuerySet
 from mibios.umrad.utils import atomic_dry
 from . import GREAT_LAKES
@@ -58,7 +58,7 @@ def exclude_private_data(queryset, credentials=None):
     return qs.filter(**f)
 
 
-class DatasetQuerySet(AccessMixin, QuerySet):
+class DatasetQuerySet(BaseDatasetQuerySet):
 
     def summary(
             self,
