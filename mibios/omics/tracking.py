@@ -1,5 +1,4 @@
 from enum import Enum
-from functools import cached_property
 from importlib import import_module
 import inspect
 import sys
@@ -13,6 +12,10 @@ from .models import SampleTracking
 
 
 Status = Enum('Status', ['READY', 'DONE', 'WAITING', 'MISSING'])
+
+
+class NoJobParameters(Exception):
+    pass
 
 
 class Job:
@@ -47,7 +50,28 @@ class Job:
                 raise ValueError('flag mismatch')
         self.tracking = tracking
 
+        self.before = []
+        self.after = []
         self._status = None
+
+        self.params = self.get_params()
+        if not self.params:
+            raise NoJobParameters()
+
+        # Add file parameters
+        file_types = self.required_files or []
+        self.files = []
+        for kwargs in self.params:
+            files = [
+                self.sample.get_omics_file(i, **kwargs)
+                for i in file_types
+            ]
+            if len(files) == 1:
+                kwargs['file'] = files[0]
+            elif len(files) > 1:
+                kwargs['file'] = None
+                kwargs.update({i.filetype.name.lower(): i for i in files})
+            self.files += files
 
     _jobs = None
     """ object holder for for_sample(); to be initialized to {} in registry """
@@ -86,17 +110,12 @@ class Job:
         if not self.enabled:
             raise RuntimeError('job is disabled')
 
-        kw = {}
-
         self.pre_check_files()
 
-        if len(self.files) == 1:
-            kw['file'] = self.files[0].file_pipeline.path
-        elif len(self.files) > 1:
-            kw['file'] = None
-            kw.update({i.filetype.name.lower(): i for i in self.files})
-
-        retval = self.run(self.sample, **kw)
+        retvals = []
+        for kwargs in self.params:
+            retv = self.run(self.subject, **kwargs)
+            retvals.append(retv)
 
         self.post_check_files()
 
@@ -115,7 +134,27 @@ class Job:
             pass
         self.status(use_cache=False)
 
-        return retval
+        if len(retvals) == 1:
+            return retvals[0]
+        else:
+            return retvals
+
+    def get_params(self):
+        """
+        Generate parameters for the several jobs if needed.
+
+        Returns a list of dicts.  Inheriting classes should overwrite this if
+        needed.  The default implementation returns a single empty dict,
+        meaning the job runs once without special parameters.  If multiple
+        dictionaries are returned then the callable stored under self.run will
+        be called with each set of parameters passed as keyword arguments.
+        Further, the files passed to each call of self.run get parameterized.
+
+        If an empty list is returned, the job is deemed not to be ready and
+        will be disappeared, useful to implement some autodetection scheme to
+        generate jobs based to available data..
+        """
+        return [{}]
 
     @atomic_dry
     def run_undo(self):
@@ -139,11 +178,19 @@ class Job:
                 raise RuntimeError(f'a job that depends on this is already '
                                    f'done: {i}')
 
-        retval = self.undo(self.sample)
+        retvals = []
+        for kwargs in self.params:
+            retv = self.undo(self.sample, **kwargs)
+            retvals.append(retv)
+
         if self.tracking is not None:
             self.tracking.delete()
         self._status = None
-        return retval
+
+        if len(retvals) == 1:
+            return retvals[0]
+        else:
+            return retvals
 
     @classmethod
     def for_sample(cls, sample, tracking=None):
@@ -160,10 +207,20 @@ class Job:
             cls._jobs[sample] = obj
             # FIXME: job declarations should eventually have some
             # conditionals, e.g. do next job only for some sampletype
-            obj.after = [i.for_sample(sample) for i in obj.after
-                         if i.is_compatible(sample)]
-            obj.before = [i.for_sample(sample) for i in obj.before
-                          if i.is_compatible(sample)]
+            obj.after = []
+            for jobcls in cls.after:
+                if jobcls.is_compatible(sample):
+                    try:
+                        obj.after.append(jobcls.for_sample(sample))
+                    except NoJobParameters:
+                        pass
+            obj.before = []
+            for jobcls in cls.before:
+                if jobcls.is_compatible(sample):
+                    try:
+                        obj.before.append(jobcls.for_sample(sample))
+                    except NoJobParameters:
+                        pass
         return cls._jobs[sample]
 
     @classmethod
@@ -173,14 +230,6 @@ class Job:
             return sample.sample_type in cls.sample_types
         else:
             return True
-
-    @cached_property
-    def files(self):
-        """
-        Get list of files required for the job
-        """
-        file_types = self.required_files or []
-        return [self.sample.get_omics_file(i) for i in file_types]
 
     def pre_check_files(self):
         """
