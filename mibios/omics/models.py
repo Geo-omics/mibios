@@ -1005,6 +1005,9 @@ class File(Model):
             If True, then write output to stdout.  If False, then append to the
             current file.  Other values are interpreted as path-like to which
             the new data is written (appended, too.)
+
+        DEPRECATED -- the GLAMR omics pipeline now knows how to make and
+        maintain this file.
         """
         LOCK = settings.OMICS_PIPELINE_ROOT / '.snakemake/locks/0.output.lock'
         Sample = cls._meta.get_field('sample').related_model
@@ -1154,7 +1157,7 @@ class File(Model):
                 print(f'Saving as {ofile.name} ...', end='', flush=True)
 
             for path, dt in data.items():
-                ofile.write(f'{dt}\t{path}\n')
+                ofile.write(f'{dt}\t\t\t{path}\n')
         if outpath:
             print('[OK]')
 
@@ -1170,7 +1173,7 @@ class File(Model):
         files = {}
         with open(path) as ifile:
             for line in ifile:
-                mtime, _, relpath = line.strip().partition('\t')
+                mtime, _, _, relpath = line.strip().split('\t')
                 # later entries overwrite earlier
                 files[Path(relpath)] = datetime.fromisoformat(mtime)
         cls.pipeline_checkout = files
@@ -1185,7 +1188,7 @@ class File(Model):
         files = defaultdict(list)
         with open(path) as ifile:
             for line in ifile:
-                mtime, _, relpath = line.strip().partition('\t')
+                mtime, _, _, relpath = line.strip().split('\t')
                 files[relpath].append(mtime)
         for relpath, times in files.items():
             if len(times) == 1:
