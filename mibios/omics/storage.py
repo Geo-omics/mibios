@@ -9,6 +9,8 @@ from django.urls import reverse
 from django.urls.exceptions import NoReverseMatch
 from django.utils.functional import cached_property
 
+from .utils import check_modtime_microseconds
+
 
 class ReadOnlyFieldFile(FieldFile):
     """
@@ -142,6 +144,19 @@ class OmicsPipelineStorage(FileSystemStorage):
     """
     location = settings.OMICS_PIPELINE_DATA
     base_url = None
+
+    @cached_property
+    def supports_microseconds(self):
+        """
+        In certain setups (devel or testing) storage might be accessed via
+        sshfs which may not support sub-second file modification times via
+        stat() causing the modtime comparisions with omics.models.File to fail.
+
+        This methods will try to detect this situation and return False to
+        indicate the lack of precision and maybe allow leniency.  Will return
+        True in all other cases including certain errors.
+        """
+        return check_modtime_microseconds(self.location)
 
 
 class LocalPublicStorage(FileOpsMixin, FileSystemStorage):

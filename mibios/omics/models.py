@@ -33,7 +33,7 @@ from .amplicon import get_target_genes, quick_analysis, quick_annotation
 from .fields import DataPathField, ReadOnlyFileField
 from .filetypes import FileType
 from .queryset import FileQuerySet, SeqSampleQuerySet
-from .utils import get_fasta_sequence
+from .utils import check_modtime_microseconds, get_fasta_sequence
 
 
 log = getLogger(__name__)
@@ -822,7 +822,7 @@ class File(Model):
         return str(self.file_pipeline)
 
     def check_stat(self):
-        """ Convenience method to check all fiel fields """
+        """ Convenience method to check all file fields """
         for i in ('file_pipeline', 'file_local', 'file_globus'):
             self.check_stat_field(i)
 
@@ -849,7 +849,6 @@ class File(Model):
             raise ValidationError({field_name: f'Failed to get stat: {e}'})
 
         size = stat.st_size
-        modtime = datetime.fromtimestamp(stat.st_mtime).astimezone()
 
         errs = {}
         if self.size is None and field_name == 'file_pipeline':
@@ -859,13 +858,26 @@ class File(Model):
                 f'size changed -- expected: {self.size}, actually: {size}'
             )
 
+        modtime = datetime.fromtimestamp(stat.st_mtime).astimezone()
+        modtime_ok = False
+
         if self.modtime is None and field_name == 'file_pipeline':
             self.modtime = modtime
-        elif self.modtime != modtime:
-            errs['modtime'] = (
-                f'modtime changed -- expected (modulo TZ): {self.modtime}, '
-                f'actually: {modtime}'
-            )
+            modtime_ok = True
+        elif self.modtime == modtime:
+            # normal case
+            modtime_ok = True
+        elif modtime.microsecond == 0:
+            if self.modtime.replace(microsecond=0) == modtime:
+                if not field_file.storage.supports_microseconds():
+                    # times would be equal if it wasn't for missing
+                    # microseconds
+                    modtime_ok = True
+
+        if not modtime_ok:
+            errs['modtime'] = (f'modtime changed -- expected (modulo TZ): '
+                               f'{self.modtime}, actually: {modtime}')
+
         if errs:
             raise ValidationError(errs)
 
@@ -1198,7 +1210,11 @@ class File(Model):
                 print(f'    {datetime.fromisoformat(i)}')
 
     def verify_with_pipeline(self):
-        """ Verify that modtime matches pipeline checkout time """
+        """
+        Verify that modtime matches pipeline checkout time
+
+        Raises ValidationError is anything goes wrong.
+        """
         cls = self.__class__
         if cls.pipeline_checkout is None:
             cls.load_pipeline_checkout()
@@ -1207,11 +1223,23 @@ class File(Model):
             raise ValidationError({str(self): 'file not in pipeline checkout'})
         if not self.modtime:
             raise ValidationError({str(self): 'modtime not set'})
-        if self.modtime != mtime:
-            raise ValidationError(
-                {str(self): f'modtime {self.modtime} differs (modulo TZ)'
-                            f'from pipeline checkout {mtime}'}
-            )
+        if self.modtime == mtime:
+            return
+
+        if not self.modtime.microsecond:
+            # This should only happen if the file in certain test setup where
+            # the filesystem does not support microsecond precision and with
+            # file objects not yet stored in the DB.  Normally, modtimes from
+            # the DB are expected to have microseconds.
+            if self.modtime == mtime.replace(microsecond=0):
+                if not check_modtime_microseconds(self.file_pipeline.path):
+                    # times would be the same, except for missing microseconds
+                    return
+
+        raise ValidationError(
+            {str(self): f'modtime {self.modtime} differs (modulo TZ)'
+                        f'from pipeline checkout {mtime}'}
+        )
 
 
 class TaxonAbundance(Model):

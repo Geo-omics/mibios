@@ -2,7 +2,9 @@ from contextlib import redirect_stdout
 from datetime import datetime
 from functools import wraps
 from operator import methodcaller
+from pathlib import Path
 import shlex
+import subprocess
 import sys
 
 from django.apps import apps as django_apps
@@ -330,3 +332,44 @@ def get_sample_blocklist(file=None):
             record_id, *fields = shlex.split(line)
             blocklist[record_id] = fields
     return blocklist
+
+
+def check_modtime_microseconds(path):
+    """
+    Check if the underlying filesystem reports file modify times with
+    microsecond precision.
+
+    Returns True if we think there are microseconds and False if not.
+
+    On Linux there is no reliable way to get this information.  This function
+    tries to be super robust and will hide certain OS-level errors by printing
+    a warning and then returning True.  The idea is that erroneously telling
+    that there would be microseconds will cause fewer silent errors.
+    """
+    path = Path(path)
+    try:
+        mtime = datetime.fromtimestamp(path.stat().st_mtime)
+    except OSError as e:
+        print(f'[WARNING] stat on {path} failed: {e}')
+        return True
+    if mtime.microsecond:
+        return True
+
+    # microseconds are zero
+    cmd = ['/usr/bin/stat', '--file-system', '--format=%T', str(path)]
+    try:
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, check=True)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f'[WARNING] checking modtime precision failed for {path}: {e}')
+        return True
+
+    fstype = p.stdout.strip()
+    if fstype == b'fuse':
+        # e.g. filesystem under sshfs (that is sftp)
+        print(f'[WARNING] Filesystem at {path} does not support sub-second '
+              f'modtimes')
+        return False
+    else:
+        # rather unlikely?
+        print(f'[WARNING] no sub-seconds modtimes on {fstype} filesystem?')
+        return True
