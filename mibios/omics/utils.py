@@ -334,10 +334,17 @@ def get_sample_blocklist(file=None):
     return blocklist
 
 
+_mp_has_microsecs = {}
+""" cache used by check_modtime_microseconds) """
+
+
 def check_modtime_microseconds(path):
     """
     Check if the underlying filesystem reports file modify times with
     microsecond precision.
+
+    path:
+        Resolved path to a file
 
     Returns True if we think there are microseconds and False if not.
 
@@ -346,7 +353,39 @@ def check_modtime_microseconds(path):
     a warning and then returning True.  The idea is that erroneously telling
     that there would be microseconds will cause fewer silent errors.
     """
+    global _mp_has_microsecs
     path = Path(path)
+
+    for mount_point, has_microsecs in _mp_has_microsecs.items():
+        if path.is_relative_to(mount_point):
+            return has_microsecs
+
+    has_microsecs = _check_modtime_microseconds(path)
+    cmd = ['stat', '--format=%m', str(path)]
+    try:
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, check=True)
+    except (OSError, subprocess.CalledProcessError) as e:
+        print(f'[WARNING] failed to get mountpoint with stat for {path}: {e}')
+        return has_microsecs
+
+    mountpoint = p.stdout.decode().strip()
+
+    # update the cache, then sort alphabetically reverse so that longer paths
+    # come before shorter ones
+    _mp_has_microsecs[mountpoint] = has_microsecs
+    _mp_has_microsecs = {
+        k: v for k, v
+        in reversed(sorted(_mp_has_microsecs.items()))
+    }
+    # print only one such warning per mount point as to not spam the terminal
+    print(f'[WARNING] Filesystem mounted at {mountpoint} does not support '
+          f'sub-second modtimes, file is {path}.  Further warnings for this '
+          f'mountpoint will be supressed.')
+    return has_microsecs
+
+
+def _check_modtime_microseconds(path):
+    """ helper for check_modtime_microseconds, does the actual work """
     try:
         mtime = datetime.fromtimestamp(path.stat().st_mtime)
     except OSError as e:
@@ -366,8 +405,6 @@ def check_modtime_microseconds(path):
     fstype = p.stdout.strip()
     if fstype == b'fuse':
         # e.g. filesystem under sshfs (that is sftp)
-        print(f'[WARNING] Filesystem at {path} does not support sub-second '
-              f'modtimes')
         return False
     else:
         # rather unlikely?
