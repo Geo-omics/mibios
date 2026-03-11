@@ -1528,6 +1528,9 @@ class FileManager(Manager):
     def get_instance(self, filetype, only_new=False, **kwargs):
         """
         Get object, if possible from the DB, but don't save a new object.
+
+        filetype:
+            Member of the FileType enum.
         """
         if isinstance(filetype, str):
             filetype = self.model.Type[filetype]

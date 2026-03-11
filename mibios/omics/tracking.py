@@ -67,11 +67,14 @@ class BaseJob:
                 self.subject.get_omics_file(i, **kwargs)
                 for i in file_types
             ]
+            # For historical reasons, a single file uses the 'file' key, when a
+            # job has multiple files, keys are derived from the filetype's
+            # name.  The job's run function's signature has to match these.
             if len(files) == 1:
                 kwargs['file'] = files[0]
             elif len(files) > 1:
                 kwargs['file'] = None
-                kwargs.update({i.filetype.name.lower(): i for i in files})
+                kwargs.update({i.filetype_name.lower(): i for i in files})
             self.files += files
 
     _jobs = None

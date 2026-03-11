@@ -900,6 +900,11 @@ class File(Model):
     def __str__(self):
         return str(self.file_pipeline)
 
+    @property
+    def filetype_name(self):
+        """ name of filetype enum """
+        return self.Type(self.filetype).name
+
     def check_stat(self):
         """ Convenience method to check all file fields """
         for i in ('file_pipeline', 'file_local', 'file_globus'):

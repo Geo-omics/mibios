@@ -6,7 +6,7 @@ from django.db.models import IntegerChoices
 class FileType(IntegerChoices):
     """
     Enumeration for use in Field(choices=...) in the File model.  To replace
-    IntgergerChoices but with extra attributes.
+    IntegerChoices but with extra attributes.
 
     Each instance gets passed a tuple of integer value and a dict.  The dict is
     required to define a "label" similar to IntegerChoices and additionally a
