@@ -214,8 +214,25 @@ class ASVAbundanceLoader(BulkLoader):
               f'samples...')
         self.load_for_target(dataset, dada2_dir, target, samples)
 
-    def unload_dataset(self, dataset):
-        raise NotImplementedError()
+    @atomic_dry
+    def unload_dataset(self, dataset, amplicon_target, **kwargs):
+        """
+        Delete abundances for given dataset and target, together with any ASVs
+        that did not occur in any other dataset.
+
+          * will *not* unload AmpliconTarget that become unusd
+        """
+        ASV = apps.get_model('omics', 'ASV')
+        qs = self.filter(
+            sample__parent__dataset=dataset,
+            asv__type=amplicon_target,
+        )
+        counts = qs.delete()
+        print(counts, '[OK deleted]')
+        # delete any ASVs w/o abundances
+        qs = ASV.objects.filter(type=amplicon_target, asvabundance=None)
+        counts = qs.delete()
+        print(counts, '[OK deleted]')
 
     def load_for_target(self, dataset, dada2_dir, target, samples):
         ASV = import_string('mibios.omics.models.ASV')
