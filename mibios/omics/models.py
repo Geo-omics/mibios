@@ -1257,14 +1257,12 @@ class File(Model):
             print('[OK]')
 
     @classmethod
-    def load_pipeline_checkout(cls, path=None):
+    def load_pipeline_checkout(cls, path):
         """
         helper to import the omics pipeline good output files listing
 
         This sets and populates a dict mapping paths to last modified datetime.
         """
-        if path is None:
-            path = settings.OMICS_CHECKOUT_FILE
         files = {}
         with open(path) as ifile:
             for line in ifile:
@@ -1296,11 +1294,15 @@ class File(Model):
         """
         Verify that modtime matches pipeline checkout time
 
+        This is a no-op if OMICS_CHECKOUT_FILE is not set.
+
         Raises ValidationError is anything goes wrong.
         """
+        if settings.OMICS_CHECKOUT_FILE is None:
+            return
         cls = self.__class__
         if cls.pipeline_checkout is None:
-            cls.load_pipeline_checkout()
+            cls.load_pipeline_checkout(settings.OMICS_CHECKOUT_FILE)
         mtime = cls.pipeline_checkout.get(Path(self.file_pipeline.name), None)
         if mtime is None:
             raise ValidationError({'file not in pipeline checkout': str(self)})
