@@ -1,7 +1,7 @@
 """
 Module for data load managers
 """
-from collections import defaultdict
+from collections import Counter, defaultdict
 from contextlib import ExitStack
 from datetime import date
 from functools import cached_property, partial
@@ -227,12 +227,14 @@ class ASVAbundanceLoader(BulkLoader):
             sample__parent__dataset=dataset,
             asv__type=amplicon_target,
         )
-        counts = qs.delete()
-        print(counts, '[OK deleted]')
+        delcounts = Counter()
+        _, counts = qs.delete()
+        delcounts.update(counts)
         # delete any ASVs w/o abundances
         qs = ASV.objects.filter(type=amplicon_target, asvabundance=None)
-        counts = qs.delete()
-        print(counts, '[OK deleted]')
+        _, counts = qs.delete()
+        delcounts.update(counts)
+        return delcounts
 
     def load_for_target(self, dataset, dada2_dir, target, samples):
         ASV = import_string('mibios.omics.models.ASV')

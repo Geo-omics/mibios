@@ -1,3 +1,4 @@
+from collections import Counter
 from itertools import chain, groupby, product
 import os
 from pathlib import Path
@@ -55,6 +56,51 @@ class AccessMixin:
         # ensure we got a 0 and it's sorted
         groupids.add(0)
         return tuple(sorted(groupids))
+
+
+class DataTrackingQuerySet(QuerySet):
+    def undo(self, fake=False, dry_run=False):
+        """
+        Undo each associated job and erase tracking info and file records
+
+        fake [bool]:
+            Undo the job accounting (remove tracking tickets and files) but
+            don't actually run the jobs' undo methods, so any omics data will
+            remain in the DB.  Do this to reverse stale tracking info.
+            Remaining omics data may have to be deleted manually.  This is has
+            nothing to do with the dry_run option.
+
+        dry_run [bool]:
+            Run everything but roll back any changes to the DB.  Any side
+            effect that the the jobs' undo methods have may still occurr.  This
+            has nothing to do with the fake option, both can be set
+            independently.
+        """
+        # dry run wrapper:  On a dry run the outermost transaction is to be
+        # rolled back at the very end so that the individual undos can see each
+        # other effects.  On a real run we want to successful individual undos
+        # remain committed even if a later undo crashes.
+        if dry_run:
+            with atomic():
+                retv = self._undo(fake=fake)
+                set_rollback(True)
+            return retv
+        else:
+            return self._undo(fake=fake)
+
+    def _undo(self, fake=False):
+        """ Wrapped by undo() to do the actual work """
+        # sort objects in reverse job dependency order
+        jobs = import_string('mibios.omics.tracking.registry').jobs.values()
+        rank = {job: rank for rank, job in enumerate(reversed(jobs))}
+        pool = sorted(self, key=lambda x: rank[type(x.job)])
+        totals = Counter()
+
+        for i in pool:
+            delcounts = i.undo(fake=fake)
+            totals.update(delcounts)
+
+        return totals
 
 
 class FileQuerySet(QuerySet):

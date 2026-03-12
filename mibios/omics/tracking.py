@@ -1,4 +1,6 @@
+from collections import Counter
 from enum import Enum
+from graphlib import TopologicalSorter
 from importlib import import_module
 import inspect
 import sys
@@ -8,7 +10,7 @@ from django.db.transaction import atomic
 
 from mibios.umrad.utils import atomic_dry
 from . import get_dataset_model
-from .models import SeqSample
+from .models import File, SeqSample
 
 
 Status = Enum('Status', ['READY', 'DONE', 'WAITING', 'MISSING'])
@@ -169,8 +171,8 @@ class BaseJob:
         """
         if self.undo is None:
             raise NotImplementedError(
-                'The Job.undo attribute must be set to a callable that takes '
-                'the subject as argument.'
+                f'{self}: The Job.undo attribute must be set to a callable '
+                f'that takes the subject as argument.'
             )
 
         # guard rails
@@ -181,19 +183,23 @@ class BaseJob:
                 raise RuntimeError(f'a job that depends on this is already '
                                    f'done: {i}')
 
-        retvals = []
+        delcounts = Counter()
         for kwargs in self.params:
             retv = self.undo(self.subject, **kwargs)
-            retvals.append(retv)
+            if isinstance(retv, Counter):
+                delcounts.update(retv)
 
         if self.tracking is not None:
-            self.tracking.delete()
+            _, counts = self.tracking.delete()
+            delcounts.update(counts)
+        self.tracking = None
         self._status = None
 
-        if len(retvals) == 1:
-            return retvals[0]
-        else:
-            return retvals
+        file_pks = [i.pk for i in self.files]
+        _, counts = File.objects.filter(pk__in=file_pks).delete()
+        delcounts.update(counts)
+
+        return delcounts
 
     @classmethod
     def for_subject(cls, subject, tracking=None):
@@ -338,8 +344,10 @@ class BaseJob:
         """
         real_run = self.run
         self.run = lambda *args, **kw: None
-        self()
-        self.run = real_run
+        try:
+            self()
+        finally:
+            self.run = real_run
 
     def fake_undo(self):
         """
@@ -350,8 +358,10 @@ class BaseJob:
         """
         real_undo = self.undo
         self.undo = lambda *args, **kw: None
-        self.run_undo()
-        self.undo = real_undo
+        try:
+            return self.run_undo()
+        finally:
+            self.undo = real_undo
 
 
 class DatasetJob(BaseJob):
@@ -411,7 +421,7 @@ class Registry:
             and x.enabled  # FIXME: maybe disable later
         ))
 
-        jobs = self.jobs
+        jobs = self.jobs.copy()
         for name in new_jobs:
             if name in jobs:
                 raise RuntimeError(
@@ -419,7 +429,7 @@ class Registry:
                 )
         jobs.update(new_jobs)
 
-        # replace names with classed
+        # replace names with classes
         for name, cls in jobs.items():
             if cls._jobs is None:
                 cls._jobs = {}  # separate dict per class
@@ -449,7 +459,13 @@ class Registry:
                 if cls not in i.after:
                     i.after.append(cls)
 
-        self.jobs = jobs
+        # sort by dependency
+        sorter = TopologicalSorter()
+        names = {job: name for name, job in jobs.items()}
+        for name, job in jobs.items():
+            sorter.add(name, *(names[dep] for dep in job.after))
+
+        self.jobs = {name: jobs[name] for name in sorter.static_order()}
 
 
 registry = Registry()

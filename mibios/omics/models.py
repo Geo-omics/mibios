@@ -36,7 +36,7 @@ from . import managers, get_sample_model, sra
 from .amplicon import get_target_genes, quick_analysis, quick_annotation
 from .fields import DataPathField, ReadOnlyFileField
 from .filetypes import FileType
-from .queryset import FileQuerySet, SeqSampleQuerySet
+from .queryset import DataTrackingQuerySet, FileQuerySet, SeqSampleQuerySet
 from .utils import check_modtime_microseconds, get_fasta_sequence
 
 
@@ -1766,7 +1766,7 @@ class DataTracking(Model):
     updated = models.DateTimeField(auto_now=True)
     info = models.JSONField(blank=True, default=dict)
 
-    objects = managers.DataTrackingManager()
+    objects = managers.DataTrackingManager.from_queryset(DataTrackingQuerySet)()  # noqa:E501
 
     class Meta:
         abstract = True
@@ -1797,9 +1797,9 @@ class DataTracking(Model):
             care.  The default is False.
         """
         if fake:
-            self.job.fake_undo()
+            return self.job.fake_undo()
         else:
-            self.job.run_undo()
+            return self.job.run_undo()
 
 
 class DatasetTracking(DataTracking):
