@@ -256,7 +256,7 @@ class ASVAbundanceLoader(BulkLoader):
                     ))
             if samples:
                 print(f'[WARNING] For {len(samples)} samples abundance data is'
-                      f'missing from {ifile.name}')
+                      f' missing from {ifile.name}')
 
         self.bulk_create(objs)
         SeqSample.objects.bulk_update(

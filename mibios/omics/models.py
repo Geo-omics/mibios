@@ -959,8 +959,7 @@ class File(Model):
                     modtime_ok = True
 
         if not modtime_ok:
-            errs['modtime'] = (f'modtime changed -- expected (modulo TZ): '
-                               f'{self.modtime}, actually: {modtime}')
+            errs['modtime'] = f'changed, is "{self.modtime}" but {field_file.path} has mtime of "{modtime}"'  # noqa: E501
 
         if errs:
             raise ValidationError(errs)
@@ -1304,9 +1303,9 @@ class File(Model):
             cls.load_pipeline_checkout()
         mtime = cls.pipeline_checkout.get(Path(self.file_pipeline.name), None)
         if mtime is None:
-            raise ValidationError({str(self): 'file not in pipeline checkout'})
+            raise ValidationError({'file not in pipeline checkout': str(self)})
         if not self.modtime:
-            raise ValidationError({str(self): 'modtime not set'})
+            raise ValidationError({'modtime not set': str(self)})
         if self.modtime == mtime:
             return
 
@@ -1321,8 +1320,8 @@ class File(Model):
                     return
 
         raise ValidationError(
-            {str(self): f'modtime {self.modtime} differs (modulo TZ)'
-                        f'from pipeline checkout {mtime}'}
+            {'modtime attr differs from pipeline checkout':
+             f'file={self} modtime={self.modtime} != {mtime} (checkout)'}
         )
 
 

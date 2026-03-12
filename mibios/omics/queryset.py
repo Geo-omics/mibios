@@ -6,6 +6,7 @@ from urllib.parse import quote_plus
 
 from django.apps import apps
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import connection
 from django.db.transaction import atomic, set_rollback
 from django.utils.module_loading import import_string
@@ -326,9 +327,19 @@ class LoadMixin:
                         print(repr(e))
                         raise
                     except Exception as e:
-                        msg = (f'FAIL: {e.__class__.__name__} "{e}": on '
-                               f'{subject.accession} at or near {job.run=}')
-                        print(msg)
+                        msg = []
+                        if isinstance(e, ValidationError):
+                            # pretty-print expected errors
+                            msg.append('[ValidationError]')
+                            for key, msglist in e:
+                                for m in msglist:
+                                    msg.append(f' -> {key}: {m}')
+                        else:
+                            msg.append(
+                                f'{type(e).__name__} "{e}": on '
+                                f'{subject.accession} at or near {job.run=}'
+                            )
+                        print(*msg, sep='\n')
                         # If we're configured to write a log file, then print
                         # the stack to a special FAIL.log file and continue
                         # with the next subject. This optimizes for the case
@@ -342,9 +353,9 @@ class LoadMixin:
                             f'.{subject.accession}.FAIL.log'
                         )
                         with faillog.open('w') as ofile:
-                            ofile.write(msg + '\n')
+                            ofile.write('\n'.join(msg) + '\n')
                             traceback.print_exc(file=ofile)
-                        print(f'see traceback at {faillog}')
+                        print(f'(see traceback at {faillog})')
                         # skip to next subject, do not set the flag, job() is
                         # assumed to have rolled back any its own changes to
                         # the DB
