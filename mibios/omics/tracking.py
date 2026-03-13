@@ -162,9 +162,13 @@ class BaseJob:
         return [{}]
 
     @atomic_dry
-    def run_undo(self):
+    def run_undo(self, force=False):
         """
         Undo the effect of run()
+
+        force [bool]:
+            Skip job status check.  This option may lead to inconsistencies:
+            jobs may be DONE before before jobs they depend on are marked DONE.
 
         This will also delete the tracking instance from the DB.  To undo a
         job, all jobs depending on this one, must be undone first.
@@ -175,13 +179,15 @@ class BaseJob:
                 f'that takes the subject as argument.'
             )
 
-        # guard rails
-        if not self.is_done(use_cache=False):
-            raise RuntimeError('to undo, job must be done first')
-        for i in self.before:
-            if i.is_done(use_cache=False):
-                raise RuntimeError(f'a job that depends on this is already '
-                                   f'done: {i}')
+        if not force:
+            # guard rails
+            if not self.is_done(use_cache=False):
+                raise RuntimeError('to undo, job must be done first')
+            for i in self.before:
+                if i.is_done(use_cache=False):
+                    raise RuntimeError(
+                        f'a job that depends on this is already done: {i}'
+                    )
 
         delcounts = Counter()
         for kwargs in self.params:
@@ -189,7 +195,7 @@ class BaseJob:
             if isinstance(retv, Counter):
                 delcounts.update(retv)
 
-        if self.tracking is not None:
+        if self.tracking is not None and self.tracking.id is not None:
             _, counts = self.tracking.delete()
             delcounts.update(counts)
         self.tracking = None
