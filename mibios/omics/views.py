@@ -106,9 +106,9 @@ class SampleTrackingView(StaffLoginRequiredMixin, SingleTableView):
         )
 
         self.total_sample_count = len(samples)
-        tracks = SampleTracking.objects.order_by('sample_id')
+        tracks = SampleTracking.objects.order_by('subject_id')
         data = []
-        for sample_pk, grp in groupby(tracks, lambda x: x.sample_id):
+        for sample_pk, grp in groupby(tracks, lambda x: x.subject_id):
             sample = samples[sample_pk]
             row = defaultdict(None)
             row['sample'] = sample
