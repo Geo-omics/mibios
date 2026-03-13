@@ -308,7 +308,7 @@ class BaseJob:
                         self.tracking = i
                         break
 
-            if self.tracking:
+            if self.tracking and self.tracking.id is not None:
                 state[Status.DONE] = self.tracking
 
             waiting = [i for i in self.after if not i.is_done()]
