@@ -16,15 +16,9 @@ SEARCH_FIELDS = {
             'primers',
             'sequencing_target',
             'sequencing_platform',
-            # 'note' ?
         ],
         'sample': [
             'sample_name',
-            'sample_type',
-            'sra_accession',
-            'amplicon_target',
-            'fwd_primer',
-            'rev_primer',
             'project_id',
             'biosample',
             'geo_loc_name',
@@ -43,6 +37,15 @@ SEARCH_FIELDS = {
             'key_words',
             'publication',
             'doi',
+        ],
+    },
+    'omics': {
+        'seqsample': [
+            'amplicon_target_label'
+            'fwd_primer',
+            'rev_primer',
+            'sample_type',
+            'sra_accession',
         ],
     },
     'ncbi_taxonomy': {
