@@ -12,7 +12,7 @@ class RegisterWithPipeline(BaseJob):
 class LoadMetaGAssembly(SeqSampleJob):
     flag = DataTracking.Flag.ASSEMBLY
     after = [RegisterWithPipeline]
-    sample_types = [SeqSample.TYPE_METAGENOME]
+    sample_types = [SeqSample.Type.METAGENOME]
     required_files = [File.Type.METAG_ASM]
     run = Contig.loader.load_fasta
     undo = Contig.loader.unload_fasta
@@ -21,7 +21,7 @@ class LoadMetaGAssembly(SeqSampleJob):
 class LoadContigAbund(SeqSampleJob):
     flag = DataTracking.Flag.CABUND
     after = [LoadMetaGAssembly]
-    sample_types = [SeqSample.TYPE_METAGENOME]
+    sample_types = [SeqSample.Type.METAGENOME]
     required_files = [File.Type.CONT_ABUND]
     run = Contig.loader.load_abundance
     undo = Contig.loader.unload_abundance
@@ -32,7 +32,7 @@ class LoadContigLCA(SeqSampleJob):
     enabled = False
     flag = ...
     after = [LoadMetaGAssembly]
-    sample_types = [SeqSample.TYPE_METAGENOME]
+    sample_types = [SeqSample.Type.METAGENOME]
     required_files = ...  # *_contig_lca.tsv
     run = Contig.loader.load_lca
 
@@ -40,7 +40,7 @@ class LoadContigLCA(SeqSampleJob):
 class LoadUR1Abund(SeqSampleJob):
     flag = DataTracking.Flag.UR1ABUND
     after = [RegisterWithPipeline]
-    sample_types = [SeqSample.TYPE_METAGENOME]
+    sample_types = [SeqSample.Type.METAGENOME]
     required_files = [File.Type.FUNC_ABUND]
     run = ReadAbundance.loader.load_sample
     undo = ReadAbundance.loader.unload_sample
@@ -49,7 +49,7 @@ class LoadUR1Abund(SeqSampleJob):
 class LoadUR1TPM(SeqSampleJob):
     flag = DataTracking.Flag.UR1TPM
     after = [LoadUR1Abund]
-    sample_types = [SeqSample.TYPE_METAGENOME]
+    sample_types = [SeqSample.Type.METAGENOME]
     required_files = [File.Type.FUNC_ABUND_TPM]
     run = ReadAbundance.loader.load_tpm_sample
     undo = ReadAbundance.loader.unload_tpm_sample
@@ -58,7 +58,7 @@ class LoadUR1TPM(SeqSampleJob):
 class LoadTaxAbund(SeqSampleJob):
     flag = DataTracking.Flag.TAXABUND
     after = [RegisterWithPipeline]
-    sample_types = [SeqSample.TYPE_METAGENOME]
+    sample_types = [SeqSample.Type.METAGENOME]
     required_files = [File.Type.TAX_ABUND]
     run = TaxonAbundance.loader.load_sample
 
@@ -66,7 +66,7 @@ class LoadTaxAbund(SeqSampleJob):
 class LoadBins(SeqSampleJob):
     flag = DataTracking.Flag.BINNING
     after = [LoadMetaGAssembly]
-    sample_types = [SeqSample.TYPE_METAGENOME]
+    sample_types = [SeqSample.Type.METAGENOME]
     required_files = [
         File.Type.BIN_COV,
         File.Type.BIN_CLASS_ARC,
@@ -81,7 +81,7 @@ class LoadBins(SeqSampleJob):
 class LoadASVAbund(DatasetJob):
     flag = DataTracking.Flag.ASVABUND
     after = [RegisterWithPipeline]
-    sample_types = [SeqSample.TYPE_AMPLICON]
+    sample_types = [SeqSample.Type.AMPLICON]
     required_files = [
         File.Type.DADA_ASV,
         File.Type.DADA_ABUND,

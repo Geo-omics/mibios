@@ -240,16 +240,30 @@ class ASVAbundance(Model):
 
 
 class SeqSample(IDMixin, Model):
-    TYPE_AMPLICON = 'amplicon'
-    TYPE_METAGENOME = 'metagenome'
-    TYPE_METATRANS = 'metatranscriptome'
-    TYPE_ISOLATE = 'isolate_genome'
-    SAMPLE_TYPES_CHOICES = (
-        (TYPE_AMPLICON, TYPE_AMPLICON),
-        (TYPE_METAGENOME, TYPE_METAGENOME),
-        (TYPE_METATRANS, TYPE_METATRANS),
-        (TYPE_ISOLATE, TYPE_ISOLATE),
-    )
+    class Type(models.TextChoices):
+        """ Sample types enum: declared as (str value, Path) tuple.  The magic
+        depends on the second element to not be a str, that way the enum
+        instatiation will not use it a label. """
+
+        AMPLICON = ('amplicon', Path('amplicons'))
+        METAGENOME = ('metagenome', Path('metagenomes'))
+        METATRANS = ('metatranscriptome', Path('metatranscriptomes'))
+        ISOLATE = ('isolate_genome', Path('genomes'))
+        METABOLOME = ('metabolome', Path('metabolomes'))
+
+        def __new__(cls, value, dirpath):
+            """ dirpath: a pathlib.Path """
+            # (i)  second arg is the omics directory name
+            # (ii) derive label from value
+            obj = str.__new__(cls, value)
+            obj._value_ = value
+            obj._label_ = value
+            obj._dirpath_ = dirpath
+            return obj
+
+        @property
+        def sample_dir(self):
+            return settings.OMICS_PIPELINE_DATA / 'omics' / self._dirpath_
 
     sample_id = models.CharField(
         max_length=32,
@@ -266,11 +280,7 @@ class SeqSample(IDMixin, Model):
         **fk_req,
     )
 
-    sample_type = models.CharField(
-        max_length=32,
-        choices=SAMPLE_TYPES_CHOICES,
-        **opt,
-    )
+    sample_type = models.CharField(max_length=32, choices=Type.choices, **opt)
     amplicon_target = models.ForeignKey(AmpliconTarget, **fk_opt)
     sra_accession = models.TextField(max_length=16, **ch_opt,
                                      verbose_name='SRA accession')
@@ -471,9 +481,9 @@ class SeqSample(IDMixin, Model):
         """
         Run quick amplicon/primer location test
         """
-        if self.sample_type != self.TYPE_AMPLICON:
+        if self.sample_type != self.Type.AMPLICON:
             raise RuntimeError(
-                f'method is only for {self.TYPE_AMPLICON} samples'
+                f'method is only for {self.Type.AMPLICON} samples'
             )
 
         for i in get_target_genes():
@@ -656,7 +666,7 @@ class AbstractDataset(Model):
             for sample_id, _ in grp:
                 results[key].append(SeqSample.objects.get(
                     sample_id=sample_id,
-                    sample_type=SeqSample.TYPE_AMPLICON,
+                    sample_type=SeqSample.Type.AMPLICON,
                 ))
         return results
 
@@ -731,7 +741,7 @@ class AbstractDataset(Model):
         if sample_type is None:
             sample_type = self.get_sample_type()
 
-        if sample_type == SeqSample.TYPE_AMPLICON:
+        if sample_type == SeqSample.Type.AMPLICON:
             base = Path(settings.AMPLICON_PIPELINE_BASE)
         else:
             raise NotImplementedError

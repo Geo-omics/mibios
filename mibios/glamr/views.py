@@ -2402,7 +2402,7 @@ class SampleView(MapMixin, RecordView):
                     ),
                 )
 
-            if seqsamp.sample_type == SeqSample.TYPE_METAGENOME:
+            if seqsamp.sample_type == SeqSample.Type.METAGENOME:
                 if SampleTracking.Flag.UR1ABUND in flags:
                     urls['abundance/functions'] = reverse(
                         'relations',
@@ -2421,7 +2421,7 @@ class SampleView(MapMixin, RecordView):
                             field='bin',
                         ),
                     )
-            elif seqsamp.sample_type == SeqSample.TYPE_AMPLICON:
+            elif seqsamp.sample_type == SeqSample.Type.AMPLICON:
                 if seqsamp.asvabundance_set.exists():  # TODO repl w/flag test
                     urls['ASV abundance'] = reverse(
                         'relations',
