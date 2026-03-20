@@ -1180,7 +1180,7 @@ class SeqSampleLoader(MetaDataLoader):
             unchanged = 0
             notfound = 0
             nosuccess = 0
-            for lineno, line in enumerate(srcf, start=1):
+            for lineno, line in enumerate(srcf, start=2):
                 row = line.rstrip('\n').split('\t')
                 sample_id = row[SAMPLE_ID]
                 dataset = row[STUDY_ID]
@@ -1260,7 +1260,7 @@ class SeqSampleLoader(MetaDataLoader):
             srcf.close()
 
             log('Summary:')
-            log(f'  records read from file: {lineno}')
+            log(f'  records read from file: {lineno - 1}')
             log(f'  (unique) samples listed: {len(samp_id_seen)}')
             log(f'  samples updated: {changed}')
             if notfound:
