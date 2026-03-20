@@ -1090,7 +1090,7 @@ class SeqSampleLoader(MetaDataLoader):
             self.model.objects.update_access()
         flag = SampleTracking.Flag.METADATA
         for i in self._saved_samples:
-            tr, new = SampleTracking.objects.get_or_create(sample=i, flag=flag)
+            tr, new = SampleTracking.objects.get_or_create(subject=i, flag=flag)
             if not new:
                 tr.save()  # update timestamp
 
@@ -1251,7 +1251,7 @@ class SeqSampleLoader(MetaDataLoader):
                 good_seen.append(obj.pk)
 
                 tr, new = SampleTracking.objects.get_or_create(
-                    sample=obj,
+                    subject=obj,
                     flag=SampleTracking.Flag.PIPELINE,
                 )
                 if not new:
