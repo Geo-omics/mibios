@@ -38,6 +38,7 @@ class Command(BaseCommand):
         infile = settings.GLAMR_META_ROOT / UNITS_SHEET
         biosample_data = {}
         seqsample_data = {}
+        print(f'[INFO] Reading {infile} ...')
         with infile.open() as ifile:
             header = ifile.readline().rstrip('\n').split('\t')
             colindex = {}

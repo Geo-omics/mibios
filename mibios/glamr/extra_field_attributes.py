@@ -102,7 +102,7 @@ extra_seqsample_field_attrs = {
     'sra_accession': {'verbose_name': 'SRA accession'},
     'gold_analysis_id': {'verbose_name': 'GOLD analysis projectID'},
     'gold_seq_id': {'verbose_name': 'GOLD sequencing projectID'},
-    'amplicon_target': {'verbose_name': 'amplicon target'},
+    'amplicon_target_label': {'verbose_name': 'amplicon target'},
     'fwd_primer': {'verbose_name': 'forward primer'},
     'rev_primer': {'verbose_name': 'reverse primer'},
 }
