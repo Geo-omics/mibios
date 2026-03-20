@@ -253,17 +253,19 @@ class SeqSample(IDMixin, Model):
 
         def __new__(cls, value, dirpath):
             """ dirpath: a pathlib.Path """
-            # (i)  second arg is the omics directory name
-            # (ii) derive label from value
             obj = str.__new__(cls, value)
             obj._value_ = value
-            obj._label_ = value
-            obj._dirpath_ = dirpath
+            obj.dirpath = dirpath
             return obj
 
         @property
         def sample_dir(self):
-            return settings.OMICS_PIPELINE_DATA / 'omics' / self._dirpath_
+            return settings.OMICS_PIPELINE_DATA / 'omics' / self.dirpath
+
+        @property
+        def label(self):
+            # overrides the automatic labelling
+            return self.value
 
     sample_id = models.CharField(
         max_length=32,
