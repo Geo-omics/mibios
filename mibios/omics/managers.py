@@ -1161,10 +1161,16 @@ class SeqSampleLoader(MetaDataLoader):
             objs = self.select_related('parent__dataset') \
                        .in_bulk(field_name='sample_id')
 
+            old_tr_objs = {}
+            for tr in SampleTracking.objects.filter(flag=SampleTracking.Flag.PIPELINE):
+                if tr.subject_id in old_tr_objs:
+                    raise RuntimeError('duplicate tracking record? {tr=}')
+                old_tr_objs[tr.subject_id] = tr
+
             if source_file is None:
                 source_file = self.get_omics_import_file()
 
-            print(f'Reading {source_file} ...')
+            print(f'Processing {source_file} ...', end='', flush=True)
             srcf = estack.enter_context(open(source_file))
             head = srcf.readline().rstrip('\n').split('\t')
             for index, column in COLUMN_NAMES:
@@ -1175,6 +1181,8 @@ class SeqSampleLoader(MetaDataLoader):
                     )
 
             good_seen = []
+            changed_objs = []
+            tr_objs = []
             samp_id_seen = set()
             changed = 0
             unchanged = 0
@@ -1243,21 +1251,30 @@ class SeqSampleLoader(MetaDataLoader):
                     obj.analysis_dir = analysis_dir
 
                 if need_save:
-                    obj.full_clean()
-                    obj.save()
+                    obj.full_clean()  # this accounts for 1/2 the run time
+                    changed_objs.append(obj)
                     log(save_info)
                     changed += 1
 
                 good_seen.append(obj.pk)
 
-                tr, new = SampleTracking.objects.get_or_create(
-                    subject=obj,
-                    flag=SampleTracking.Flag.PIPELINE,
-                )
-                if not new:
-                    tr.save()  # update timestamp
+                if not (tr := old_tr_objs.get(obj.pk)):
+                    tr = SampleTracking(
+                        subject=obj,
+                        flag=SampleTracking.Flag.PIPELINE,
+                    )
+                    tr.full_clean()
+                tr_objs.append(tr)  # adds old and new records
 
             srcf.close()
+            print(f'{lineno} lines [OK]')
+            print('Saving tracking tickets... ', end='', flush=True)
+            for i in tr_objs:
+                # save both new and old records, old ones will get their
+                # timestamp updated!
+                i.save()
+            print(f'{len(tr_objs)} [OK]')
+            self.bulk_update(changed_objs, ['analysis_dir'])
 
             log('Summary:')
             log(f'  records read from file: {lineno - 1}')
