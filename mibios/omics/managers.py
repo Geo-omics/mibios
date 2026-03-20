@@ -1069,7 +1069,7 @@ class SeqSampleLoader(MetaDataLoader):
         ('GOLD_analysis_projectID', 'gold_analysis_id'),
         ('GOLD_sequencing_projectID', 'gold_seq_id'),
         # ('sequencing_type', 'sequencing_type'),  TODO
-        ('amplicon_target', 'amplicon_target'),
+        ('amplicon_target', 'amplicon_target_label'),
         ('F_primer', 'fwd_primer'),
         ('R_primer', 'rev_primer'),
         ('Notes', 'notes'),
