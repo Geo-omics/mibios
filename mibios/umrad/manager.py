@@ -647,7 +647,7 @@ class BaseLoader(MibiosBaseManager):
                         blanked_log = self._validate(obj, blank_invalid)
                     except ValidationError as e:
                         print(f'\nERROR on line {lineno}: '
-                              f'{"(new)" if obj_is_new else "(update)"} {e}'
+                              f'{"(new)" if obj_is_new else "(update)"} {e} '
                               f'offending row:\n{self.current_row}')
                         print(f'{vars(obj)=}')
                         if skip_on_error:
