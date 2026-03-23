@@ -117,3 +117,48 @@ def get_subclasses(cls, _collected=None):
     else:
         # return from recursive call
         return subs
+
+
+def check_pg_sequences():
+    """
+    Utility to check that sequences have sensible state
+
+    This is postgresql specific.  Use the sqlsequencereset management command
+    for resetting a sequence.
+    """
+    models = sorted(apps.get_models(), key=lambda x: x._meta.model_name)
+    with connection.cursor() as cur:
+        for i in models:
+            name = i._meta.model_name
+            if i._meta.auto_field is None:
+                print(f'[No auto_field]  {name}')
+                continue
+
+            # assumes sequence with usual name exists
+            seq = f'{i._meta.db_table}_id_seq'
+
+            cur.execute(f'SELECT last_value, is_called from {seq}')
+            res = cur.fetchall()
+
+            try:
+                res, = res
+                last_value, is_called = res
+            except ValueError as e:
+                raise RuntimeError(f'unexpected result from db query ({name}): {e}')
+
+            if not is_called:
+                if last_value != 1:
+                    raise RuntimeError('expecting a one but {last_value=}')
+                last_value = 0
+            if last_obj := i.objects.order_by('-pk').first():
+                max_pk = last_obj.pk
+            else:
+                print(f'[         0 OK]  {name} {last_value}')
+                continue
+
+            if max_pk == last_value:
+                print(f'[           OK]  {name} ({max_pk})')
+            elif max_pk < last_value:
+                print(f'[         < OK]  {name}: {max_pk=} < {last_value=}')
+            else:
+                print(f'[ERROR        ]  {name}: {max_pk=} > {last_value=}')
