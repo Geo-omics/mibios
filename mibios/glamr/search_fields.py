@@ -41,7 +41,7 @@ SEARCH_FIELDS = {
     },
     'omics': {
         'seqsample': [
-            'amplicon_target_label'
+            'amplicon_target_label',
             'fwd_primer',
             'rev_primer',
             'sample_type',
