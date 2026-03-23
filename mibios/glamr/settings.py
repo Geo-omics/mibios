@@ -33,6 +33,9 @@ OMICS_DATASET_MODEL = 'glamr.Dataset'
 
 DJANGO_TABLES2_TEMPLATE = 'django_tables2/bootstrap4.html'
 
+# Django's default is same-origin
+SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+
 # path to so file without .so suffix, e.g. './spellfix'
 # Setting this enables search suggestions
 SPELLFIX_EXT_PATH = None
