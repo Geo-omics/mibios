@@ -1100,12 +1100,19 @@ class File(Model):
             for line in ifile:
                 mtime, _, _, relpath = line.strip().split('\t')
                 files[relpath].append(mtime)
+        num_dupes = 0
         for relpath, times in files.items():
+            count = len(times)
+            times = set(times)
+            num_dupes += (count - len(times))
+
             if len(times) == 1:
                 continue
             print(relpath)
-            for i in times:
+            for i in sorted(times):
                 print(f'    {datetime.fromisoformat(i)}')
+        if num_dupes:
+            print(f'[NOTICE] There are {num_dupes} duplicate entries')
 
     def verify_with_pipeline(self):
         """
