@@ -645,7 +645,6 @@ class AbstractDataset(Model):
                 )
                 continue
 
-            dada2_dir_name = dispatch.target2dada2_dir(target_str)
 
             hmm, fwdprim, revprim = HMM.parse_target(target_str)
             target, new = AmpliconTarget.objects.get_or_create_from_hmm(
@@ -655,6 +654,9 @@ class AbstractDataset(Model):
             )
             if new:
                 print(f'Saved new amplicon target instance: {target}')
+
+            # The directory of output files per Snakefile
+            dada2_dir_name = f'dada2.{dispatch.target2spec(target_str)}'
 
             # combo key: for simplicity loading is per dada2 run, but
             # theoretically we may have different primer pairs (from which the
