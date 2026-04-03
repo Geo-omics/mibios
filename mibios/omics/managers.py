@@ -18,7 +18,7 @@ from textwrap import dedent
 from django.apps import apps
 from django.conf import settings
 from django.db import connection
-from django.db.models import F, Window
+from django.db.models import F, Q, Window
 from django.db.models.functions import FirstValue
 from django.db.models.signals import post_save
 from django.db.transaction import atomic
@@ -1302,21 +1302,41 @@ class SeqSampleLoader(MetaDataLoader):
                 log(f'WARNING The DB has {missing.count()} samples not at all '
                     f'listed in {source_file}')
 
-    def get_omics_blocklist(self):
+    def get_omics_blocklist(self, verbose=False):
         """
         Return QuerySet of samples for which 'omics data loading is blocked
 
         Blocked samples are those for which something is wrong with the omics
         data.
         """
-        blocklist = []
-        for sample_id, fields in get_sample_blocklist().items():
-            if not fields or 'omics' in fields:
-                blocklist.append(sample_id)
+        Dataset = apps.get_model(settings.OMICS_DATASET_MODEL)
+        filters = []
+        for record_id, qualifiers in get_sample_blocklist().items():
+            if record_id.startswith(Dataset.id_prefix):
+                f = {'parent__dataset__dataset_id': record_id}
+                if types := set(qualifiers).intersection(self.model.Type.values):
+                    f['sample_type__in'] = types
+                else:
+                    if qualifiers and 'omics' not in qualifiers:
+                        # blocks metadata only
+                        continue
+                filters.append(f)
+            else:
+                # assume a seqsample
+                if qualifiers and 'omics' not in qualifiers:
+                    # blocks metadata only
+                    continue
+                filters.append({'sample_id': record_id})
 
-        # assumes the block list has valid sample_id values, if not this will
-        # fail silently
-        return self.filter(sample_id__in=blocklist)
+        # assumes the block list has valid IDs, if not this will fail silently
+        q_filt = Q()
+        for f in filters:
+            q_filt |= Q(**f)
+
+        if verbose:
+            print(f'[DEBUG] blocklist filter: {q_filt}')
+
+        return self.filter(q_filt)
 
 
 class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
