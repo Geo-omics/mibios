@@ -645,8 +645,16 @@ class AbstractDataset(Model):
                 )
                 continue
 
+            try:
+                hmm, fwdprim, revprim = HMM.parse_target(target_str)
+            except LookupError as e:
+                print(
+                    f'[ERROR] bad target "{target_str}" in assignment file for '
+                    f'{self.dataset_id}: {e}\nIgnoring {len(grp)} samples with '
+                    f'this target'
+                )
+                continue
 
-            hmm, fwdprim, revprim = HMM.parse_target(target_str)
             target, new = AmpliconTarget.objects.get_or_create_from_hmm(
                 hmm,
                 fwdprim.name,
@@ -668,10 +676,14 @@ class AbstractDataset(Model):
                 results[key] = []
 
             for sample_id, _ in grp:
-                results[key].append(SeqSample.objects.get(
-                    sample_id=sample_id,
-                    sample_type=SeqSample.Type.AMPLICON,
-                ))
+                try:
+                    results[key].append(SeqSample.objects.get(
+                        sample_id=sample_id,
+                        sample_type=SeqSample.Type.AMPLICON,
+                    ))
+                except SeqSample.DoesNotExist:
+                    print(f'[ERROR] No amplion sample "{sample_id}" -- ignoring this')
+
         return results
 
     @classmethod
