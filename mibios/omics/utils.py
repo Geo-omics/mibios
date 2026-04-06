@@ -1,3 +1,4 @@
+from collections import defaultdict
 from contextlib import redirect_stdout
 from datetime import datetime
 from functools import wraps
@@ -313,7 +314,7 @@ def get_sample_blocklist(file=None):
 
     Lines first list the sample record ID / first field in the google
     sequencing sheet.  This ID string must be quoted if it contains white
-    space.  Optional the ID is followed by the word "omics" or any number of
+    space.  Optionally the ID is followed by the word "omics" or any number of
     SeqSample field names.  Empty lines and comment lines starting with # are
     ignored.
     """
@@ -322,15 +323,13 @@ def get_sample_blocklist(file=None):
         if not file:
             return {}
 
-    blocklist = {}
+    blocklist = defaultdict(list)
     with open(file) as ifile:
         for line in ifile:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-
-            record_id, *fields = shlex.split(line)
-            blocklist[record_id] = fields
+            tokens = shlex.split(line, comments=True)
+            if tokens:
+                record_id, *fields = tokens
+                blocklist[record_id] += fields
     return blocklist
 
 
