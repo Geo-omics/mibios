@@ -89,13 +89,21 @@ class LoadASVAbund(DatasetJob):
     run = ASVAbundance.loader.load_dataset
     undo = ASVAbundance.loader.unload_dataset
 
+    _params_cache = {}
+    """ Class-level cache for the job parameters.  This is to speed up
+    operations and avoid duplicate rror messages under certain calling scheme,
+    calling load_omics_data() on a SeqSample set and trying to init the same
+    dataset job for each of the samples when it's not ready yet. """
+
     def get_params(self):
         """
         Spawn one subjob per amplicon target
         """
-        return [
-            # cf. FileType.DADA_ASV etc
-            {'amplicon_target': target}
-            for _, target
-            in self.subject.get_amplicon_pipeline_results().keys()
-        ]
+        if self.subject not in self._params_cache:
+            self._params_cache[self.subject] = [
+                # cf. FileType.DADA_ASV etc
+                {'amplicon_target': target}
+                for _, target
+                in self.subject.get_amplicon_pipeline_results().keys()
+            ]
+        return self._params_cache[self.subject]
