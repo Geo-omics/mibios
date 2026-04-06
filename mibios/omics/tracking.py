@@ -11,13 +11,10 @@ from django.db.transaction import atomic
 from mibios.umrad.utils import atomic_dry
 from . import get_dataset_model
 from .models import File, SeqSample
+from .utils import NoJobParameters
 
 
 Status = Enum('Status', ['READY', 'DONE', 'WAITING', 'MISSING'])
-
-
-class NoJobParameters(Exception):
-    pass
 
 
 class BaseJob:

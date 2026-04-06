@@ -17,7 +17,7 @@ from mibios.umrad.manager import QuerySet
 from mibios.umrad.utils import atomic_dry, ProgressPrinter
 
 from .managers import fkmap_cache_reset
-from .utils import gentle_int, Timestamper
+from .utils import gentle_int, NoJobParameters, Timestamper
 
 
 class AccessMixin:
@@ -236,11 +236,20 @@ class LoadMixin:
         else:
             jobs = {i: [] for i in DataTracking.Flag}
 
-        print('Checking seqsamples for ready data...')
+        print(f'Checking {self.model._meta.verbose_name_plural} for ready data...')
+        no_param_fails = []
         for subject in ProgressPrinter(length=qs.count())(qs):
             ready_jobs = []
             for tr in subject.tracking.all():
-                for job in tr.job.before:
+                try:
+                    tr_job = tr.job
+                except NoJobParameters:
+                    # is a parametric job, but instantiation failed e.g.
+                    # because data is gone
+                    no_param_fails.append(tr)
+                    continue
+
+                for job in tr_job.before:
                     if only is not None and type(job) not in only:
                         continue
                     if job in ready_jobs:
@@ -258,6 +267,15 @@ class LoadMixin:
             else:
                 for i in ready_jobs:
                     jobs[i.flag].append(i)
+
+        if no_param_fails:
+            fail_list = ', '.join(str(i) for i in no_param_fails[:3])
+            if len(no_param_fails) > 3:
+                fail_list += ', ...'
+            print(
+                f'[NOTICE] Job parameterization failed for {len(no_param_fails)} '
+                f'existing tracking tickets:\n --> {fail_list}'
+            )
 
         if sort_by_subject:
             return jobs
@@ -368,7 +386,7 @@ class LoadMixin:
                 )
                 with atomic(), timestamper:
                     if stage == 1:
-                        print(f'--> {type(job).__name__}')
+                        print(f'--> {type(job).__name__} | {job.subject.accession}')
 
                     try:
                         job()

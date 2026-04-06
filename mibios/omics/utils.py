@@ -409,3 +409,13 @@ def _check_modtime_microseconds(path):
         # rather unlikely?
         print(f'[WARNING] no sub-seconds modtimes on {fstype} filesystem?')
         return True
+
+
+class NoJobParameters(Exception):
+    """
+    May be raised trying to instantiate certain omics.tracking.BaseJob objects
+
+    This is in omics.utils to avoid circular imports.
+    pass
+    """
+    pass
