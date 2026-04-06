@@ -89,11 +89,16 @@ class LoadASVAbund(DatasetJob):
     run = ASVAbundance.loader.load_dataset
     undo = ASVAbundance.loader.unload_dataset
 
-    _params_cache = {}
+    _params_cache = None
     """ Class-level cache for the job parameters.  This is to speed up
     operations and avoid duplicate rror messages under certain calling scheme,
     calling load_omics_data() on a SeqSample set and trying to init the same
     dataset job for each of the samples when it's not ready yet. """
+
+    @classmethod
+    def clear_cache(cls):
+        super().clear_cache()
+        cls._params_cache = {}
 
     def get_params(self):
         """

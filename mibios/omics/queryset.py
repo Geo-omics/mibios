@@ -203,6 +203,8 @@ class LoadMixin:
         job_registry = import_string('mibios.omics.tracking.registry')
         Status = import_string('mibios.omics.tracking.Status')
 
+        job_registry.clear_cache()
+
         if only is not None:
             _only = set()
             for i in only:

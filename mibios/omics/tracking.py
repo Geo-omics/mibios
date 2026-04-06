@@ -80,7 +80,11 @@ class BaseJob:
             self.files += files
 
     _jobs = None
-    """ object holder for for_subject(); initialized to {} in registry """
+    """ class-level object holder for for_subject(); initialized to {} in registry """
+
+    @classmethod
+    def clear_cache(cls):
+        cls._jobs = {}
 
     def __str__(self):
         if self.is_done():
@@ -424,6 +428,10 @@ class SeqSampleJob(BaseJob):
 class Registry:
     def __init__(self):
         self.jobs = {}
+
+    def clear_cache(self):
+        for cls in self.jobs.values():
+            cls.clear_cache()
 
     def register_from_module(self, module):
         if isinstance(module, str):
