@@ -14,7 +14,7 @@ from django.utils.module_loading import import_string
 
 from mibios import __version__ as version
 from mibios.umrad.manager import QuerySet
-from mibios.umrad.utils import atomic_dry
+from mibios.umrad.utils import atomic_dry, ProgressPrinter
 
 from .managers import fkmap_cache_reset
 from .utils import gentle_int, Timestamper
@@ -234,7 +234,8 @@ class LoadMixin:
         else:
             jobs = {i: [] for i in DataTracking.Flag}
 
-        for subject in qs:
+        print('Checking seqsamples for ready data...')
+        for subject in ProgressPrinter(length=qs.count())(qs):
             ready_jobs = []
             for tr in subject.tracking.all():
                 for job in tr.job.before:
@@ -313,7 +314,7 @@ class LoadMixin:
             if jobs is None:
                 jobs_todo = self.get_ready(sort_by_subject=True)
                 if not jobs_todo:
-                    print('NOTICE: no ready jobs for these {model_name_pl}')
+                    print(f'NOTICE: no ready jobs for these {model_name_pl}')
                     return
             else:
                 subject_set = set(self)
