@@ -372,13 +372,31 @@ class BaseJob:
 
 class DatasetJob(BaseJob):
     model = get_dataset_model()
+    sample_types = None
 
     def __init__(self, subject, tracking=None):
-        if not self.is_compatible(subject):
-            raise ValueError('incompatible subject: {subject}')
-        if isinstance(subject, SeqSample):
-            subject = subject.parent.dataset
+        if not isinstance(subject, self.model):
+            raise ValueError(f'subject must be instance of {self.model}: {subject}')
         super().__init__(subject, tracking)
+
+    @classmethod
+    def for_subject(cls, subject, tracking=None):
+        """
+        Get the job instance for given subject (a.k.a. object).
+
+        Use this in place of the regular constructor to ensure that jobs are
+        singleton per subject.
+
+        The given subject may also be a compatible SeqSample, but then will be
+        substituted by the sample's dataset.
+        """
+        if isinstance(subject, SeqSample):
+            if cls.is_compatible(subject):
+                subject = subject.parent.dataset
+            else:
+                raise ValueError('incompatible SeqSample instance')
+
+        return super().for_subject(subject, tracking=tracking)
 
     @classmethod
     def is_compatible(cls, subject):
