@@ -50,15 +50,23 @@ for (var i in map_points) {
 
                 var dataset_url = "Dataset: <a href='" + map_points[i].dataset_url + "'>" + map_points[i].dataset_name + "</a>"
 
-                var sample_type_string = map_points[i].sample_type[0].toUpperCase() + map_points[i].sample_type.slice(1)
-                var sample_type = "Sample Type: " + sample_type_string + "<br/>"
+                var sample_type = map_points[i].sample_type
+                if (sample_type) {
+                    sample_type = sample_type[0].toUpperCase() + sample_type.slice(1);
+                } else {
+                    sample_type = '(missing)';
+                }
+                sample_type = "Sample Type: " + sample_type + "<br/>";
 
-                var collection_timestamp = new Date(map_points[i].collection_timestamp)
-                var sample_date = "Collection Date: " + collection_timestamp.toLocaleDateString(0,{year:'numeric', month:'2-digit', day: '2-digit'})
+                var collection_timestamp = new Date(map_points[i].collection_timestamp);
+                var sample_date = "Collection Date: " + collection_timestamp.toLocaleDateString(0,{year:'numeric', month:'2-digit', day: '2-digit'});
                 var others = "";
                 if (map_points[i].others) {others=map_points[i].others;}
 
-                var iconType = map_points[i].types_at_location + "-icon";
+                var iconType = "other-icon";
+                if (map_points[i].types_at_location) {
+                    iconType = map_points[i].types_at_location + "-icon";
+                }
                 var iconMarker = L.divIcon({className: iconType});
 
                 var marker = L.marker(lat_long,{icon: iconMarker})

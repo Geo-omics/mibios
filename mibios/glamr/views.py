@@ -918,8 +918,7 @@ class MapMixin():
             # marker/icon.  The map javascript will add '-icon'.  Assumes that
             # any possible selector is defined in the loaded style sheet.  If
             # no sample in the group has a sample_type then we put in an empty
-            # string, resulting in a (hopefully) invalid selector in which case
-            # no marker will be displayed.
+            # string and map.js should handle that case.
             stypes = set((
                 j.sample_type
                 for i in grp
