@@ -1,9 +1,11 @@
+from enum import Enum
 from functools import cache, cached_property
 from itertools import groupby
 from logging import getLogger
 from pathlib import Path
 import pprint
 import re
+import time
 
 from django_tables2 import (
     Column, LazyPaginator, SingleTableView, table_factory, TemplateColumn
@@ -15,7 +17,7 @@ from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
 from django.db import OperationalError, connection
 from django.db.models import Count, Exists, Field, OuterRef, Prefetch, URLField
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.urls import reverse
 from django.utils.decorators import classonlymethod
 from django.utils.functional import classproperty
@@ -843,6 +845,25 @@ class MapMixin():
     """
     Mixin for views that display samples on a map
     """
+    Mode = Enum('MapOperationMode', 'auto defer include only')
+    DEFAULT_MAP_MODE = Mode.include
+    INCLUDE_MAP_DATA_LIMIT = 500
+
+    def get(self, request, **kwargs):
+        try:
+            self.mapmode = self.Mode[request.GET.get('mapmode')]
+        except KeyError:
+            self.mapmode = self.DEFAULT_MAP_MODE
+
+        return super().get(request, **kwargs)
+
+    def render_to_response(self, context, **response_kwargs):
+        if self.mapmode is self.Mode.only:
+            return context['map_data_response']
+        else:
+            # regular view response
+            return super().render_to_response(context, **response_kwargs)
+
     def get_sample_queryset(self):
         """
         Return a Sample queryset of the samples to be displayed on the map.
@@ -864,21 +885,61 @@ class MapMixin():
         else:
             return Sample.objects.none()
 
+    map_points_responses = {}
+
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['map_points'] = self.get_map_points()
-        if ctx['map_points'] or self.model in (Sample, Dataset):
-            ctx['show_map'] = True
-        else:
-            ctx['show_map'] = False
+        match self.mapmode:
+            case self.Mode.only:
+                t0 = time.monotonic()
+                try:
+                    resp = JsonResponse({'points': self.get_map_points()})
+                except Exception as e:
+                    if settings.DEBUG:
+                        raise
+                    else:
+                        msg = 'failed generating map points'
+                        print(f'[ERROR] {msg} -- {e.__class__.__name__}: {e}')
+                        # this may be displayed to user on empty map or so
+                        resp = JsonResponse({'error': msg})
+                ctx['map_data_response'] = resp
+                t1 = time.monotonic()
+                log.info(f'timing map points: {t1 - t0=}s')
+                # return as other context vars below are not needed for map-
+                # points-only response.
+                return ctx
+
+            case self.Mode.auto:
+                # TODO: need to know number of samples or so ahead of time?
+                raise NotImplementedError('auto mode not implemented')
+
+            case self.Mode.defer:
+                # map points get fetched later
+                ctx['defer_map_data'] = True
+                ctx['map_data'] = None
+
+            case self.Mode.include:
+                # include map points in document
+                ctx['defer_map_data'] = False
+                ctx['map_data'] = self.get_map_points()
+            case _:
+                raise ValueError(f'invalid mode: {self.mapmode}')
+
+        # common context vars for normal view
+        ctx['with_map'] = True  # include leaflet resources
         ctx['fit_map_to_points'] = True
+        if self.model in (Sample, Dataset):
+            ctx['hide_empty_map'] = False
+        else:
+            ctx['hide_empty_map'] = True
+
         return ctx
 
     def get_map_points(self):
         """
         Prepare sample data to be passed to the map
 
-        Returns a dict str->str to be turned into json in the template.
+        Returns a list of dicts str->str to be turned into json in the template.
         """
         # Sample fields to be included in map data:
         map_data_fields = [

@@ -1,8 +1,9 @@
 {% load static %}
 
-{% if show_map %}
+{% if with_map %}
 <div id="map" class="map m-2"></div>
-<script src="{% static 'glamr/js/map.js' %}" defer data-fit_map_to_points="{{ fit_map_to_points|default:"" }}"></script>
-{{ map_points|json_script:"" }}
+<script src="https://unpkg.com/leaflet/dist/leaflet.js" crossorigin=""> </script>
+<script src="{% static 'glamr/js/map.js' %}" {%if not defer_map_data%}defer{%endif%} data-fit_map_to_points="{{ fit_map_to_points|default:"True" }}" data-deferred="{{defer_map_data}}" data-hide_empty_map="{{hide_empty_map}}"></script>
+{% if map_data is not None %}{{ map_data|json_script:"map_data" }}{% endif %}
 {% endif %}
 
