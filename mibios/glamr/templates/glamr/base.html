@@ -5,7 +5,7 @@
 
 {% block head_links_and_scripts %}
 {{ block.super }}
-    {% if map_points is not None %}
+    {% if show_map %}
     <link rel="stylesheet" type="text/css" href="https://unpkg.com/leaflet/dist/leaflet.css" crossorigin=""/>
     {% endif %}
 {% endblock %}
@@ -61,8 +61,8 @@
 {% endif %}{% endblock %}
 
 {% block bottom_of_body %}
-{% if map_points is not None %}
-<script src="https://unpkg.com/leaflet/dist/leaflet.js" crossorigin=""> </script>
+{% if show_map %}
+<!--<script src="https://unpkg.com/leaflet/dist/leaflet.js" crossorigin=""> </script>-->
 {% endif %}
 <script src="{% static 'glamr/js/popper.min.js' %}" defer></script>
 <script src="{% static 'glamr/js/bootstrap.min.js' %}" defer></script>

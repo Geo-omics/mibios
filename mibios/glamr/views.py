@@ -4,6 +4,8 @@ from logging import getLogger
 from pathlib import Path
 import pprint
 import re
+import time
+from uuid import uuid4
 
 from django_tables2 import (
     Column, LazyPaginator, SingleTableView, table_factory, TemplateColumn
@@ -15,7 +17,7 @@ from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
 from django.db import OperationalError, connection
 from django.db.models import Count, Exists, Field, OuterRef, Prefetch, URLField
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.urls import reverse
 from django.utils.decorators import classonlymethod
 from django.utils.functional import classproperty
@@ -843,6 +845,30 @@ class MapMixin():
     """
     Mixin for views that display samples on a map
     """
+    def get(self, request, **kwargs):
+        self.map_points_key = request.GET.get('mappoints')
+        if self.map_points_key:
+            try:
+                return self.map_points_responses.pop(self.map_points_key)
+            except KeyError:
+                print(f'[WARNING] unknown map points key: {self.map_points_key}')
+                # goes through normal view until render_to_response()
+
+        return super().get(request, **kwargs)
+
+    def render_to_response(self, context, **response_kwargs):
+        if resp := context.get('map_points_response'):
+            # respond with json-formatted map points only, this is the backup
+            # path, the map points key is not in the json response store
+            try:
+                return resp
+            except KeyError:
+                print(f'[WARNING] no such map points key: {self.map_points_key}')
+                return JsonResponse({'points': 'map_points'})
+        else:
+            # regular view response
+            return super().render_to_response(context, **response_kwargs)
+
     def get_sample_queryset(self):
         """
         Return a Sample queryset of the samples to be displayed on the map.
@@ -864,10 +890,27 @@ class MapMixin():
         else:
             return Sample.objects.none()
 
+    map_points_responses = {}
+
+    @classmethod
+    def store_map_points_response(cls, response):
+        key = str(uuid4())
+        cls.map_points_responses[key] = response
+        return key
+
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['map_points'] = self.get_map_points()
-        if ctx['map_points'] or self.model in (Sample, Dataset):
+        t0 = time.monotonic()
+        map_points_response = JsonResponse({'points': self.get_map_points()})
+        t1 = time.monotonic()
+        print(f'BORK {t1 - t0=}')
+        if self.map_points_key:
+            # error path for map points json response
+            ctx['map_points_response'] = map_points_response
+        else:
+            # normal path
+            ctx['map_points_key'] = self.store_map_points_response(map_points_response)
+        if self.model in (Sample, Dataset):
             ctx['show_map'] = True
         else:
             ctx['show_map'] = False
@@ -878,7 +921,7 @@ class MapMixin():
         """
         Prepare sample data to be passed to the map
 
-        Returns a dict str->str to be turned into json in the template.
+        Returns a list of dicts str->str to be turned into json in the template.
         """
         # Sample fields to be included in map data:
         map_data_fields = [
