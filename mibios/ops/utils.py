@@ -71,15 +71,21 @@ class Profiling:
 
     def __call__(self, request):
         prof = cProfile.Profile()
-        prof.enable()
+        try:
+            prof.enable()
+        except ValueError:
+            # e.g. nested calls when getting new request during ongoing response
+            # cProfile will say "Another profiling tool is already active"
+            prof = None
 
         response = self.get_response(request)
 
-        prof.disable()
-        for sortby in ['cumulative', 'tottime']:
-            with open(f'profile.request.{sortby}.txt', 'w') as f:
-                ps = pstats.Stats(prof, stream=f).sort_stats(sortby)
-                ps.print_stats()
+        if prof:
+            prof.disable()
+            for sortby in ['cumulative', 'tottime']:
+                with open(f'profile.request.{sortby}.txt', 'w') as f:
+                    ps = pstats.Stats(prof, stream=f).sort_stats(sortby)
+                    ps.print_stats()
 
         return response
 
