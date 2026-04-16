@@ -24,6 +24,10 @@ CRISPY_TEMPLATE_PACK = 'bootstrap5'
 TEMPLATES[0]['DIRS'].append('/usr/share/bootstrap-icons/svg/')  # noqa:F405
 BASE_TEMPLATE_NAME = 'glamr/base.html'
 
+STATICFILES_DIRS = [
+    ('bootstrap5', '/usr/share/bootstrap-html'),  # Debian's libjs-bootstrap5
+    ('popper2', '/usr/share/javascript/popperjs2'),  # Debian's node-popper2
+]
 # override mibios' urls since glamr has it's own
 ROOT_URLCONF = 'mibios.glamr.urls0'
 
