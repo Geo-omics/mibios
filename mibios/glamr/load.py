@@ -528,6 +528,12 @@ class SampleLoader(BoolColMixin, MetaDataLoader):
             return num.quantize(Decimal((0, (1,), -field.decimal_places)))
         return value
 
+    def normalize_space(self, value, **ctx):
+        """ replace non-breaking space """
+        if value:
+            value = re.sub(r'/xa0', ' ', value)
+        return value
+
     spec = SampleInputSpec(
         ('SampleID', 'sample_id', check_sample_id),  # A
         # id_fixed B  --> ignore
@@ -536,6 +542,7 @@ class SampleLoader(BoolColMixin, MetaDataLoader):
         ('StudyID', 'dataset.dataset_id'),  # E
         ('ProjectID', 'project_id'),  # F
         ('Biosample', 'biosample'),  # G
+        ('geo_loc_name', 'geo_loc_name', normalize_space),  # J
         ('JGI_study', 'jgi_study'),  # K
         ('JGI_biosample', 'jgi_biosample'),  # L
         # columns after Q, mostly defined by units sheet
