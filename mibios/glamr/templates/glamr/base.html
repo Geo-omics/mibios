@@ -3,11 +3,10 @@
 
 {% block title %}{{ page_title | join:" | " | default:'GLAMR' }}{% endblock %}
 
-{% block head_links_and_scripts %}
-{{ block.super }}
-    {% if with_map %}
+{% block head_extras %}{{ block.super }}
+{% if include_map %}
     <link rel="stylesheet" type="text/css" href="https://unpkg.com/leaflet/dist/leaflet.css" crossorigin=""/>
-    {% endif %}
+{% endif %}
 {% endblock %}
 
 {% block nav_items %}
@@ -60,9 +59,11 @@
     <hr>
 {% endif %}{% endblock %}
 
-{% block bottom_of_body %}
-{% if with_map %}
-<!--<script src="https://unpkg.com/leaflet/dist/leaflet.js" crossorigin=""> </script>-->
+{% block body_bottom %}{{ block.super }}
+{% if include_map %}
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js" crossorigin=""> </script>
+    <script src="{% static 'glamr/js/map.js' %}" {%if not defer_map_data%}defer{%endif%} data-fit_map_to_points="{{ fit_map_to_points|default:"True" }}" data-deferred="{{defer_map_data}}" data-hide_empty_map="{{hide_empty_map}}"></script>
+    {% if map_data is not None %}{{ map_data|json_script:"map_data" }}{% endif %}
 {% endif %}
 <script src="{% static 'popper2/popper.min.js' %}" defer></script>
 <script src="{% static 'bootstrap5/js/bootstrap.min.js' %}" defer></script>

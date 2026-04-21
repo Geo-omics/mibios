@@ -926,7 +926,7 @@ class MapMixin():
                 raise ValueError(f'invalid mode: {self.mapmode}')
 
         # common context vars for normal view
-        ctx['with_map'] = True  # include leaflet resources
+        ctx['include_map'] = True  # include leaflet resources
         ctx['fit_map_to_points'] = True
         if self.model in (Sample, Dataset):
             ctx['hide_empty_map'] = False
