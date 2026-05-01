@@ -807,6 +807,7 @@ class ReadAbundance(Model):
     tpm = models.FloatField(null=True, verbose_name='TPM')
     rpkm = models.FloatField(null=True, verbose_name='RPKM')
 
+    objects = managers.ReadAbundanceManager()
     loader = managers.ReadAbundanceLoader()
 
     class Meta(Model.Meta):

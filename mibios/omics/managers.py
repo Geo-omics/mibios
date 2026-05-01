@@ -1054,6 +1054,41 @@ class FunctionNameAbundanceLoader(SampleLoadMixin, BulkLoader):
         return counts
 
 
+class ReadAbundanceManager(Manager):
+    def aggregate_fn_names_faster(self, function_names):
+        """
+        Aggregate tpm measure for a collection of function names.
+
+        This method is faster than aggregate_fn_names as some tpm values may be
+        counted multiple times.  Returns a list of tuples (seqsample_pk,
+        sum_tpm)
+        """
+        qs = self.filter(ref__function_names__in=function_names)
+        qs = qs.order_by('sample').values('sample').annotate(Sum('tpm'))
+        return qs
+
+    def aggregate_fn_names(self, function_names):
+        """
+        Aggregate tpm measure for given function names
+
+        function_names: A single instance or a list of function names.
+
+        Returns a list of tuples (seqsample, sum_tpm)
+        """
+        if isinstance(function_names, FunctionName):
+            function_names = [function_names]
+        refs = UniRef100.objects.filter(function_names__in=function_names)
+        # faster if refs is evaluated here: (or not FIXME/TODO: list(refs)?)
+        # speed might depend on how many and which function names!?!
+        qs = self.filter(ref__in=refs).exclude(tpm=None)
+        qs = qs.order_by('sample').values('sample').annotate(Sum('tpm'))
+        return refs, qs
+
+    def get_function_name_abundance_queryset(self, function_name):
+        _, qs = self.aggregate_fn_names([function_name])
+        return qs
+
+
 class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
     """ load data from *_tophit_report files """
 
