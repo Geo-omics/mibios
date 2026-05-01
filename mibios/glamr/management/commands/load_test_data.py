@@ -40,7 +40,7 @@ class Command(BaseCommand):
             with TarFile.open(tarfile, 'r') as self.tarf:
                 cols_info = None
                 for info in iter(self.tarf):
-                    # cols files must come right before their repsective dump
+                    # cols files must come right before their respective dump
                     if info.name.endswith('.cols'):
                         cols_info = info
                     else:
@@ -91,7 +91,7 @@ class Command(BaseCommand):
             model = self.models_by_table[table_name]
         except KeyError:
             raise CommandError(f'not a valid table name: {table_name}')
-        print(f'  {table_name:<27}', end=' ', flush=True)
+        print(f'  {table_name:<30}', end=' ', flush=True)
         if cols is None:
             print('      ', end=' ', flush=True)
         else:

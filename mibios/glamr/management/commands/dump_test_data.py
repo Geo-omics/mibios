@@ -110,7 +110,6 @@ class Command(BaseCommand):
         ur100_qs = UniRef100.objects\
             .filter(abundance__sample__in=self.samples)\
             .distinct()
-
         self.dump(queryset=ur100_qs)
 
         # omics models related to our samples
@@ -124,6 +123,26 @@ class Command(BaseCommand):
         Through = Bin._meta.get_field('contigs').remote_field.through
         qs = Through.objects.filter(bin__sample__in=self.samples)
         self.dump(queryset=qs)
+
+        # function names related to those uniref100s
+        FunctionName = apps.get_model('umrad', 'FunctionName')
+        fn_qs = FunctionName.objects\
+            .filter(uniref100__in=ur100_qs)\
+            .distinct()
+        self.dump(queryset=fn_qs)
+
+        # UniRef100<->FunctionName m2m relation
+        Through = UniRef100._meta.get_field('function_names').remote_field.through
+        self.dump(queryset=Through.objects.filter(uniref100__in=ur100_qs))
+
+        # xrefs related to those UniRef100s
+        FuncRefDBEntry = apps.get_model('umrad', 'FuncRefDBEntry')
+        xref_qs = FuncRefDBEntry.objects.filter(uniref100__in=ur100_qs).distinct()
+        self.dump(queryset=xref_qs)
+
+        # UniRef100<->FuncRefDBEntry m2m relation
+        Through = UniRef100._meta.get_field('function_refs').remote_field.through
+        self.dump(queryset=Through.objects.filter(uniref100__in=ur100_qs))
 
     def dump(self, *, queryset=None, model=None):
         """
