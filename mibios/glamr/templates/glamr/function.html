@@ -1,57 +1,71 @@
-{% extends "glamr/base.html" %}
+{% extends "glamr/detail.html" %}
 {% load static glamr_extras %}
-{% block content %}
-<h3>Function: {{ name }}</h3>
+{% block details %}
 
-<table>
-    <tr><th>Abundance</th><th>UniRef100</th><th>Other names</th><th>UniRef90</th><th>cross references</th></tr>
-    {% for ur90, ur100s, xrefs, alt_names in data %}
+<div class="card mb-2 mt-2">
+    <div style="display: flex; flex-direction: row" class="card-header">
+        <h6 class="card-title m-1">UniRef records related to {{object}}</h6>
+    </div>
+    <div class="card-body">
+
+<table class="table">
+    <thead>
+        <tr>
+            <th scope="col">UniRef90</th>
+            <th scope="col">UniRef100</th>
+            <th scope="col">samples</th>
+            <th scope="col">Other names</th>
+            <th scope="col">cross references</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for ur90, ur100_data in data %}{% for ur100, alt_names, xrefs in ur100_data %}
     <tr>
-        <td>
-            {% for i in ur100s %}
-            <li>
-                {% if i.sample_count %}
-                <a href="{% url 'record_abundance' model='uniref100' pk=i.pk %}">{{ i.sample_count }} sample{{i.sample_count|pluralize}}</a>
-                {% else %}(not detected){% endif %}
-            </li>
-            {% endfor %}
-            </ul>
-        </td>
-
-        <td><ul>
-            {% for i in ur100s %}
-            <li>
-                <a href="{% record_url i %}">{{ i.accession }}</a>
-            </li>
-            {% endfor %}
-            </ul>
-        </td>
-
-        <td><ul>
-            {% for names in alt_names %}
-            <li>{%for i in names%}<a href="{%record_url i%}">{{i}}</a> {%endfor%}</li>
-            {% endfor %}
-            </ul>
-        </td>
-
-        <td>
+        {% if forloop.first %}
+        <td rowspan="{{ur100_data|length}}">
             {% if ur90 %}
             <a href="{% url 'filter_result2' model='uniref100' %}?uniref90={{ur90}}">{{ur90}}</a>
             {% else %}n/a{% endif %}
         </td>
+        {% endif %}
 
-        <td><ul>
-            {% for i in ur100s %}
-            <li>
-            {% for xref in i.function_refs.all %}
-            <a href="{% record_url xref %}">{{xref}}</a>
-            {% endfor %}
-            </li>
-            {% endfor %}
-            </ul>
+        <td><a href="{% record_url ur100 %}">{{ ur100.accession }}</a></td>
+        <td>
+        {% if ur100.sample_count %}
+        <a href="{% url 'record_abundance' model='uniref100' pk=ur100.pk %}">{{ ur100.sample_count }} sample{{ur100.sample_count|pluralize}}</a>
+        {% else %}(not detected){% endif %}
+        </td>
+        <td>{%for i in alt_names%}<a href="{%record_url i%}">{{i}}</a> {%endfor%}</td>
+        <td>
+        {%if xrefs%}
+        <div class="accordion" id="accordion-{{ur100.accession}}">
+          <div class="accordion-item">
+            <h2 class="accordion-header">
+              <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#xref-list-{{ur100.accession}}" aria-expanded="false" aria-controls="xref-list-{{ur100.accession}}">...</button>
+            </h2>
+            <div id="xref-list-{{ur100.accession}}" class="accordion-collapse collapse" data-bs-parent="#accordion-{{ur100.accession}}">
+              <div class="accordion-body">
+                <ul class="list-group list-group-flush">
+                    {%for i in xrefs%}
+                    <li class="list-group-item"><a href="{%record_url i%}">{{i}}</a></li>
+                    {%endfor%}
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+        {%endif%}
         </td>
     </tr>
     {% endfor %}
+    {% endfor %}
+    </tbody>
 </table>
+
+    </div>{#end card body#}
+</div>{#end card#}
+
+
 {% endblock %}
 
+{% block relations %}{% endblock %}

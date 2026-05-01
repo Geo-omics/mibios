@@ -5,7 +5,7 @@
     <li class="breadcrumb-item"><a href="{% url 'dataset_sample_list' set_no=object.dataset.get_record_id_no %}">{{object|meta:"verbose_name_plural"|capfirst}}</a></li>
 {% endblock %}
 
-{% block 'details' %}
+{% block details %}
 <div class="card mb-2 mt-2">
     <div style="display: flex; flex-direction: row" class="card-header">
         <h6 class="card-title m-1">Sequencing data <small>[<a href="{% url 'relations' object|meta:"model_name" object.pk 'seqsample' %}">full table</a>]</small></h6>

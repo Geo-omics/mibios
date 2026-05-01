@@ -88,7 +88,7 @@ class ExportMixin(ExportBaseMixin):
 
     Differs from mibios.ExportMixin in that this doesn't override the template
     response, instead conditional switch in dispatch() if a file export
-    response is needed.  Similar code then appears in out get_export().
+    response is needed.  Similar code then appears in our get_export().
     """
     export_query_param = 'export'
     export_options = None
@@ -2361,6 +2361,7 @@ class FunctionView(RecordView):
     def get_queryset(self):
         qs = super().get_queryset()
         uref_qs = UniRef100.objects.annotate(sample_count=Count('abundance'))
+        uref_qs = uref_qs.order_by('uniref90', 'accession')
         pf = Prefetch('uniref100_set', queryset=uref_qs)
         qs = qs.prefetch_related(pf, 'uniref100_set__function_names')
         qs = qs.prefetch_related('uniref100_set__function_refs')
@@ -2368,26 +2369,24 @@ class FunctionView(RecordView):
 
     def gather_data(self):
         obj = self.object
-        urefs = obj.uniref100_set.all()
-        xrefs = FuncRefDBEntry.objects.filter(names=obj)
-        xrefs = xrefs.prefetch_related('unirefs')
-
-        urefs = sorted(urefs, key=lambda x: x.uniref90)
-        urefs = groupby(urefs, key=lambda x: x.uniref90)
+        urefs = obj.uniref100_set.all()  # got prefetched in get_queryset()
 
         data = []
-        for ur90, grp in urefs:
+        for ur90, grp in groupby(urefs, key=lambda x: x.uniref90):
             grp = list(grp)
-            grp_xrefs = [i.function_refs.all() for i in grp]
-            alt_names = []
-            for i in grp:
-                other_names = [j for j in i.function_names.all() if j != obj]
-                alt_names.append(other_names)
-            data.append((ur90, grp, grp_xrefs, alt_names))
+            data.append((
+                ur90,
+                [(
+                    i,
+                    sorted([i for i in i.function_names.all() if i != obj], key=lambda x: x.entry),  # noqa:E501
+                    sorted(i.function_refs.all(), key=lambda x: x.accession),
+                ) for i in grp],
+            ))
 
         return data
 
     def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
         ctx['data'] = self.gather_data()
         ctx['name'] = self.object.entry
         return ctx
