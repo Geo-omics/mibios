@@ -1608,6 +1608,8 @@ class DataTracking(Model):
         ASVABUND = 'ASV', 'ASV abundance loaded'
         BINNING = 'BIN', 'bins loaded'
         CABUND = 'CAB', 'contig abundance loaded'
+        FNABUND = 'FAB', 'fn name abundance loaded'
+        FXABUND = 'FXA', 'fn xref abundance loaded'
         METADATA = 'MD', 'meta data loaded'
         PIPELINE = 'PL', 'omics pipeline registered'
         TAXABUND = 'TAB', 'taxa abundance loaded'

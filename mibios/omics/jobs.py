@@ -1,6 +1,6 @@
 from .models import (
-    ASVAbundance, Bin, Contig, File, ReadAbundance, DataTracking, SeqSample,
-    TaxonAbundance,
+    ASVAbundance, Bin, Contig, DataTracking, File, FuncAbundance, FunctionNameAbundance,
+    ReadAbundance, SeqSample, TaxonAbundance,
 )
 from .tracking import BaseJob, DatasetJob, SeqSampleJob
 
@@ -112,3 +112,19 @@ class LoadASVAbund(DatasetJob):
                 in self.subject.get_amplicon_pipeline_results().keys()
             ]
         return self._params_cache[self.subject]
+
+
+class CalcFnAbund(SeqSampleJob):
+    flag = DataTracking.Flag.FNABUND
+    after = [LoadUR1TPM]
+    sample_types = [SeqSample.Type.METAGENOME]
+    run = FunctionNameAbundance.loader.load_sample
+    undo = FunctionNameAbundance.loader.unload_sample
+
+
+class CalcFnRefAbund(SeqSampleJob):
+    flag = DataTracking.Flag.FXABUND
+    after = [LoadUR1TPM]
+    sample_types = [SeqSample.Type.METAGENOME]
+    run = FuncAbundance.loader.load_sample
+    undo = FuncAbundance.loader.unload_sample
