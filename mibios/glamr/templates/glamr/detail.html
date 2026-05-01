@@ -13,7 +13,7 @@
 
 {% block map%}{%include 'glamr/map.html'%}{%endblock%}
 
-{% if has_abundance %}[<a href="{%url 'record_abundance' model=object_model_name pk=object.pk%}">abundance</a>]{%endif%}
+{% if supports_abundance %}[<a href="{%url 'record_abundance' model=object_model_name pk=object.pk%}">abundance</a>]{%endif%}
 
 {% block details %}
 <div class="card mb-2 mt-2">

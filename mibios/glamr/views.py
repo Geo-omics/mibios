@@ -41,8 +41,8 @@ from mibios.views import (
     TextRenderer, TextRendererZipped, VersionInfoMixin,
 )
 from mibios.omics.models import (
-    CompoundAbundance, Contig, FuncAbundance, IDMixin, ReadAbundance,
-    SampleTracking, SeqSample, TaxonAbundance,
+    CompoundAbundance, Contig, FuncAbundance, FunctionNameAbundance, IDMixin,
+    ReadAbundance, SampleTracking, SeqSample, TaxonAbundance,
 )
 from mibios.ncbi_taxonomy.models import TaxNode
 from mibios.umrad.models import FunctionName, FuncRefDBEntry, UniRef100
@@ -581,6 +581,8 @@ class GenericModelMixin:
         'omics.taxonabundance',
         'ncbi_taxonomy.taxname',
         'ncbi_taxonomy.taxnode',
+        'umrad.funcrefdbentry',
+        'umrad.functionname',
         'umrad.uniref100',
     )
     """ app label + model names of models allowed in generic views """
@@ -1556,58 +1558,77 @@ class AbundanceView(MapMixin, BreadCrumbMixin, ModelTableMixin, BaseMixin,
 
     # view attributes set by setup:
     VIEW_ATTRS = {
-        'taxnode': {
-            'model': TaxonAbundance,
+        TaxonAbundance: {
             'table_class': tables.TaxonAbundanceTable,
             'sample_filter_key': 'seqsample__taxonabundance__taxon',
         },
-        'uniref100': {
-            'model': ReadAbundance,
+        ReadAbundance: {
             'table_class': tables.ReadAbundanceTable,
             'sample_filter_key': 'seqsample__functional_abundance__ref',
         },
-        'funcrefdbentry': {
-            'model': FuncAbundance,
+        FuncAbundance: {
             'table_class': tables.FunctionAbundanceTable,
-            'sample_filter_key': 'seqsample__funcabundance__function',
+            'sample_filter_key': 'seqsample__function_abundance__function',
         },
-        'compoundrecord': {
-            'model': CompoundAbundance,
+        CompoundAbundance: {
             'table_class': tables.CompoundAbundanceTable,
             'sample_filter_key': 'seqsample__compoundabundance__compound',
         },
+        FunctionNameAbundance: {
+            'table_class': tables.FunctionNameAbundanceTable,
+            'sample_filter_key': 'seqsample__function_name_abundance__name',
+        },
     }
 
-    def setup(self, request, *args, **kwargs):
-        super().setup(request, *args, **kwargs)
-        obj_model_name = kwargs['model']
+    @classmethod
+    def get_view_attrs(cls, object_model):
+        """
+        Collect object-model-dependent view attributes
+
+        Returns a dict if the model is supported, otherwise raises Http404.
+        """
         try:
-            view_attrs = self.VIEW_ATTRS[obj_model_name]
+            field = object_model._meta.get_field('abundance')
+        except FieldDoesNotExist as e:
+            raise Http404(f'unsupported model: {e}') from e
+
+        model = field.remote_field.model
+
+        try:
+            view_attrs = cls.VIEW_ATTRS[model]
         except KeyError as e:
             raise Http404(f'unsupported model: {e}') from e
 
-        for key, value in view_attrs.items():
-            setattr(self, key, value)
+        view_attrs['model'] = model
+        return view_attrs
 
+    @classmethod
+    def supports_abundance(cls, object_model):
+        """ Tell if view supports given model for objects """
         try:
-            self.object_model = get_registry().models[obj_model_name]
+            cls.get_view_attrs(object_model)
+        except Http404:
+            return False
+        else:
+            return True
+
+    def setup(self, request, *args, **kwargs):
+        super().setup(request, *args, **kwargs)
+        try:
+            self.object_model = get_registry().models[kwargs['model']]
         except KeyError as e:
             raise Http404(f'no such model: {e}') from e
 
+        for key, value in self.get_view_attrs(self.object_model).items():
+            setattr(self, key, value)
+
         try:
             self.object = self.object_model.objects.get(pk=kwargs['pk'])
-        except self.model.DoesNotExist:
-            raise Http404('no such object')
-
-        self.model = self.object.abundance.model
+        except self.model.DoesNotExist as e:
+            raise Http404('no such object: {e}') from e
 
     def get_queryset(self):
-        try:
-            qs = self.object.abundance.all()
-        except AttributeError:
-            # (object-)model lacks reverse abundance relation
-            raise
-
+        qs = self.object.abundance.all()
         qs = exclude_private_data(qs, self.request.user)
         return qs
 
@@ -1891,9 +1912,7 @@ class RecordView(BaseMixin, BreadCrumbMixin, DetailView):
         ctx['details'] = self.get_details()
         ctx['relations'] = self.get_relations()
         ctx['external_url'] = self.object.get_external_url()
-        ctx['has_abundance'] = (
-            self.model._meta.model_name in AbundanceView.VIEW_ATTRS
-        )
+        ctx['supports_abundance'] = AbundanceView.supports_abundance(self.model)
         ctx['header_link_groups'] = []
 
         return ctx
