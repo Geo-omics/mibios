@@ -98,7 +98,7 @@ class BulkCreateWrapperMixin:
                         ignore_conflicts=ignore_conflicts,
                     )
                 except Exception as e:
-                    print(f'ERROR saving to {model_name or "?"}: batch 1st: '
+                    print(f'\nERROR saving to {model_name or "?"}: batch 1st: '
                           f'{vars(batch[0])=}')
                     raise RuntimeError('error saving batch', batch[:9]) from e
                 pp.inc(len(batch))
@@ -1467,6 +1467,99 @@ class ReactionRecordLoader(BulkLoader):
     )
 
 
+class UniRef90Loader(BulkLoader):
+    def get_file(self):
+        """ get path to UNIREF100_INFO file made by Create_Alignment_DB.pl """
+        return settings.UMRAD_ROOT / 'UNIREF100_INFO.txt'
+
+    @atomic_dry
+    def load(self, file=None, update=False, bulk=True, validate=False,
+             skip_on_error=False, batch_size=10_000_000, limit=None):
+        """
+        Load UniRef90 accessions from the UNIREF100_INFO file's UR90 column.
+
+        update:
+            If False, then input data already stored in the DB will trigger
+            integrity errors.
+        """
+        if not bulk:
+            raise NotImplementedError('non-bulk mode not implemented')
+
+        if file is None:
+            file = self.get_file()
+
+        if update:
+            print('Retrieving existing records... ', end='', flush=True)
+            existing = set(self.values_list('accession', flat=True))
+            print(f'{len(existing)} [OK]')
+        else:
+            existing = set()
+
+        infile = open(file)
+        print(f'Reading {infile.name}...')
+        header = infile.readline().strip('\n').split('\t')
+        try:
+            col = header.index('UR90')
+        except ValueError:
+            raise RuntimeError('no UR90 column found: {infile.name}')
+
+        PREFIX = 'UNIREF90_'
+        len_pref = len(PREFIX)
+
+        def save_batch(batch):
+            objs = (self.model(accession=i) for i in batch)
+            if validate:
+                objs = list(objs)
+                for i in objs:
+                    i.full_clean()
+            print()
+            self.bulk_create(objs)
+
+        accns = set()
+        error_count = 0
+        pp = ProgressPrinter('processing uniref90s')
+        for lnum, line in pp(enumerate(infile, start=1)):
+            if limit and limit < lnum:
+                break
+            try:
+                try:
+                    value = line.strip().split('\t', maxsplit=col + 1)[col]
+                except IndexError:
+                    raise RuntimeError(
+                        f'Failed parsing line {lnum}: columns missing?\n{line}'
+                    )
+
+                value = value.strip()
+                if not value:
+                    # UniRef100 record w/o assigned UniRef90 cluster
+                    continue
+
+                if not value.startswith(PREFIX):
+                    raise RuntimeError(
+                        f'failed parsing uniref90 accession at line {lnum}: "{value}"'
+                    )
+
+                value = value[len_pref:]
+
+                if value in existing:
+                    continue
+
+                accns.add(value)
+            except Exception:
+                if skip_on_error:
+                    error_count += 1
+                    continue
+                raise
+
+            if batch_size and lnum % batch_size == 0:
+                save_batch(accns)
+                existing.update(accns)
+                accns = set()
+
+        # save final batch
+        save_batch(accns)
+
+
 class UniRef100Loader(BulkLoader):
     """ loader for OUT_UNIREF.txt """
 
@@ -1530,6 +1623,13 @@ class UniRef100Loader(BulkLoader):
         """ helper to parse UniRef100 accessions """
         return value.upper().removeprefix('UNIREF100_')
 
+    def parse_ur90(self, value, **ctx):
+        """ remove prefix """
+        if value:
+            return value.upper().removeprefix('UNIREF90_')
+        else:
+            return value
+
     def parse_and_filter(self, value, **ctx):
         """ for selective loading, check if row is to be skipped """
         value = self.parse_ur100(value)
@@ -1583,7 +1683,7 @@ class UniRef100Loader(BulkLoader):
 
     spec = CSV_Spec(
         ('UR100', 'accession', parse_and_filter),
-        ('UR90', 'uniref90'),
+        ('UR90', 'uniref90', parse_ur90),
         ('Name', 'function_names'),
         ('Length', 'length'),
         ('SigPep', 'signal_peptide'),
