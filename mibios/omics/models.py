@@ -26,7 +26,7 @@ from mibios.umrad.fields import AccessionField
 from mibios.umrad.model_utils import (
     digits, opt, ch_opt, fk_req, fk_opt, uniq_opt, Model,
 )
-from mibios.umrad.models import CompoundRecord, FuncRefDBEntry, UniRef100
+from mibios.umrad.models import CompoundRecord, FunctionName, FuncRefDBEntry, UniRef100
 from mibios.umrad.manager import Manager
 from mibios.umrad.utils import ProgressPrinter
 
@@ -812,6 +812,27 @@ class ReadAbundance(Model):
         verbose_name = 'functional abundance'
 
 
+class FunctionNameAbundance(Model):
+    """
+    Aggregated abundance w.r.t single function names
+    """
+    sample = models.ForeignKey(
+        SeqSample,
+        related_name='function_name_abundance',
+        **fk_req,
+    )
+    name = models.ForeignKey(FunctionName, **fk_req, related_name='abundance',
+                             verbose_name='function name')
+    sum_tpm = models.FloatField(null=True, verbose_name='TPM')
+    sum_rpkm = models.FloatField(null=True, verbose_name='RPKM')
+
+    loader = managers.FunctionNameAbundanceLoader()
+
+    class Meta(Model.Meta):
+        unique_together = (('sample', 'name'),)
+        verbose_name = 'function name abundance'
+
+
 class Bin(Model):
     """ Metagenomic assembly bin """
     name = models.TextField(max_length=20, unique=True)
@@ -1318,33 +1339,28 @@ class Contig(SequenceLike):
         self.contig_no = int(fasta_head_line.strip().split('_')[2])
 
 
-class FuncAbundance(AbstractAbundance):
+class FuncAbundance(Model):
     """
-    abundance vs functions
-
-    With data from the Sample_xxxx_functions_VERSION.txt files
+    Aggregated abundance w.r.t single function cross references
     """
+    sample = models.ForeignKey(
+        SeqSample,
+        related_name='function_abundance',
+        **fk_req,
+    )
     function = models.ForeignKey(
         FuncRefDBEntry,
         related_name='abundance',
         **fk_req,
     )
+    sum_tpm = models.FloatField(null=True, verbose_name='TPM')
+    sum_rpkm = models.FloatField(null=True, verbose_name='RPKM')
 
     loader = managers.FuncAbundanceLoader()
 
     class Meta(Model.Meta):
-        unique_together = (
-            ('sample', 'function'),
-        )
-
-    def genes(self):
-        """
-        Queryset of associated genes
-        """
-        return Gene.objects.filter(
-            sample=self.sample,
-            besthit__function_refs=self.function,
-        )
+        unique_together = (('sample', 'function'),)
+        verbose_name = 'function abundance'
 
 
 class Gene(Model):

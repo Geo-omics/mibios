@@ -586,8 +586,6 @@ class SearchableManager(Loader):
         """
         if model._meta.model_name == 'compoundname':
             abund_lookup = 'compoundrecord__abundance'
-        elif model._meta.model_name == 'functionname':
-            abund_lookup = 'funcrefdbentry__abundance'
         else:
             try:
                 model._meta.get_field('abundance')

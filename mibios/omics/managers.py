@@ -18,7 +18,7 @@ from textwrap import dedent
 from django.apps import apps
 from django.conf import settings
 from django.db import connection
-from django.db.models import F, Q, Window
+from django.db.models import F, Q, Sum, Window
 from django.db.models.functions import FirstValue
 from django.db.models.signals import post_save
 from django.db.transaction import atomic
@@ -28,7 +28,7 @@ from mibios.models import QuerySet
 from mibios.ncbi_taxonomy.models import (
     DeletedNode, MergedNodes, TaxNode, TaxName,
 )
-from mibios.umrad.models import UniRef100
+from mibios.umrad.models import FuncRefDBEntry, FunctionName, UniRef100
 from mibios.umrad.manager import BulkLoader, Manager, MetaDataLoader
 from mibios.umrad.utils import (
     CSV_Spec, atomic_dry, InputFileError, SkipRow, ModelSpec,
@@ -791,14 +791,37 @@ class ContigLoader(TaxNodeMixin, SequenceLikeLoader):
         print(f'[{count} OK]')
 
 
-class FuncAbundanceLoader(BulkLoader, SampleLoadMixin):
-    load_flag_attr = 'func_abund_ok'
+class FuncAbundanceLoader(SampleLoadMixin, BulkLoader):
+    """ Precalculate per-function-xref abundance """
 
-    def get_file(self, sample):
-        return resolve_glob(
-            sample.get_metagenome_path() / 'annotation',
-            f'{sample.sample_id}_functionss_*.txt'
+    @atomic_dry
+    def load_sample(self, sample, **kwargs):
+        # This double counts tpm due to ur100<->funcxref M2M rel.  This is
+        # intentional and okay as long as we consider the tpm sum of individual
+        # xrefs.  Conparing two function xrefs is OK.  But don't group xrefs,
+        # adding the sums together again.
+        qs = (FuncRefDBEntry.objects
+              .filter(uniref100__abundance__sample=sample)
+              .order_by('pk')
+              .values_list('pk', 'uniref100__abundance__tpm')
+              )
+        print('Reading ur100 abundance... ', end='', flush=True)
+        qs = list(qs)
+        print(f'{len(qs)} [OK]')
+        objs = (
+            self.model(
+                sample=sample,
+                function_id=pk,
+                sum_tpm=sum(tpm for _, tpm in grp),
+            )
+            for pk, grp in groupby(qs, key=lambda x: x[0])
         )
+        self.bulk_create(objs)
+
+    @atomic_dry
+    def unload_sample(self, sample, **kwargs):
+        _, counts = self.filter(sample=sample).delete()
+        return counts
 
 
 fkmap_cache = {}
@@ -967,6 +990,39 @@ class GeneAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
         self.spec.pre_load_hook = \
             partial(self.uniref100_helper, field_name='ref')
         super().load_sample(sample, *args, **kwargs)
+
+
+class FunctionNameAbundanceLoader(SampleLoadMixin, BulkLoader):
+    """ Calculate pre-function-name abundance """
+
+    @atomic_dry
+    def load_sample(self, sample, **kwargs):
+        # This double counts tpm due to ur100<->funcname M2M rel.  This is
+        # intentional and okay as long as we consider the tpm sum of individual
+        # function names.  Conparing two function names is OK.  But don't group
+        # function names, adding the sums together again.
+        qs = (FunctionName.objects
+              .filter(uniref100__abundance__sample=sample)
+              .order_by('pk')
+              .values_list('pk', 'uniref100__abundance__tpm')
+              )
+        print('Reading ur100 abundance... ', end='', flush=True)
+        qs = list(qs)
+        print(f'{len(qs)} [OK]')
+        objs = (
+            self.model(
+                sample=sample,
+                name_id=pk,
+                sum_tpm=sum(tpm for _, tpm in grp),
+            )
+            for pk, grp in groupby(qs, key=lambda x: x[0])
+        )
+        self.bulk_create(objs)
+
+    @atomic_dry
+    def unload_sample(self, sample, **kwargs):
+        _, counts = self.filter(sample=sample).delete()
+        return counts
 
 
 class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
