@@ -193,7 +193,7 @@ class BaseJob:
         delcounts = Counter()
         for kwargs in self.params:
             retv = self.undo(self.subject, **kwargs)
-            if isinstance(retv, Counter):
+            if retv is not None:
                 delcounts.update(retv)
 
         if self.tracking is not None and self.tracking.id is not None:
