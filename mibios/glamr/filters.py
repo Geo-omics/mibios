@@ -367,11 +367,11 @@ class SampleFilter(FilterSet):
 
 
 class UniRef90Filter(FilterSet):
-    uniref90 = CharFilter(label='UniRef90 ID')
+    uniref90__accession = CharFilter(label='UniRef90 ID')
 
     class Meta:
         model = UniRef100
-        fields = ['uniref90']
+        fields = ['uniref90__accession']
 
 
 class UniRef100Filter(FilterSet):
