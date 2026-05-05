@@ -83,6 +83,11 @@ async function populate_map(L, fit_map_to_points, defer, hide_if_empty) {
     if (map_points == undefined) {
         show_error(map, 'map_points are missing');
         return;
+    } else if (map_points.length == 0 && hide_if_empty) {
+        console.info('hiding map as there are no map points')
+        map.remove()
+        document.getElementById('map').remove();
+        return
     }
 
     // leaflet legend help from https://gis.stackexchange.com/questions/133630/adding-leaflet-legend
