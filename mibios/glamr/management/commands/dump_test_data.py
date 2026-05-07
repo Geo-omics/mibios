@@ -9,6 +9,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
 from mibios.omics.models import SeqSample
+from mibios.umrad.models import FunctionName, FuncRefDBEntry, UniRef90, UniRef100
 
 
 AUTH_MODELS = (
@@ -25,7 +26,7 @@ OMICS_MODELS_SMALL = ('SeqSample', 'File', 'SampleTracking')
 
 OMICS_SAMPLE_REL_MODELS = (
     'ReadAbundance', 'TaxonAbundance', 'Contig',
-    'FuncAbundance',
+    'FuncAbundance', 'FunctionNameAbundance',
 )
 
 TAX_MODELS = ('Division', 'Gencode', 'TaxNode', 'TaxName', 'MergedNodes',
@@ -106,7 +107,6 @@ class Command(BaseCommand):
             self.dump(model=model)
 
         # uniref100s related to samples (via ReadAbundance)
-        UniRef100 = apps.get_model('umrad', 'UniRef100')
         ur100_qs = UniRef100.objects\
             .filter(abundance__sample__in=self.samples)\
             .distinct()
@@ -125,7 +125,6 @@ class Command(BaseCommand):
         self.dump(queryset=qs)
 
         # function names related to those uniref100s
-        FunctionName = apps.get_model('umrad', 'FunctionName')
         fn_qs = FunctionName.objects\
             .filter(uniref100__in=ur100_qs)\
             .distinct()
@@ -136,13 +135,14 @@ class Command(BaseCommand):
         self.dump(queryset=Through.objects.filter(uniref100__in=ur100_qs))
 
         # xrefs related to those UniRef100s
-        FuncRefDBEntry = apps.get_model('umrad', 'FuncRefDBEntry')
         xref_qs = FuncRefDBEntry.objects.filter(uniref100__in=ur100_qs).distinct()
         self.dump(queryset=xref_qs)
 
         # UniRef100<->FuncRefDBEntry m2m relation
         Through = UniRef100._meta.get_field('function_refs').remote_field.through
         self.dump(queryset=Through.objects.filter(uniref100__in=ur100_qs))
+
+        self.dump(queryset=UniRef90.objects.filter(uniref100__in=ur100_qs).distinct())
 
     def dump(self, *, queryset=None, model=None):
         """
@@ -167,7 +167,7 @@ class Command(BaseCommand):
                 sql = f'COPY ( {query} ) TO STDOUT'
 
         out = self.tmp / f'{table_name}.dump.text'
-        print(f'{out.name:<37}', end=' ', flush=True)
+        print(f'{table_name:<30}', end=' ', flush=True)
         if queryset is None:
             print('[whole]', end=' ', flush=True)
         elif sql is None:
