@@ -2379,8 +2379,11 @@ class FunctionView(RecordView):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        uref_qs = UniRef100.objects.annotate(sample_count=Count('abundance'))
-        uref_qs = uref_qs.order_by('uniref90', 'accession')
+        samp_qs = SeqSample.objects.exclude_private(self.request.user)
+        uref_qs = UniRef100.objects.annotate(sample_count=Count(
+            'abundance',
+            filter=Q(abundance__sample__in=samp_qs),
+        ))
         pf = Prefetch('uniref100_set', queryset=uref_qs)
         qs = qs.prefetch_related(pf, 'uniref100_set__function_names')
         qs = qs.prefetch_related('uniref100_set__function_refs')
