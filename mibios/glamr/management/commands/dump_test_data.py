@@ -26,7 +26,7 @@ OMICS_MODELS_SMALL = ('SeqSample', 'File', 'SampleTracking')
 
 OMICS_SAMPLE_REL_MODELS = (
     'ReadAbundance', 'TaxonAbundance', 'Contig',
-    'FuncAbundance', 'FunctionNameAbundance',
+    'FuncAbundance', 'FunctionNameAbundance', 'UniRef90Abundance',
 )
 
 TAX_MODELS = ('Division', 'Gencode', 'TaxNode', 'TaxName', 'MergedNodes',

@@ -26,7 +26,9 @@ from mibios.umrad.fields import AccessionField
 from mibios.umrad.model_utils import (
     digits, opt, ch_opt, fk_req, fk_opt, uniq_opt, Model,
 )
-from mibios.umrad.models import CompoundRecord, FunctionName, FuncRefDBEntry, UniRef100
+from mibios.umrad.models import (
+    CompoundRecord, FunctionName, FuncRefDBEntry, UniRef100, UniRef90
+)
 from mibios.umrad.manager import Manager
 from mibios.umrad.utils import ProgressPrinter
 
@@ -1363,6 +1365,30 @@ class FuncAbundance(Model):
         verbose_name = 'function abundance'
 
 
+class UniRef90Abundance(Model):
+    """
+    Aggregated abundance w.r.t a UniRef90 cluster
+    """
+    sample = models.ForeignKey(
+        SeqSample,
+        related_name='uniref90_abundance',
+        **fk_req,
+    )
+    ref = models.ForeignKey(
+        UniRef90,
+        related_name='abundance',
+        **fk_req,
+    )
+    sum_tpm = models.FloatField(null=True, verbose_name='TPM')
+    sum_rpkm = models.FloatField(null=True, verbose_name='RPKM')
+
+    loader = managers.UniRef90AbundanceLoader()
+
+    class Meta(Model.Meta):
+        unique_together = (('sample', 'ref'),)
+        verbose_name = 'UniRef90 abundance'
+
+
 class Gene(Model):
     """ Model for a contig vs. UniRef100 alignment hit """
     sample = models.ForeignKey(SeqSample, **fk_req)
@@ -1615,6 +1641,7 @@ class DataTracking(Model):
         TAXABUND = 'TAB', 'taxa abundance loaded'
         UR1ABUND = 'UAB', 'reads/UR100 abundance loaded'
         UR1TPM = 'TPM', 'reads/UR100/TPM loaded'
+        U9ABUND = 'U9A', 'UR90 abundance loaded'
 
     flag = models.CharField(max_length=3, choices=Flag.choices)
     subject = None  # FK to IDMixin model
