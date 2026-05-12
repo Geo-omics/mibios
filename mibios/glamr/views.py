@@ -53,7 +53,7 @@ from . import models, tables, GREAT_LAKES
 from .forms import QBuilderForm, QLeafEditForm, SearchForm
 from .queryset import exclude_private_data
 from .search_fields import ADVANCED_SEARCH_MODELS, search_fields
-from .search_utils import get_suggestions, SearchResult
+from .search_utils import AccessionSearcher, get_suggestions, SearchResult
 from .utils import estimate_row_totals, get_record_url, get_subclasses
 
 
@@ -1305,8 +1305,11 @@ class SearchMixin(SearchFormMixin):
             'user': self.request.user,
         }
 
-        # first search
-        search_result = models.Searchable.objects.search(**search_kwargs)
+        search_result = AccessionSearcher.search(**search_kwargs)
+
+        if not search_result:
+            # first full-text search
+            search_result = models.Searchable.objects.search(**search_kwargs)
 
         if not search_result:
             # get and process spelling suggestions

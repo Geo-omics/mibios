@@ -58,6 +58,26 @@ SEARCH_FIELDS = {
 }
 
 
+ACCESSION_SEARCH_FIELDS = {
+    'glamr': {
+        'reference': 'reference_id',
+        'dataset': 'dataset_id',
+        'sample': 'sample_id',
+    },
+    'omics': {
+        'seqsample': 'sample_id',
+        'asv': 'accession',
+    },
+    'umrad': {
+        'uniref50': 'accession',
+        'uniref90': 'accession',
+        'uniref100': 'accession',
+        'funcrefdbentry': 'accession',
+    },
+}
+""" Fields that participate in accession search """
+
+
 ADVANCED_SEARCH_MODELS = [
     'dataset', 'sample', 'reference', 'compoundname', 'contig',
     'functionname', 'gene', 'taxname',
