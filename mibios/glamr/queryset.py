@@ -554,7 +554,11 @@ class SearchableQuerySet(QuerySet):
             if isinstance(getattr(i, 'rhs', None), SearchQuery)
         ]
         if len(tsqueries) == 1:
-            rank = SearchRank(F('searchvector'), tsqueries[0])
+            rank = SearchRank(
+                F('searchvector'),
+                tsqueries[0],
+                normalization=Value(1),  # log of document length
+            )
             qs = self.annotate(rank=rank)
             return qs.order_by(*qs.query.order_by, '-rank')
         else:
