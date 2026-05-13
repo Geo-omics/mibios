@@ -182,18 +182,7 @@ class SearchHitObj:
             raise ValueError('content_type_id mismatch')
 
         if hasattr(hit, 'snippet'):
-            # ts_highlight() individually marks consequtive words
-            # of a matching phrase, let's highlight the whole
-            # phrase
-            # TODO: improve this for when snippet has symbols, e.g.
-            # "LE18-22.4"
-            snippet = hit.snippet.replace('</mark> <mark>', ' ')
-            # add ... if snippet is inside the text
-            plain = snippet.replace('<mark>', '').replace('</mark>', '')  # noqa:E501
-            if not hit.text.startswith(plain):
-                snippet = f'{HORIZONTAL_ELLIPSIS} {snippet}'
-            if not hit.text.endswith(plain):
-                snippet = f'{snippet} {HORIZONTAL_ELLIPSIS}'
+            snippet = self.get_fixed_snippet(hit)
         else:
             # highlighting was OFF
             snippet = hit.text
@@ -209,6 +198,24 @@ class SearchHitObj:
         obj = copy(self)
         obj.subhits = obj.subhits[:]
         return obj
+
+    @classmethod
+    def get_fixed_snippet(cls, hit):
+        """
+        Repair certain deficiencies of Postgresql's ts_headline()
+        """
+        value = hit.snippet
+        # ts_headline() individually marks subsequent words of a matching
+        # phrase, let's highlight the whole phrase
+        # TODO: The below covers e.g. queries for "lake erie" and "LE18-22.4"
+        # -- keep looking for other pathological cases.
+        value = value.replace('</mark> <mark>', ' ').replace('</mark><mark>', '')
+
+        # add ... if snippet is inside the text
+        plain = value.replace('<mark>', '').replace('</mark>', '')  # noqa:E501
+        prefix = '' if hit.text.startswith(plain) else f'{HORIZONTAL_ELLIPSIS} '
+        suffix = '' if hit.text.endswith(plain) else f' {HORIZONTAL_ELLIPSIS}'
+        return prefix + value + suffix
 
 
 class SearchResult(dict):

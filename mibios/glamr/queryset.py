@@ -530,7 +530,7 @@ class SearchableQuerySet(QuerySet):
             qs = qs.annotate(snippet=ts_headline(
                 F('text'),
                 tsquery,
-                Value('StartSel=<mark>, StopSel=</mark>'),
+                Value('StartSel=<mark>, StopSel=</mark>, MaxFragments=1, ShortWord=0'),
             ))
 
         qs = qs.order_by('content_type_id')
