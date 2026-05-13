@@ -38,7 +38,7 @@
         {% else %}
         Global search
         {% endif %}
-        for <q><small class="fw-bolder">{{query}}</small></q> returned {{total_count}}{%if total_count_at_limit%}+{%endif%} records:
+        for <q><small class="fw-bolder">{{query}}</small></q> returned {{total_count}}{%if total_count_at_limit%}+{%endif%} record{% if total_count > 1 or total_count_at_limit %}s{%endif%}:
 
     {% else %}
         No results for <small class="fw-bolder">{% if query is None%}&lt;empty query&gt;{%else%}"{{query}}"{%endif%}</small>
