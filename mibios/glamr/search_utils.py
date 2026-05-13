@@ -513,7 +513,7 @@ class AccessionSearcher:
         query str:
             accession to search for
         models list:
-            limit search to these models.
+            limit search to these models, given as list of model names.
         user:
             only return results for which user has permission
         kwargs:
@@ -523,7 +523,7 @@ class AccessionSearcher:
             import_string('mibios.glamr.queryset.exclude_private_data')
         hits = []
         for model, field in cls.get_fields():
-            if models and model not in models:
+            if models and model._meta.model_name not in models:
                 continue
             f = {field.name: query}
             qs = model.objects.filter(**f)
