@@ -343,10 +343,8 @@ class SearchResult(dict):
         return ret
 
     DETAIL_FIELDS = {
-        'dataset': ('primary_ref', 'scheme', 'water_bodies',
-                    'material_type',),
-        'sample': ('dataset', 'geo_loc_name', 'sample_type',
-                   'collection_timestamp', 'project_id'),
+        'dataset': ('primary_ref', 'scheme', 'water_bodies', 'material_type',),
+        'sample': ('dataset', 'geo_loc_name', 'collection_timestamp', 'project_id'),
     }
     """ extra details for some models to show when displaying results """
 
