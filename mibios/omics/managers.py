@@ -1145,12 +1145,23 @@ class SeqSampleLoader(MetaDataLoader):
     def get_file(self):
         return settings.GLAMR_META_ROOT / 'Great_Lakes_Omics_Datasets.xlsx - sequencing.tsv'  # noqa:E501
 
+    def check_id(self, value, **ctx):
+        if value in self.blocklist:
+            raise SkipRow('found in blocklist')
+        return value
+
+    def check_parent(self, value, **ctx):
+        if not value:
+            # presumably data entry WIP, so skip
+            raise SkipRow('parent biosample missing')
+        return value
+
     spec = CSV_Spec(
-        ('SeqSampleID', 'sample_id'),
+        ('SeqSampleID', 'sample_id', check_id),
         ('SRA accession', 'sra_accession'),
         ('sample_type', 'sample_type'),
         ('SampleName', 'sample_name'),
-        ('BioSampleID', 'parent'),
+        ('BioSampleID', 'parent', check_parent),
         ('GOLD_analysis_projectID', 'gold_analysis_id'),
         ('GOLD_sequencing_projectID', 'gold_seq_id'),
         # ('sequencing_type', 'sequencing_type'),  TODO
