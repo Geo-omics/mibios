@@ -302,7 +302,7 @@ STAFF_PERMISSIONS = set([
 """ permissions the staff group should have """
 
 
-def create_staff_group():
+def create_staff_group(add_admin=False):
     """
     convenience function to set up the staff group
 
@@ -313,6 +313,13 @@ def create_staff_group():
     grp.permissions.set(perms)
     staff = User.objects.filter(is_staff=True, is_active=True)
     grp.user_set.set(staff)
+
+    if add_admin:
+        admin = User(username='admin', is_staff=True)
+        admin.set_password('admin')
+        admin.full_clean()
+        admin.save()
+        print('Created admin test user with username/password: admin/admin')
     return grp
 
 
