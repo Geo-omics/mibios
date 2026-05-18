@@ -348,6 +348,15 @@ class SeqSample(IDMixin, Model):
         'id', 'analysis_dir', 'sample_id', 'notes', 'access',
     ]
 
+    def is_public(self):
+        """ Tell if instance is public """
+        try:
+            return 0 in self.access
+        except TypeError:
+            # self.access is None or str / sqlite3
+            # may incur a DB query or two
+            return not self.parent.database.restricted_to.exists()
+
     def get_metagenome_path(self):
         """
         Get path to data analysis / pipeline results
