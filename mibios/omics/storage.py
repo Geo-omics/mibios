@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from shutil import copy2
 
 from django.apps import apps
 from django.conf import settings
@@ -68,11 +69,9 @@ class FileOpsMixin:
             link.hardlink_to(source.path)
         except OSError as e:
             if 'invalid cross-device link' in str(e).casefold():
-                # TODO
-                raise NotImplementedError(
-                    f'copy not implemented (from {e.__class__.__name__}: {e})'
-                ) from e
-            raise
+                copy2(source.path, destination.path)
+            else:
+                raise
 
     def get_all_files(self):
         """
