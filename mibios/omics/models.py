@@ -1022,14 +1022,18 @@ class File(Model):
 
         Would return empty str for files not to be published via local storage.
 
-        The POLICY is to publish to local storage all files of non-public
-        samples and metagenomic assemblies for public samples.  Files keep
-        their original name and relative path.
+        The POLICY is to publish to local storage all non-public files and all
+        metagenomic assemblies for public samples.  Files keep their original
+        name and relative path.
         """
-        if self.is_public():
-            if self.filetype != self.Type.METAG_ASM:
-                return ''
-        return self.file_pipeline.name
+        if not self.is_public():
+            # since public files are available via globus
+            return self.file_pipeline.name
+        if self.filetype == self.Type.METAG_ASM:
+            # need all these to access sequences
+            return self.file_pipeline.name
+
+        return ''
 
     def compute_globus_path(self):
         """
