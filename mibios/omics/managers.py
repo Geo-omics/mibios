@@ -1719,7 +1719,9 @@ class FileManager(Manager):
                     f'can\'t get/create file instance for {sample}: '
                     f'sample.analysis_dir is blank '
                 )
-            base_dir = Path(sample.analysis_dir)
+            # Make this relative to OMICS_PIPELINE_DATA, since the 'omics' got
+            # stripped when the analysis_dir field was imported.
+            base_dir = Path('omics') / sample.analysis_dir
         try:
             path = base_dir / str(filetype.path).format(**params)
         except KeyError as e:
