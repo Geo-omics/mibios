@@ -1073,28 +1073,34 @@ class File(Model):
         In such an error case the field-file's name attribute is not reset and
         may differ from the original and what's stored at the DB.
         """
-        if field_name == 'file_local':
-            new_name = self.compute_local_path()
-        elif field_name == 'file_globus':
-            new_name = self.compute_globus_path()
+        if force_name is None:
+            if field_name == 'file_local':
+                new_name = self.compute_local_path()
+            elif field_name == 'file_globus':
+                new_name = self.compute_globus_path()
+            else:
+                raise ValueError('illegal field_name')
         else:
-            raise ValueError('illegal field_name')
-
-        if force_name:
             new_name = force_name
 
         file = getattr(self, field_name)
 
-        if file.name == new_name:
-            # no change
-            # TODO: check at least?
-            return False
-
-        old_name = file.name
-
         if file:
-            if new_name:
+            # file is believed to exists on storage
+            if file.name == new_name:
+                # no change, check the stored file and return
+                if file.storage.exists(file.name):
+                    if file.size != self.size:
+                        raise RuntimeError(f'file exists but size differs: {file}')
+                elif dry_run:
+                    print(f'[dryrun] (missing fixup): link/copy ({field_name}) {file}')
+                else:
+                    file.storage.link_or_copy(self.file_pipeline, file)
+                    print(f'[link/copy] (missing fixed): ({field_name}) {file}')
+                return False
+            elif new_name:
                 # move existing file
+                old_name = file.name
                 file.name = new_name
                 if dry_run:
                     print(f'[dryrun] moving ({field_name}) {old_name}->{file}')
@@ -1106,15 +1112,19 @@ class File(Model):
                     print(f'[dryrun] delete ({field_name}) {file}')
                 else:
                     file.delete(save=False)
-        else:
+        elif new_name:
             # new file
+            old_name = file.name
             file.name = new_name
             if dry_run:
                 print(f'[dryrun] link/copy ({field_name}) {file}')
             else:
                 file.storage.link_or_copy(self.file_pipeline, file)
+        else:
+            # file not stored, no change
+            return False
 
-        if dry_run:
+        if dry_run and new_name:
             file.name = old_name
 
         return True

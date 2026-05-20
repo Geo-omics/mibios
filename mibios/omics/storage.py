@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from shutil import copy2
 
@@ -53,23 +52,46 @@ class FileOpsMixin:
         src.rename(dst)
         self.prune_empty_dir(src.parent)
 
-    def link_or_copy(self, source, destination):
+    def link_or_copy(self, source, destination, exist_ok=True):
         """
         If possible, creates a hard link at destination pointing back to
         source.  If both are on different filesystems we fall back to making a
         regular copy.
 
-        source, destination: Instances of Fieldfile
+        source, destination:
+            Instances of FieldFile
+        exists_ok [bool]:
+            If True then and the destination file exists and is of the right
+            size then return with no further action.  If the size mismatches
+            then raise a RuntimeError.  If False and the destination exists,
+            then a FileExistsError is raised.
         """
         if destination.storage is not self:
             raise ValueError('this storage does not handle this file')
-        link = Path(destination.path)
-        link.parent.mkdir(parents=True, exist_ok=True)
+        # destination.path will fails if destination file doesn't exist yet
+        dst = Path(self.location) / destination.name
+        if not dst.is_relative_to(self.location):
+            raise ValueError('destination is not under storage location')
+        dst.parent.mkdir(parents=True, exist_ok=True)
         try:
-            link.hardlink_to(source.path)
+            dst.hardlink_to(source.path)
+        except FileExistsError as e:
+            if exist_ok:
+                try:
+                    dest_size = dst.stat().st_size
+                except FileNotFoundError:
+                    # broken symlink
+                    raise RuntimeError(f'destination is broken symlink: {dst}') from e
+                if dest_size == source.size:
+                    return
+                else:
+                    raise RuntimeError(f'file exists but size differs: {dst}') from e
+            raise
         except OSError as e:
             if 'invalid cross-device link' in str(e).casefold():
-                copy2(source.path, destination.path)
+                # Note that copy2 would happily overwrite existing destinations
+                # but hardlink_to will catch those before we'll ever get here.
+                copy2(source.path, dst)
             else:
                 raise
 
