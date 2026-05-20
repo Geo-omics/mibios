@@ -383,6 +383,9 @@ class SeqSample(IDMixin, Model):
             Any extra key/values required to determine the file.  These are
             FileType.path template parameters besides sample or dataset id.
             These can also be job parameters, see the tracking module.
+
+        Returns a File instance, but there is no guarantee that the file
+        actually exists in storage or that it is saved to the database.
         """
         return File.objects.get_instance(filetype, sample=self, **kwargs)
 
@@ -617,6 +620,9 @@ class AbstractDataset(Model):
         kwargs:
             Any extra key/values required to determine the file.  These are
             FileType.path template parameters besides dataset id.
+
+        Returns a File instance, but there is no guarantee that the file
+        actually exists in storage or that it is saved to the database.
         """
         return File.objects.get_instance(filetype, dataset=self, **kwargs)
 
@@ -1309,8 +1315,14 @@ class SequenceLike(Model):
             raise ValueError('incompatible parameters: can only ask for '
                              'original header with fasta format')
         if file is None:
-            p = self._meta.managers_map['loader'].get_fasta_path(self.sample)
-            fh = p.open('rb')
+            file_obj = self.sample.get_omics_file('METAG_ASM')
+            # open() might still raise FileNotFoundError
+            if file_obj.file_local:
+                fh = file_obj.file_local.open('rb')
+            elif file_obj.file_pipeline:
+                fh = file_obj.file_pipeline.open('rb')
+            else:
+                raise FileNotFoundError(f'{file_obj} has no relevant file paths set')
         else:
             fh = file
 
