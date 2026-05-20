@@ -17,6 +17,7 @@ from textwrap import dedent
 
 from django.apps import apps
 from django.conf import settings
+from django.core.files.storage import storages
 from django.db import connection
 from django.db.models import F, Q, Sum, Window
 from django.db.models.functions import FirstValue
@@ -1746,6 +1747,53 @@ class FileManager(Manager):
             if only_new:
                 raise RuntimeError(f'File object already exists: {obj}')
         return obj
+
+    def delete_orphans(self, storage=None, dry_run=True):
+        """
+        Delete files in public storage that are not supposed to be published
+        """
+        if storage:
+            storage_names = [storage]
+        else:
+            storage_names = ['local_public', 'globus_public']
+
+        qs = self.all()
+        print(f'Total file objects: {len(qs)}')
+        for storage_name in storage_names:
+            storage_obj = storages[storage_name]
+            match storage_name:
+                case 'local_public':
+                    file_attr = 'file_local'
+                case 'globus_public':
+                    file_attr = 'file_globus'
+                case _:
+                    raise ValueError()
+
+            # set of str of valid paths relative to storage location
+            valid_paths = set(x.name for i in qs if (x := getattr(i, file_attr)))
+            print(f'Storage {storage_name}: valid paths: {len(valid_paths)}')
+            print(f'at {storage_obj.location}')
+
+            for file_type, path in storage_obj.find():
+                extra = ''
+                match file_type:
+                    case 'empty':
+                        # always remove empty directories
+                        extra = '  [empty dir]'
+                    case 'file':
+                        if str(path) in valid_paths:
+                            continue
+                    case 'dir':
+                        # keep non-empty dirs
+                        continue
+                    case _:
+                        raise ValueError('unexpected file type')
+
+                if dry_run:
+                    print(f'  [dry run] {path}{extra}')
+                else:
+                    storage_obj.delete(path)
+                    print(f'  [DELETED] {path}{extra}')
 
 
 class DataTrackingManager(Manager):

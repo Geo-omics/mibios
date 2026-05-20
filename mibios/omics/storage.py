@@ -82,26 +82,22 @@ class FileOpsMixin:
         """
         raise NotImplementedError
 
-    def check_orphans(self):
+    def find(self):
         """
-        Check for any stray files or directories in storage
-
-        Will print unexpected content to stdout.
+        Find all files and directories in storage
         """
         location = Path(self.location)
-        valid_paths = set((i.path for i in self.get_all_files()))
-        for root, dirs, files in os.walk(location):
-            root = Path(root)
+        for curdir, dirs, files in location.walk():
+            reldir = curdir.relative_to(location)
             if not dirs and not files:
-                if root == location:
+                if curdir == location:
                     # storage empty ok
-                    pass
+                    return
                 else:
-                    print(f'empty directory: {root})')
-            for i in files:
-                file = root / i
-                if str(file) not in valid_paths:
-                    print(f'orphan: {file}')
+                    yield ('empty', reldir)
+
+            yield from (('dir', reldir / i) for i in dirs)
+            yield from (('file', reldir / i) for i in files)
 
     def prune_empty_dir(self, parent):
         """
