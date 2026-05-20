@@ -71,7 +71,10 @@ class ContigSequenceView(DetailView):
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['sequence'] = ctx['contig'].get_sequence()
+        try:
+            ctx['sequence'] = ctx['contig'].get_sequence()
+        except FileNotFoundError as e:
+            raise Http404(f'assembly fasta file missing: {e}') from e
         return ctx
 
 
