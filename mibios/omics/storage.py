@@ -190,13 +190,21 @@ class LocalPublicStorage(FileOpsMixin, FileSystemStorage):
         if self._base_url:
             return super().base_url
 
-        PLACEHOLDER = 'PLACEHOLDER'
+        FAKE_PATH = 'fake_path'
+        # Get the base url from our url conf.  There are two considerations:
+        # (1) reverse() requires a path argument, which must be removed again.
+        # (2) To make the url, our parent class will run urllib.parse.urljoin()
+        # on the base url and the file path.  This would remove the last part
+        # of the base url's path unless it ends in a slash.  So, this means the
+        # urlconf must give us a path ending in a slash followed by the passed
+        # placeholder path.  If not then the storage's urls will be a mess, but
+        # no checks are done here.
         try:
-            base_url = reverse('file_download', args=(PLACEHOLDER,))
+            base_url = reverse('file_download', args=(FAKE_PATH,))
         except NoReverseMatch:
             base_url = None
         else:
-            base_url = base_url.removesuffix(PLACEHOLDER + '/')
+            base_url = base_url.removesuffix(FAKE_PATH)
         return base_url
 
     def get_all_files(self):
