@@ -176,14 +176,9 @@ class FileQuerySet(QuerySet):
         if errors:
             print(f'There were {len(errors)} errors:')
             print(*errors, sep='\n')
-        print(f'Updating {len(changed_objs)} omics.File objects ...', end='',
-              flush=True)
-        if not dry_run:
+
+        if changed_objs and not dry_run:
             self.model.objects.bulk_update(changed_objs, field_names)
-        if dry_run:
-            print('[dryrun]')
-        else:
-            print('[OK]')
 
     def exclude_private(self, credentials=None):
         SeqSample = apps.get_model('omics', 'SeqSample')
