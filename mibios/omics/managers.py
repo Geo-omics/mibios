@@ -1750,7 +1750,7 @@ class FileManager(Manager):
                 raise RuntimeError(f'File object already exists: {obj}')
         return obj
 
-    def delete_orphans(self, storage=None, dry_run=True):
+    def delete_orphans(self, storage=None, dry_run=True, verbose=True):
         """
         Delete files in public storage that are not supposed to be published
         """
@@ -1761,6 +1761,7 @@ class FileManager(Manager):
 
         qs = self.all()
         print(f'Total file objects: {len(qs)}')
+        stats = {}
         for storage_name in storage_names:
             storage_obj = storages[storage_name]
             match storage_name:
@@ -1773,8 +1774,12 @@ class FileManager(Manager):
 
             # set of str of valid paths relative to storage location
             valid_paths = set(x.name for i in qs if (x := getattr(i, file_attr)))
-            print(f'Storage {storage_name}: valid paths: {len(valid_paths)}')
-            print(f'at {storage_obj.location}')
+            stats[storage_name] = {
+                'location': storage_obj.location,
+                'valid_paths': len(valid_paths),
+                'found': 0,
+                'orphans': 0,
+            }
 
             for file_type, path in storage_obj.find():
                 extra = ''
@@ -1784,6 +1789,7 @@ class FileManager(Manager):
                         extra = '  [empty dir]'
                     case 'file':
                         if str(path) in valid_paths:
+                            stats[storage_name]['found'] += 1
                             continue
                     case 'dir':
                         # keep non-empty dirs
@@ -1791,11 +1797,17 @@ class FileManager(Manager):
                     case _:
                         raise ValueError('unexpected file type')
 
-                if dry_run:
-                    print(f'  [dry run] {path}{extra}')
-                else:
+                stats[storage_name]['orphans'] += 1
+                if not dry_run:
                     storage_obj.delete(path)
-                    print(f'  [DELETED] {path}{extra}')
+                if verbose:
+                    print(f'  [{"dryrun" if dry_run else "DELETED"}] {path}{extra}')
+
+        for name, data in stats.items():
+            print(f' {name} at {data["location"]}')
+            print(f'    total valid paths: {data["valid_paths"]:>6}')
+            print(f'    found valid paths: {data["found"]:>6}')
+            print(f'         orphan paths: {data["orphans"]:>6}')
 
 
 class DataTrackingManager(Manager):
