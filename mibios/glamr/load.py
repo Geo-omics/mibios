@@ -373,6 +373,8 @@ class SampleLoader(BoolColMixin, MetaDataLoader):
                 quiet=True,
                 skip_on_error=True,
             )
+            stats = Dataset.objects.start_tracking()
+            print(f'Start tracking datasets: {stats}')
             if dry_run:
                 transaction.set_rollback(True)
 
