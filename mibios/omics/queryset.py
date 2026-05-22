@@ -157,11 +157,25 @@ class FileQuerySet(QuerySet):
             return
 
         changed_objs = set()
+        errors = []
         for obj, field_name in product(self, field_names):
-            changed = obj.update_storage(field_name, dry_run=dry_run)
+            try:
+                changed = obj.update_storage(field_name, dry_run=dry_run)
+            except FileNotFoundError as e:
+                # expecting some missing pipeline output
+                if hasattr(e, 'filename') and e.filename == obj.file_pipeline.path:
+                    if not obj.file_pipeline.storage.exists(obj.file_pipeline.name):
+                        err = f'[ERROR] pipeline output missing: {obj.file_pipeline}'
+                        errors.append(err)
+                        print(f'\n{err}')
+                        continue
+                raise
             if changed:
                 changed_objs.add(obj)
 
+        if errors:
+            print(f'There were {len(errors)} errors:')
+            print(*errors, sep='\n')
         print(f'Updating {len(changed_objs)} omics.File objects ...', end='',
               flush=True)
         if not dry_run:

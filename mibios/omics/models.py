@@ -1098,34 +1098,43 @@ class File(Model):
                 if file.storage.exists(file.name):
                     if file.size != self.size:
                         raise RuntimeError(f'file exists but size differs: {file}')
-                elif dry_run:
-                    print(f'[dryrun] (missing fixup): link/copy ({field_name}) {file}')
                 else:
-                    file.storage.link_or_copy(self.file_pipeline, file)
-                    print(f'[link/copy] (missing fixed): ({field_name}) {file}')
+                    print(f'[FIX] {field_name}: {new_name}', end=' ', flush=True)
+                    if dry_run:
+                        print('[dryrun]')
+                    else:
+                        file.storage.link_or_copy(self.file_pipeline, file)
+                        print('[OK]')
+
                 return False
             elif new_name:
                 # move existing file
                 old_name = file.name
                 file.name = new_name
+                print(f'[MOV] {field_name}: {new_name}', end=' ', flush=True)
                 if dry_run:
-                    print(f'[dryrun] moving ({field_name}) {old_name}->{file}')
+                    print('[dryrun]')
                 else:
                     file.storage.move(old_name, file)
+                    print('[OK]')
             else:
                 # delete
+                print(f'[ X ] {field_name}: {file.name}', end=' ', flush=True)
                 if dry_run:
-                    print(f'[dryrun] delete ({field_name}) {file}')
+                    print('[dryrun]')
                 else:
                     file.delete(save=False)
+                    print('[OK]')
         elif new_name:
             # new file
             old_name = file.name
             file.name = new_name
+            print(f'[NEW] {field_name}: {new_name}', end=' ', flush=True)
             if dry_run:
-                print(f'[dryrun] link/copy ({field_name}) {file}')
+                print('[dryrun]')
             else:
                 file.storage.link_or_copy(self.file_pipeline, file)
+                print('[OK]')
         else:
             # file not stored, no change
             return False
