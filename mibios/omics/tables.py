@@ -1,13 +1,17 @@
+from functools import partial
+
 from django.db.models import IntegerField, Value
 from django.db.models.functions import Cast, Replace
-from django.utils.html import format_html
+from django.utils.html import format_html, urlencode
+from django.urls import reverse
 
 from django_tables2 import Column, Table
+from django_tables2.tables import DeclarativeColumnsMetaclass
 
 from mibios.glamr.utils import get_record_url
 
-from . import get_sample_model
-from .models import File, SampleTracking
+from . import get_sample_model, get_dataset_model
+from .models import DataTracking, File, SampleTracking
 
 
 class FileTable(Table):
@@ -55,6 +59,76 @@ class FileTable(Table):
             arg = '-' + arg
         qs = qs.order_by(arg)
         return qs, True
+
+
+class TrackingColumnsMetaclass(DeclarativeColumnsMetaclass):
+    """
+    Metaclass to make a column for each tracking flag in certain order
+    """
+
+    _base_url = None
+    """ base url for processed-sample-group links """
+
+    @staticmethod
+    def ds_tracking_url(flag_value, record, value):
+        """
+        linkify function for the flag columns
+
+        Link to the group of samples belonging to a dataset that have data
+        loaded according to the given tracking flag.
+
+        This is a static method as classmethod and partialmethod doesn't seem
+        to work together.
+        """
+        if value:
+            qstr = urlencode({
+                'filter-dataset__dataset_id': record.dataset_id,
+                'filter-seqsample__tracking__flag': flag_value,
+            })
+            if not TrackingColumnsMetaclass._base_url:
+                # base url gets cached
+                TrackingColumnsMetaclass._base_url = \
+                    reverse('filter_result', args=('sample',))
+            return TrackingColumnsMetaclass._base_url + '?' + qstr
+        else:
+            return None  # don't link zeros
+
+    @classmethod
+    def column_sum(mcs, bound_column, table):
+        """
+        Calculate sum of column for a footer row
+
+        Assumes table data is a list (or evaluated queryset) of objects
+        """
+        return sum(getattr(obj, bound_column.name) for obj in table.data)
+
+    def __new__(mcs, name, bases, attrs):
+        flags = [DataTracking.Flag.METADATA, DataTracking.Flag.PIPELINE]  # these first
+        flags += [i for i in DataTracking.Flag if i not in flags]
+
+        for flag in flags:
+            linkify = partial(mcs.ds_tracking_url, flag.value)
+            attrs[flag.value] = Column(
+                verbose_name=flag.label,
+                linkify=linkify,  # linkify,
+                default=0,
+                footer=mcs.column_sum,
+            )
+
+        return super().__new__(mcs, name, bases, attrs)
+
+
+class DatasetTrackingTable(Table, metaclass=TrackingColumnsMetaclass):
+    dataset_id = Column(linkify=True, footer='Totals:', order_by='pk')
+    num_biosample = Column(footer=TrackingColumnsMetaclass.column_sum)
+    num_seqsample = Column(footer=TrackingColumnsMetaclass.column_sum)
+
+    class Meta:
+        model = get_dataset_model()
+        fields = [
+            'dataset_id',
+            'private',
+        ]
 
 
 class SampleTrackingTable(Table):

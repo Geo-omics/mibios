@@ -2,6 +2,7 @@ from collections import defaultdict
 from itertools import groupby
 
 from django.conf import settings
+from django.db.models import Count, Q
 from django.http import Http404, HttpResponse
 from django.views.decorators.cache import patch_cache_control
 from django.views.generic import DetailView
@@ -10,7 +11,8 @@ from django_tables2 import SingleTableView
 
 from mibios.views import StaffLoginRequiredMixin
 from .models import Contig, File, SampleTracking, SeqSample, TaxonAbundance
-from .tables import FileTable, SampleTrackingTable
+from .tables import DatasetTrackingTable, FileTable, SampleTrackingTable
+from . import get_dataset_model
 
 
 class RequiredSettingsMixin:
@@ -136,3 +138,25 @@ class SampleTrackingView(StaffLoginRequiredMixin, SingleTableView):
             for key in data:
                 data[key] += row.get(key, 0)
         return data
+
+
+class DatasetTrackingView(StaffLoginRequiredMixin, SingleTableView):
+    template_name = 'omics/dataset_tracking.html'
+    table_class = DatasetTrackingTable
+    table_pagination = False
+
+    def get_queryset(self):
+        qs = get_dataset_model().objects.all()
+        qs = qs.annotate(
+            num_biosample=Count('sample', distinct=True),
+            num_seqsample=Count('sample__seqsample', distinct=True),
+        )
+        qs = qs.annotate(**{
+            flag.value: Count(
+                'sample__seqsample__tracking',
+                filter=Q(sample__seqsample__tracking__flag=flag.value),
+            )
+            for flag in SampleTracking.Flag
+        })
+        qs = qs.order_by('pk')
+        return qs
