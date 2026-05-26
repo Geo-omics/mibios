@@ -1684,6 +1684,9 @@ class FileManager(Manager):
 
         filetype:
             Member of the FileType enum.
+
+        The file_pipeline FileField attribute will be set to something valid
+        but the underlying file may not actually exist in storage.
         """
         if isinstance(filetype, str):
             filetype = self.model.Type[filetype]

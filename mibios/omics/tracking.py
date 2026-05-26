@@ -59,21 +59,26 @@ class BaseJob:
             raise NoJobParameters()
 
         # Add file parameters
-        file_types = self.required_files or []
         self.files = []
         for kwargs in self.params:
-            files = [
-                self.subject.get_omics_file(i, **kwargs)
-                for i in file_types
-            ]
+            files = []
+            for i in self.required_files or []:
+                f = self.subject.get_omics_file(i, **kwargs)
+                if not f.file_pipeline:
+                    raise RuntimeError(
+                        f'failed to get path to {i}-type file with {kwargs}'
+                    )
+                files.append(f)
             # For historical reasons, a single file uses the 'file' key, when a
             # job has multiple files, keys are derived from the filetype's
             # name.  The job's run function's signature has to match these.
             if len(files) == 1:
-                kwargs['file'] = files[0]
+                kwargs['file'] = files[0].file_pipeline.path
             elif len(files) > 1:
                 kwargs['file'] = None
-                kwargs.update({i.filetype_name.lower(): i for i in files})
+                kwargs.update({
+                    i.filetype_name.lower(): i.file_pipeline.path for i in files
+                })
             self.files += files
 
     _jobs = None
