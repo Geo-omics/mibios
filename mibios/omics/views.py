@@ -1,11 +1,13 @@
 from collections import defaultdict
+import io
 from itertools import groupby
 
 from django.conf import settings
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponse
+from django.utils.html import mark_safe
 from django.views.decorators.cache import patch_cache_control
-from django.views.generic import DetailView
+from django.views.generic import DetailView, TemplateView
 
 from django_tables2 import SingleTableView
 
@@ -160,3 +162,30 @@ class DatasetTrackingView(StaffLoginRequiredMixin, SingleTableView):
         })
         qs = qs.order_by('pk')
         return qs
+
+
+class ImportTimelineView(StaffLoginRequiredMixin, TemplateView):
+    template_name = 'omics/import_timeline.html'
+
+    def get_plot(self):
+        df = SampleTracking.objects.all().timeline()
+        # steps-post: keep lines at level until next data point
+        ax = df.plot(drawstyle='steps-post')
+        ax.set_ylabel('samples')
+
+        # mangle the legend
+        handles, labels = ax.get_legend_handles_labels()
+        # labels are the flag codes, as str
+        ax.legend(
+            handles,
+            [SampleTracking.Flag(i).label for i in labels],
+            bbox_to_anchor=(1, 1),
+        )
+
+        with io.BytesIO() as buf:
+            ax.figure.savefig(buf, format='svg', bbox_inches='tight')
+            buf.seek(0)
+            return mark_safe(buf.read().decode())
+
+    def get_context_data(self, **ctx):
+        return super().get_context_data(plot=self.get_plot(), **ctx)

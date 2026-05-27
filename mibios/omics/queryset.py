@@ -5,6 +5,8 @@ from pathlib import Path
 import traceback
 from urllib.parse import quote_plus
 
+import pandas
+
 from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -101,6 +103,58 @@ class DataTrackingQuerySet(QuerySet):
             totals.update(delcounts)
 
         return totals
+
+    def timeline(self, keep_zeros=False, trim=True):
+        """
+        Compile a timeline of data import.
+
+        Returns a pandas.DataFrame, ready for plotting.  The data is the
+        accumulation of seqsamples over time with data imported for each kind
+        of data.
+
+        keep_zeros [bool]:
+            If True then there will be a column for every possible tracking
+            flag, even those that do not show up the queryset.
+
+        trim [bool]:
+            If True then we rfeduce the size of the data by re-sampling so that
+            there will be at most one data point per day and only for those
+            days where there is any movement in the numbers.
+        """
+        qs = self.order_by('created')
+
+        data = []
+        counts = {flag: 0 for flag in list(self.model.Flag)}
+        for timestamp, grp in groupby(qs, key=lambda x: x.created):
+            for obj in grp:
+                counts[self.model.Flag(obj.flag)] += 1
+            data.append(dict(timestamp=timestamp, **counts))
+
+        if not keep_zeros:
+            zero_flags = [
+                key
+                for key in data[-1]
+                if key in self.model.Flag and data[-1][key] == 0
+            ]
+            for row in data:
+                for flag in zero_flags:
+                    del row[flag]
+
+        # Re-order the first row by numbers of last row!  This determines the
+        # column order in the dataframe and then the order in the plot legend.
+        # Legend will be placed on the right and so aligns well enough with the
+        # last data points.
+        final = {k: v for k, v in data[-1].items() if k in self.model.Flag}
+        ordered_flags = [k for k, v in sorted(final.items(), key=lambda x: -x[1])]
+        row0 = dict(timestamp=data[0]['timestamp'])
+        for k in ordered_flags:
+            row0[k] = data[0][k]
+        data[0] = row0
+
+        df = pandas.DataFrame(data).set_index('timestamp')
+        if trim:
+            df = df.resample('1d').last().dropna()
+        return df
 
 
 class FileQuerySet(QuerySet):

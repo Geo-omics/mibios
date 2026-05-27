@@ -11,4 +11,5 @@ urlpatterns = [
     path('dataset-tracker/', views.DatasetTrackingView.as_view(), name='dataset_tracking'),  # noqa:E501
     path('download-files/', views.FileListingView.as_view(), name='file_listing'),  # noqa:E501
     path('contig/<int:pk>/sequence/', views.ContigSequenceView.as_view(), name='contig_seq'),  # noqa:E501
+    path('import-timeline/', views.ImportTimelineView.as_view(), name='import_timeline'),  # noqa:E501
 ]
