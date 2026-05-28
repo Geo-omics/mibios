@@ -13,7 +13,9 @@ class FileType(IntegerChoices):
     "path" that sets a template string of the file path relative to the
     analysis directory.  An optional boolean "with_dataset", if True, declares
     to use the dataset analysis directory, and if False (the default) to use
-    the sample analysis directory as base.
+    the sample analysis directory as base.  The optional str checkout_proxy is
+    populated the respective touch/done file, relative to the analysis dir,
+    when a file is not a snakemake output file.
 
     Path templates support the following parameters:
         sample
@@ -53,10 +55,12 @@ class FileType(IntegerChoices):
     BIN_CLASS_ARC = (9, dict(
         label='GTDB Archaea bin classification',
         path='bins/GTDB/gtdbtk.ar53.summary.tsv',
+        checkout_proxy='bins/.done_GTDB',
     ))
     BIN_CLASS_BAC = (10, dict(
         label='GTDB Bacteria bin classification',
         path='bins/GTDB/gtdbtk.bac120.summary.tsv',
+        checkout_proxy='bins/.done_GTDB',
     ))
     BIN_CHECKM = (11, dict(
         label='CheckM results',
@@ -84,6 +88,7 @@ class FileType(IntegerChoices):
         obj._label_ = attrs_dict.pop('label')
         obj.path = attrs_dict.pop('path')
         obj.with_dataset = attrs_dict.pop('with_dataset', False)
+        obj.checkout_proxy = attrs_dict.pop('checkout_proxy', None)
         for attr, value in attrs_dict.items():
             setattr(obj, attr, value)
         return obj

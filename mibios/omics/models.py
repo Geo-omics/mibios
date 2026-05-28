@@ -1202,13 +1202,45 @@ class File(Model):
         cls = self.__class__
         if cls.pipeline_checkout is None:
             cls.load_pipeline_checkout(settings.OMICS_CHECKOUT_FILE)
-        mtime = cls.pipeline_checkout.get(Path(self.file_pipeline.name), None)
+
+        if proxy := self.Type(self.filetype).checkout_proxy:
+            if self.sample:
+                proxy = Path('omics', self.sample.analysis_dir, proxy)
+            elif self.dataset:
+                proxy = self.dataset.analysis_dir / proxy
+            else:
+                raise RuntimeError('logic bug')
+
+            mtime = cls.pipeline_checkout.get(proxy, None)
+        else:
+            mtime = cls.pipeline_checkout.get(Path(self.file_pipeline.name), None)
+
         if mtime is None:
-            raise ValidationError({'file not in pipeline checkout': str(self)})
+            if proxy:
+                raise ValidationError(
+                    {'proxy file not in pipeline checkout': f'{self} --> {proxy}'}
+                )
+            else:
+                raise ValidationError({'file not in pipeline checkout': str(self)})
+
         if not self.modtime:
             raise ValidationError({'modtime not set': str(self)})
-        if self.modtime == mtime:
-            return
+
+        if proxy:
+            # File must be older than (or same age as) touch/done.
+            if self.modtime <= mtime:
+                return
+            else:
+                # no microsec check here compared to non-proxy case, as missing
+                # those would only make the file appear older
+                raise ValidationError(
+                    {'modtime attr differs from pipeline checkout proxy':
+                     f'file={self} proxy: path={proxy} modtime={self.modtime} > {mtime}'
+                     f'(checkout proxy)'}
+                )
+        else:
+            if self.modtime == mtime:
+                return
 
         if not self.modtime.microsecond:
             # This should only happen if the file in certain test setup where
