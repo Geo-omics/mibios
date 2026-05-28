@@ -162,10 +162,19 @@ class DatasetTrackingView(StaffLoginRequiredMixin, SingleTableView):
             flag.value: Count(
                 'sample__seqsample__tracking',
                 filter=Q(sample__seqsample__tracking__flag=flag.value),
+                distinct=True,
             )
             for flag in SampleTracking.Flag
         })
         qs = qs.order_by('pk')
+        # per-dataset tracking (ASV, ...)
+        # These need to be done manually here as the tracking system does not
+        # really know which samples are part of a dataset job.
+        qs = qs.annotate(ASV=Count(
+            'sample__seqsample',
+            filter=~ Q(sample__seqsample__asvabundance=None),
+            distinct=True,
+        ))
         return qs
 
 
