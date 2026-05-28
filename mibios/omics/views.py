@@ -12,7 +12,9 @@ from django.views.generic import DetailView, TemplateView
 from django_tables2 import SingleTableView
 
 from mibios.views import StaffLoginRequiredMixin
-from .models import Contig, File, SampleTracking, SeqSample, TaxonAbundance
+from .models import (
+    Contig, DatasetTracking, File, SampleTracking, SeqSample, TaxonAbundance,
+)
 from .tables import DatasetTrackingTable, FileTable, SampleTrackingTable
 from . import get_dataset_model
 
@@ -168,7 +170,12 @@ class ImportTimelineView(StaffLoginRequiredMixin, TemplateView):
     template_name = 'omics/import_timeline.html'
 
     def get_plot(self):
-        df = SampleTracking.objects.all().timeline()
+        df1 = SampleTracking.objects.all().timeline()
+        df2 = DatasetTracking.objects.exclude(flag='PL').timeline(
+            alt_count='subject__sample__seqsample',
+        )
+        df = df1.join(df2, how='outer')
+
         # steps-post: keep lines at level until next data point
         ax = df.plot(drawstyle='steps-post')
         ax.set_ylabel('samples')

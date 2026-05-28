@@ -11,6 +11,7 @@ from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import connection
+from django.db.models import Count
 from django.db.transaction import atomic, set_rollback
 from django.utils.module_loading import import_string
 
@@ -104,7 +105,7 @@ class DataTrackingQuerySet(QuerySet):
 
         return totals
 
-    def timeline(self, keep_zeros=False, trim=True):
+    def timeline(self, keep_zeros=False, trim=True, alt_count=None):
         """
         Compile a timeline of data import.
 
@@ -120,14 +121,28 @@ class DataTrackingQuerySet(QuerySet):
             If True then we rfeduce the size of the data by re-sampling so that
             there will be at most one data point per day and only for those
             days where there is any movement in the numbers.
+
+        alt_count:
+            By default the timeline counts the numbers of tracking subjects.
+            If the subjects are datasets and we actually want to count
+            seqsamples instead, then passing e.g. "subject__sample__seqsample"
+            annotate the queryset with those alternative counts to be used for
+            the accumulation.
         """
         qs = self.order_by('created')
+        if alt_count:
+            qs = qs.annotate(Count(alt_count))
 
         data = []
         counts = {flag: 0 for flag in list(self.model.Flag)}
         for timestamp, grp in groupby(qs, key=lambda x: x.created):
             for obj in grp:
-                counts[self.model.Flag(obj.flag)] += 1
+                if alt_count is None:
+                    increment = 1  # just the one object
+                else:
+                    increment = getattr(obj, alt_count + '__count')
+                counts[self.model.Flag(obj.flag)] += increment
+
             data.append(dict(timestamp=timestamp, **counts))
 
         if not keep_zeros:
