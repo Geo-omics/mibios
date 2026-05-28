@@ -2,6 +2,9 @@ from collections import defaultdict
 import io
 from itertools import groupby
 
+import matplotlib
+from matplotlib import pyplot
+
 from django.conf import settings
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponse
@@ -176,22 +179,31 @@ class ImportTimelineView(StaffLoginRequiredMixin, TemplateView):
         )
         df = df1.join(df2, how='outer')
 
+        matplotlib.use('svg')
         # steps-post: keep lines at level until next data point
         ax = df.plot(drawstyle='steps-post')
         ax.set_ylabel('samples')
 
         # mangle the legend
         handles, labels = ax.get_legend_handles_labels()
-        # labels are the flag codes, as str
+        # auto-set labels are the flag codes, as str
+        # mapping them to last count + flag label
+        label_map = {
+            flag.value: f'{flag.label} ({df[flag].dropna().iloc[-1]:.0f})'
+            for flag in SampleTracking.Flag
+        }
         ax.legend(
             handles,
-            [SampleTracking.Flag(i).label for i in labels],
+            [label_map[i] for i in labels],
             bbox_to_anchor=(1, 1),
         )
 
         with io.BytesIO() as buf:
+            # don't use paths for text
+            pyplot.rcParams['svg.fonttype'] = 'none'
             ax.figure.savefig(buf, format='svg', bbox_inches='tight')
-            buf.seek(0)
+            # skip header tags (xml version and doctype)
+            buf.seek(buf.getvalue().index(b'<svg '))
             return mark_safe(buf.read().decode())
 
     def get_context_data(self, **ctx):
