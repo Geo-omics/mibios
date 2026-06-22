@@ -15,7 +15,9 @@ class FileType(IntegerChoices):
     to use the dataset analysis directory, and if False (the default) to use
     the sample analysis directory as base.  The optional str checkout_proxy is
     populated the respective touch/done file, relative to the analysis dir,
-    when a file is not a snakemake output file.
+    when a file is not a snakemake output file.  The optional
+    checkout_proxy_grace_secs int attribute declares by how many seconds a file
+    may be younger than its proxy checkout file.
 
     Path templates support the following parameters:
         sample
@@ -31,6 +33,8 @@ class FileType(IntegerChoices):
     FUNC_ABUND = (3, dict(
         label='functional abundance, csv format',
         path='{sample.sample_id}_tophit_report',
+        checkout_proxy='{sample.sample_id}_report',  # cf. rule reads_unirefLCA_mmseqs
+        checkout_proxy_grace_secs=3600,  # tophit_reports can be a bit younger somehow
     ))
     TAX_ABUND = (4, dict(
         label='taxonomic abundance, csv format',
@@ -89,6 +93,7 @@ class FileType(IntegerChoices):
         obj.path = attrs_dict.pop('path')
         obj.with_dataset = attrs_dict.pop('with_dataset', False)
         obj.checkout_proxy = attrs_dict.pop('checkout_proxy', None)
+        obj.checkout_proxy_grace_secs = attrs_dict.pop('checkout_proxy_grace_secs', 0)
         for attr, value in attrs_dict.items():
             setattr(obj, attr, value)
         return obj

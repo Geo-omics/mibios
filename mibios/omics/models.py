@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import groupby
 from logging import getLogger
 from pathlib import Path
@@ -1191,9 +1191,15 @@ class File(Model):
         if num_dupes:
             print(f'[NOTICE] There are {num_dupes} duplicate entries')
 
-    def verify_with_pipeline(self):
+    def verify_with_pipeline(self, proxy_diff=False):
         """
         Verify that modtime matches pipeline checkout time
+
+        proxy_diff [bool]:
+            If True then return the difference to the proxy modtime instead of
+            None and don't raise ValidationError if the file age is not withing
+            the validation window. For testing only.  A negative return value
+            indicates the the file is younger than the proxy.
 
         This is a no-op if OMICS_CHECKOUT_FILE is not set.
 
@@ -1207,8 +1213,10 @@ class File(Model):
 
         if proxy := self.Type(self.filetype).checkout_proxy:
             if self.sample:
+                proxy = proxy.format(sample=self.sample)
                 proxy = Path('omics', self.sample.analysis_dir, proxy)
             elif self.dataset:
+                proxy = proxy.format(dataset=self.dataset)
                 proxy = self.dataset.analysis_dir / proxy
             else:
                 raise RuntimeError('logic bug')
@@ -1229,8 +1237,14 @@ class File(Model):
             raise ValidationError({'modtime not set': str(self)})
 
         if proxy:
-            # File must be older than (or same age as) touch/done.
-            if self.modtime <= mtime:
+            if proxy_diff:
+                return mtime - self.modtime
+
+            # File must be older within grace period than (or same age) as touch/done.
+            grace = timedelta(
+                seconds=self.Type(self.filetype).checkout_proxy_grace_secs
+            )
+            if self.modtime <= mtime + grace:
                 return
             else:
                 # no microsec check here compared to non-proxy case, as missing
