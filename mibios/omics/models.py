@@ -653,12 +653,13 @@ class AbstractDataset(Model):
         for target_str, grp in targets0:
             grp = list(grp)
             if target_str == dispatch.UNKNOWN:
-                print(f'[WARNING] Ignoring {len(grp)} samples with unknown '
-                      f'target')
+                print(f'[WARNING] Ignoring {len(grp)} {self.dataset_id} samples with '
+                      f'unknown target')
                 continue
             elif target_str == dispatch.SKIP:
                 print(
-                    f'[INFO] Skipping {len(grp)} samples marked {target_str}'
+                    f'[INFO] Skipping {len(grp)} {self.dataset_id} samples marked '
+                    f'{target_str}'
                 )
                 continue
 
@@ -699,7 +700,8 @@ class AbstractDataset(Model):
                         sample_type=SeqSample.Type.AMPLICON,
                     ))
                 except SeqSample.DoesNotExist:
-                    print(f'[ERROR] No amplion sample "{sample_id}" -- ignoring this')
+                    print(f'[ERROR] No {self.dataset_id} amplion sample "{sample_id}" '
+                          f'-- ignoring this')
 
         return results
 
