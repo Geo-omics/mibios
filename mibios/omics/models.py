@@ -1154,18 +1154,67 @@ class File(Model):
         return f'{self.get_filetype_display()} for {self.sample}'
 
     @classmethod
-    def load_pipeline_checkout(cls, path):
+    def load_pipeline_checkout(cls, path=None, override=None):
         """
         helper to import the omics pipeline good output files listing
 
-        This sets and populates a dict mapping paths to last modified datetime.
+        This sets and populates a dict mapping paths to last modified datetime,
+        to be run the first time it is needed.
         """
         files = {}
-        with open(path) as ifile:
-            for line in ifile:
-                mtime, _, _, relpath = line.strip().split('\t')
-                # later entries overwrite earlier
-                files[Path(relpath)] = datetime.fromisoformat(mtime)
+
+        if path is None:
+            path = settings.OMICS_CHECKOUT_FILE
+            if not path:
+                print('[WARNING] setting OMICS_CHECKOUT_FILE is not configured')
+
+        if path:
+            with open(path) as ifile:
+                for line in ifile:
+                    mtime, _, _, relpath = line.strip().split('\t')
+                    # later entries overwrite earlier
+                    files[Path(relpath)] = datetime.fromisoformat(mtime)
+            print(f'[INFO] Loaded {len(files)} entries from pipeline checkout.')
+
+        if override is None:
+            override = settings.OMICS_CHECKOUT_OVERRIDE
+        if override:
+            updated = 0
+            with open(override) as ifile:
+                lines = ifile.readlines()
+            for idx, line0 in enumerate(lines):
+                line = line0.strip()
+                if not line or line.startswith('#'):
+                    continue
+
+                row = line.split('\t')
+                if len(row) == 1:
+                    # just a file
+                    relpath = row[0]
+                    # TODO: what if relpath contains symlinks that got resolved
+                    # for snakemake?
+                    abspath = settings.OMICS_PIPELINE_DATA / relpath
+                    mtime = datetime.fromtimestamp(abspath.stat().st_mtime).astimezone()
+                    lines[idx] = f'{mtime.isoformat()}\t{relpath}\n'
+                    updated += 1
+                elif len(row) == 2:
+                    mtime, relpath = row
+                else:
+                    raise RuntimeError(
+                        f'Failed parsing {override}, too many fields at line '
+                        f'{idx + 1}: {row}'
+                    )
+
+                relpath = Path(relpath)
+                if relpath in files:
+                    print(f'[INFO] overriding: {relpath}')
+                files[relpath] = mtime
+
+            if updated:
+                with open(override, 'w') as ofile:
+                    ofile.writelines(lines)
+                print(f'[OK] {updated} lines updated in override file {override}')
+
         cls.pipeline_checkout = files
 
     @classmethod
@@ -1212,7 +1261,7 @@ class File(Model):
             return
         cls = self.__class__
         if cls.pipeline_checkout is None:
-            cls.load_pipeline_checkout(settings.OMICS_CHECKOUT_FILE)
+            cls.load_pipeline_checkout()
 
         if proxy := self.Type(self.filetype).checkout_proxy:
             if self.sample:

@@ -72,6 +72,9 @@ LOCAL_STORAGE_ROOT = None
 OMICS_CHECKOUT_FILE = None
 """ path to the file checkout listing """
 
+OMICS_CHECKOUT_OVERRIDE = None
+""" path to optional file checkout override listing """
+
 STORAGES = {
     'staticfiles': {
         'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
