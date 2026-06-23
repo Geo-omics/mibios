@@ -156,8 +156,16 @@ class DatasetTrackingView(StaffLoginRequiredMixin, SingleTableView):
         qs = get_dataset_model().objects.all()
         qs = qs.annotate(
             num_biosample=Count('sample', distinct=True),
-            num_seqsample=Count('sample__seqsample', distinct=True),
+            total=Count('sample__seqsample', distinct=True),
         )
+        qs = qs.annotate(**{
+            i: Count(
+                'sample__seqsample',
+                filter=Q(sample__seqsample__sample_type=i),
+                distinct=True
+            )
+            for i in SeqSample.Type.values
+        })
         qs = qs.annotate(**{
             flag.value: Count(
                 'sample__seqsample__tracking',
