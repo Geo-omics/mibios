@@ -11,7 +11,7 @@ from django_tables2.tables import DeclarativeColumnsMetaclass
 from mibios.glamr.utils import get_record_url
 
 from . import get_sample_model, get_dataset_model
-from .models import DataTracking, File, SampleTracking
+from .models import DataTracking, File, SeqSample, SampleTracking
 
 
 class FileTable(Table):
@@ -63,7 +63,8 @@ class FileTable(Table):
 
 class TrackingColumnsMetaclass(DeclarativeColumnsMetaclass):
     """
-    Metaclass to make a column for each tracking flag in certain order
+    Metaclass to make a column for each tracking flag in certain order and also
+    each sampletype.
     """
 
     _base_url = None
@@ -93,6 +94,30 @@ class TrackingColumnsMetaclass(DeclarativeColumnsMetaclass):
         else:
             return None  # don't link zeros
 
+    @staticmethod
+    def ds_sampletype_url(sampletype, record, value):
+        """
+        linkify function for the sample type columns
+
+        Link to the group of seqsamples belonging to a dataset with given
+        sample type.
+
+        This is a static method as classmethod and partialmethod doesn't seem
+        to work together.
+        """
+        if value:
+            qstr = urlencode({
+                'filter-dataset__dataset_id': record.dataset_id,
+                'filter-seqsample__sample_type': sampletype,
+            })
+            if not TrackingColumnsMetaclass._base_url:
+                # base url gets cached
+                TrackingColumnsMetaclass._base_url = \
+                    reverse('filter_result', args=('sample',))
+            return TrackingColumnsMetaclass._base_url + '?' + qstr
+        else:
+            return None  # don't link zeros
+
     @classmethod
     def column_sum(mcs, bound_column, table):
         """
@@ -106,22 +131,38 @@ class TrackingColumnsMetaclass(DeclarativeColumnsMetaclass):
         flags = [DataTracking.Flag.METADATA, DataTracking.Flag.PIPELINE]  # these first
         flags += [i for i in DataTracking.Flag if i not in flags]
 
+        for i in SeqSample.Type.values:
+            linkify = partial(mcs.ds_sampletype_url, i)
+            attrs[i] = Column(
+                verbose_name=mcs.split_sample_type(i),
+                linkify=linkify,
+                default=0,
+                footer=mcs.column_sum,
+            )
+
         for flag in flags:
             linkify = partial(mcs.ds_tracking_url, flag.value)
             attrs[flag.value] = Column(
                 verbose_name=flag.label,
-                linkify=linkify,  # linkify,
+                linkify=linkify,
                 default=0,
                 footer=mcs.column_sum,
             )
 
         return super().__new__(mcs, name, bases, attrs)
 
+    @classmethod
+    def split_sample_type(mcs, value):
+        """ helper to make the column headers take up less space """
+        value = value.replace('_', ' ')
+        if value.startswith('meta'):
+            value = 'meta ' + value.removeprefix('meta')
+        return value
 
 class DatasetTrackingTable(Table, metaclass=TrackingColumnsMetaclass):
     dataset_id = Column(linkify=True, footer='Totals:', order_by='pk')
     num_biosample = Column(footer=TrackingColumnsMetaclass.column_sum)
-    num_seqsample = Column(footer=TrackingColumnsMetaclass.column_sum)
+    total = Column(footer=TrackingColumnsMetaclass.column_sum)
 
     class Meta:
         model = get_dataset_model()
