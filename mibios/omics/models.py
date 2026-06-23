@@ -1266,24 +1266,43 @@ class File(Model):
         if proxy := self.Type(self.filetype).checkout_proxy:
             if self.sample:
                 proxy = proxy.format(sample=self.sample)
-                proxy = Path('omics', self.sample.analysis_dir, proxy)
+                relpath = Path('omics', self.sample.analysis_dir, proxy)
             elif self.dataset:
                 proxy = proxy.format(dataset=self.dataset)
-                proxy = self.dataset.analysis_dir / proxy
+                relpath = self.dataset.analysis_dir / proxy
             else:
                 raise RuntimeError('logic bug')
 
-            mtime = cls.pipeline_checkout.get(proxy, None)
         else:
-            mtime = cls.pipeline_checkout.get(Path(self.file_pipeline.name), None)
+            relpath = Path(self.file_pipeline.name)
+
+        try:
+            mtime = cls.pipeline_checkout[proxy]
+        except KeyError:
+            # try resolving symlinks first
+            # e.g. omics/data/metagenomes/samp_476 -> E20200031
+            resolved = (settings.OMICS_PIPELINE_DATA / relpath).resolve()
+            try:
+                resolved = resolved.relative_to(settings.OMICS_PIPELINE_DATA)
+            except ValueError:
+                # links outside pipeline data root
+                pass
+
+            mtime = cls.pipeline_checkout.get(resolved, None)
+        else:
+            resolved = None
 
         if mtime is None:
+            extra_msg = f' (resolves to {resolved})' if resolved else ''
             if proxy:
                 raise ValidationError(
-                    {'proxy file not in pipeline checkout': f'{self} --> {proxy}'}
+                    {'proxy file not in pipeline checkout':
+                     f'{self} --> {proxy}{extra_msg}'}
                 )
             else:
-                raise ValidationError({'file not in pipeline checkout': str(self)})
+                raise ValidationError(
+                    {'file not in pipeline checkout': f'{self}{extra_msg}'}
+                )
 
         if not self.modtime:
             raise ValidationError({'modtime not set': str(self)})
