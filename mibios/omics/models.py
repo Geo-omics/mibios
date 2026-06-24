@@ -960,7 +960,7 @@ class File(Model):
         Check field files' existence and size and modtime.
 
         Checks that the field file exists in storage. Validates the size and
-        modtime fields against the store file.  For file_pipeline, if size
+        modtime fields against the stored file.  For file_pipeline, if size
         and/or modtime are not set yet, then those fields will be auto-filled
         instead.
 
@@ -1099,9 +1099,12 @@ class File(Model):
                 # no change, check the stored file and return
                 if file.storage.exists(file.name):
                     if file.size != self.size:
-                        raise RuntimeError(f'file exists but size differs: {file}')
+                        raise ValidationError(
+                            {'size': f'file exists but size differs: {file}'}
+                        )
                 else:
-                    print(f'[FIX] {field_name}: {new_name}', end=' ', flush=True)
+                    print(f'[FIX] missing {field_name}: {new_name}', end=' ',
+                          flush=True)
                     if dry_run:
                         print('[dryrun]')
                     else:

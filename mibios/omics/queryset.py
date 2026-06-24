@@ -211,11 +211,17 @@ class FileQuerySet(QuerySet):
                 ctx['extra_navigation'] = [item]
         return ctx
 
-    def update_storage(self, local=True, globus=True, dry_run=False):
+    def update_storage(self, local=True, globus=True, dry_run=False,
+                       ignore_errors=False):
         """
         Set file fields and ensure files are in storage.
 
-        dry_run: If True, only report what would be done.
+        dry_run:
+            If True, only report what would be done.
+
+        ignore_errors [bool]:
+            If True, then certain data consistency errors will not raise an
+            exception, an error message is written instead.
         """
         field_names = []
         if local:
@@ -239,8 +245,14 @@ class FileQuerySet(QuerySet):
                         print(f'\n{err}')
                         continue
                 raise
-            if changed:
-                changed_objs.add(obj)
+            except ValidationError as e:
+                if ignore_errors:
+                    print(f'[ERR] invalid file obj: {e}')
+                else:
+                    raise
+            else:
+                if changed:
+                    changed_objs.add(obj)
 
         if errors:
             print(f'There were {len(errors)} errors:')
