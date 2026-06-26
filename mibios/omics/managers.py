@@ -1117,6 +1117,46 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
         print(f'{sample.sample_id}: tpm+rpkm erased for {num} '
               f'{self.model._meta.model_name}')
 
+    def test_tpm(self):
+        SeqSample = self.model._meta.get_field('sample').related_model
+        for seqsample in SeqSample.objects.filter(sample_type='metagenome'):
+            qs = self.filter(sample=seqsample)
+            total = qs.aggregate(Sum('read_count'))['read_count__sum']
+            print(seqsample, total)
+            qs = qs.select_related('ref')
+            print('Retrieving objs', end=' ', flush=True)
+            objs = list(qs)
+            print(f'{len(objs)} [OK]')
+            if not objs:
+                print()
+                continue
+
+            fact = 1_000_000_000 / total
+            maxdiff = 0.0
+            maxdat = None
+            nolength = 0
+            for obj in objs:
+                if obj.ref.length is None:
+                    nolength += 1
+                    continue
+                try:
+                    rpkm = (obj.read_count / obj.ref.length) * fact
+                    if rpkm != obj.rpkm:
+                        diff = rpkm - obj.rpkm
+                        if diff > 0.00000001:
+                            print('  ', seqsample, obj, rpkm - obj.rpkm)
+                        if maxdiff < diff:
+                            maxdiff = diff
+                            maxdat = (f'{obj.ref=} {obj.ref.length=} {obj.read_count=} '
+                                      f'{obj.rpkm=} {rpkm=}')
+                except Exception as e:
+                    print(f'[EE] {seqsample} {obj.ref} {obj.pk=} '
+                          f'{e.__class__.__name__}: {e}')
+            print('length missing:', nolength, f'({nolength / len(objs):.1%})')
+            print('max diff:', maxdiff)
+            print('max data:', maxdat)
+            print()
+
 
 class SeqSampleLoader(MetaDataLoader):
     """ Loader manager for Sample """
