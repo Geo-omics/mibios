@@ -14,7 +14,7 @@ from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
 from django.db import OperationalError, connection
 from django.db.models import Count, Exists, Field, OuterRef, Prefetch, URLField
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.urls import reverse
 from django.utils.functional import classproperty
 from django.utils.html import format_html
@@ -1126,11 +1126,13 @@ class AbundanceView(MapMixin, ModelTableMixin, BaseMixin, SingleTableView):
             'model': TaxonAbundance,
             'table_class': tables.TaxonAbundanceTable,
             'sample_filter_key': 'taxonabundance__taxon',
+            'chart_fk_field': 'taxon_id',
         },
         'uniref100': {
             'model': ReadAbundance,
             'table_class': tables.ReadAbundanceTable,
             'sample_filter_key': 'functional_abundance__ref',
+            'chart_fk_field': 'ref_id',
         },
         'funcrefdbentry': {
             'model': FuncAbundance,
@@ -1182,6 +1184,13 @@ class AbundanceView(MapMixin, ModelTableMixin, BaseMixin, SingleTableView):
         ctx['model_name_verbose'] = self.model._meta.verbose_name
         ctx['object'] = self.object
         ctx['object_model_name'] = self.object_model._meta.model_name
+        obj_model_name = self.object_model._meta.model_name
+        if self.VIEW_ATTRS.get(obj_model_name, {}).get('chart_fk_field'):
+            ctx['show_abundance_chart'] = True
+            ctx['chart_data_url'] = reverse(
+                'abundance_chart_data',
+                kwargs={'model': obj_model_name, 'pk': self.object.pk},
+            )
         return ctx
 
     def get_sample_queryset(self):
@@ -1250,6 +1259,71 @@ class AbundanceGeneView(ModelTableMixin, BaseMixin, SingleTableView):
             return self.get_queryset().to_fasta()
         else:
             return super().get_values()
+
+
+class AbundanceChartDataView(View):
+    """JSON time-series abundance data for the abundance chart"""
+
+    def get(self, request, model, pk):
+        try:
+            attrs = AbundanceView.VIEW_ATTRS[model]
+        except KeyError:
+            from django.http import Http404
+            raise Http404(f'unsupported model: {model}')
+
+        fk_field = attrs.get('chart_fk_field')
+        if not fk_field:
+            from django.http import Http404
+            raise Http404(f'chart not supported for model: {model}')
+
+        abundance_model = attrs['model']
+        group_by = request.GET.get('group_by', '')
+
+        qs = (
+            abundance_model.objects
+            .filter(**{fk_field: pk})
+            .filter(sample__collection_timestamp__isnull=False)
+            .exclude(tpm__isnull=True)
+        )
+        qs = exclude_private_data(qs, request.user)
+        qs = qs.order_by('sample__collection_timestamp')
+
+        records = qs.values(
+            'tpm',
+            'sample__sample_id',
+            'sample__collection_timestamp',
+            'sample__geo_loc_name',
+            'sample__sample_type',
+        )
+
+        series = {}
+        for rec in records:
+            if group_by == 'lake':
+                key = rec['sample__geo_loc_name'] or 'Unknown'
+            elif group_by == 'type':
+                key = rec['sample__sample_type'] or 'Unknown'
+            elif group_by == 'both':
+                lake = rec['sample__geo_loc_name'] or 'Unknown'
+                stype = rec['sample__sample_type'] or 'Unknown'
+                key = f'{lake} / {stype}'
+            else:
+                key = 'All samples'
+
+            if key not in series:
+                series[key] = []
+
+            ts = rec['sample__collection_timestamp']
+            series[key].append({
+                'x': ts.strftime('%Y-%m-%d'),
+                'y': rec['tpm'],
+                'sample': rec['sample__sample_id'],
+            })
+
+        data = [
+            {'label': label, 'data': pts}
+            for label, pts in sorted(series.items())
+        ]
+        return JsonResponse({'series': data})
 
 
 class AvailableDataView(BaseMixin, TemplateView):

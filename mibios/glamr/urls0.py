@@ -53,6 +53,7 @@ urlpatterns = [
     path('data/<str:model>/', views.TableView.as_view(), name='generic_table'),  # noqa: E501
     re_path(rf'data/(?P<model>\w+)/{kpat}/$', views.record_view, name='record'),  # noqa: E501
     path('data/<str:model>/<int:pk>/abundance/', views.AbundanceView.as_view(), name='record_abundance'),  # noqa: E501
+    path('data/<str:model>/<int:pk>/abundance/chart-data/', views.AbundanceChartDataView.as_view(), name='abundance_chart_data'),  # noqa: E501
     path('data/<str:model>/<int:pk>/abundance/<str:sample>/genes/', views.AbundanceGeneView.as_view(), name='record_abundance_genes'),  # noqa: E501
     path('data/<str:obj_model>/<int:pk>/relations/<str:field>/', views.ToManyListView.as_view(), name='relations'),  # noqa: E501
     path('search/', views.SearchView.as_view(), name='search_initial'),
