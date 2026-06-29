@@ -1,8 +1,11 @@
-from functools import cached_property
+from enum import Enum
+from functools import cache, cached_property
 from itertools import groupby
 from logging import getLogger
+from pathlib import Path
 import pprint
 import re
+import time
 
 from django_tables2 import (
     Column, LazyPaginator, SingleTableView, table_factory, TemplateColumn
@@ -14,8 +17,9 @@ from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
 from django.db import OperationalError, connection
 from django.db.models import Count, Exists, Field, OuterRef, Prefetch, URLField
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.urls import reverse
+from django.utils.decorators import classonlymethod
 from django.utils.functional import classproperty
 from django.utils.html import format_html
 from django.views.decorators.cache import cache_control, cache_page
@@ -34,15 +38,14 @@ from mibios.glamr.models import Sample, Dataset, pg_class, dbstat
 from mibios.query import Q
 from mibios.views import (
     ExportBaseMixin, StaffLoginRequiredMixin,
-    TextRendererZipped, VersionInfoMixin,
+    TextRenderer, TextRendererZipped, VersionInfoMixin,
 )
-from mibios.omics import get_sample_model
 from mibios.omics.models import (
-    CompoundAbundance, Contig, FuncAbundance, ReadAbundance, TaxonAbundance,
-    SampleTracking,
+    CompoundAbundance, Contig, FuncAbundance, FunctionNameAbundance, IDMixin,
+    ReadAbundance, SampleTracking, SeqSample, TaxonAbundance,
 )
 from mibios.ncbi_taxonomy.models import TaxNode
-from mibios.umrad.models import FuncRefDBEntry, UniRef100
+from mibios.umrad.models import FunctionName, FuncRefDBEntry, UniRef100
 from mibios.umrad.utils import DefaultDict
 from mibios.omics.models import File, Gene
 from mibios.omics.views import RequiredSettingsMixin
@@ -50,8 +53,8 @@ from . import models, tables, GREAT_LAKES
 from .forms import QBuilderForm, QLeafEditForm, SearchForm
 from .queryset import exclude_private_data
 from .search_fields import ADVANCED_SEARCH_MODELS, search_fields
-from .search_utils import get_suggestions, SearchResult
-from .utils import estimate_row_totals, get_record_url
+from .search_utils import AccessionSearcher, get_suggestions, SearchResult
+from .utils import estimate_row_totals, get_record_url, get_subclasses
 
 
 log = getLogger(__name__)
@@ -84,8 +87,8 @@ class ExportMixin(ExportBaseMixin):
     Also requires BaseMixin to pass around the cache option.
 
     Differs from mibios.ExportMixin in that this doesn't override the template
-    response, instead conditional switch in get() if a file export response is
-    needed.  The code is just copy-pasted into our get().
+    response, instead conditional switch in dispatch() if a file export
+    response is needed.  Similar code then appears in our get_export().
     """
     export_query_param = 'export'
     export_options = None
@@ -187,13 +190,13 @@ class ExportMixin(ExportBaseMixin):
     def get_export_queryset(self, export_option):
         """
         Get the queryset corresponding to given export option.
+
+        Assumes export option is name of a to-many relation's field.  Override
+        this method in inheriting class is this does not apply.
         """
         if export_option is self.EXPORT_TABLE:
             return self.get_queryset()
 
-        # Try for related data export (or get 404 if this fails), other
-        # more intricate options would need to be implemented by inheriting
-        # views.
         remote_field = self.get_export_remote_field(export_option)
 
         match self.model._meta.model_name, export_option:
@@ -215,17 +218,22 @@ class ExportMixin(ExportBaseMixin):
         export_option:
             Expected to be the field name of a to-many relation.
 
-        Raises 404 for illegal export options, since those may come in via the
-        GET query string.
+        Raises LookupError if the provided export_option is not name of a
+        to-many field.
         """
         try:
             field = self.model._meta.get_field(export_option)
-        except FieldDoesNotExist:
-            raise Http404(f'export option not implemented: {export_option}')
+        except FieldDoesNotExist as e:
+            raise LookupError(
+                f'expected export option to be a field name: {export_option}'
+            ) from e
 
         if field.related_model is None:
             # not a relation
-            raise Http404(f'invalid export option: {export_option}')
+            raise LookupError(
+                f'expected export option to be a related field name: '
+                f'{export_option}'
+            )
 
         return field.remote_field
 
@@ -265,29 +273,37 @@ class ExportMixin(ExportBaseMixin):
         This helper is called from get_context_data().  Returns a tuple of
         strings: (URL, txt).  Raises ValueError for invalid option.
 
-        Queries the DB with exists() for each option.
+        For links to related data this will query the DB with exists() to set a
+        link to active/not active.
         """
         if option is self.EXPORT_TABLE:
-            # default export, the view's model
+            # default export, the current table
             option = ''
             link_txt = self.model._meta.verbose_name_plural
             link_txt += ' (this table)'
             is_active = True
         else:
-            remote_field = self.get_export_remote_field(option)
-            link_txt = remote_field.remote_field.related_name \
-                or remote_field.model._meta.verbose_name_plural
+            try:
+                remote_field = self.get_export_remote_field(option)
+            except LookupError:
+                # other link type
+                link_txt = option
+                is_active = True
+            else:
+                # link to related data
+                link_txt = remote_field.remote_field.related_name \
+                    or remote_field.model._meta.verbose_name_plural
 
-            # Check if any export data would exist
-            rel_data = remote_field.model.objects.filter(
-                **{remote_field.name: OuterRef('pk')}
-            )
-            is_active = (
-                self.get_queryset()
-                .annotate(has_rel_data=Exists(rel_data))
-                .filter(has_rel_data=True)
-                .exists()
-            )
+                # Check if any export data would exist
+                rel_data = remote_field.model.objects.filter(
+                    **{remote_field.name: OuterRef('pk')}
+                )
+                is_active = (
+                    self.get_queryset()
+                    .annotate(has_rel_data=Exists(rel_data))
+                    .filter(has_rel_data=True)
+                    .exists()
+                )
 
             if not settings.INTERNAL_DEPLOYMENT:
                 # currently impractical, use too much resources
@@ -556,11 +572,17 @@ class GenericModelMixin:
         'glamr.sample',
         'glamr.dataset',
         'glamr.reference',
+        'omics.amplicontarget',
+        'omics.asv',
+        'omics.bin',
         'omics.contig',
         'omics.readabundance',
+        'omics.seqsample',
         'omics.taxonabundance',
         'ncbi_taxonomy.taxname',
         'ncbi_taxonomy.taxnode',
+        'umrad.funcrefdbentry',
+        'umrad.functionname',
         'umrad.uniref100',
     )
     """ app label + model names of models allowed in generic views """
@@ -587,8 +609,8 @@ class GenericModelMixin:
                 == (kwargs.get(self.url_model_kw, None) is None)
         ):
             raise TypeError(
-                'if the url kwarg is given then the model attr must not be'
-                ' set and vice versa'
+                'if the url kwarg is given then the model attr must not be '
+                'set and vice versa'
             )
 
         if not (model_name := kwargs.get(self.url_model_kw)):
@@ -604,6 +626,75 @@ class GenericModelMixin:
             setattr(self, self.url_model_attr, model)
         else:
             raise Http404(f'not supported: {model}')
+
+
+class BreadCrumbMixin:
+    """
+    Mixin for views to display breadcrumbs
+
+    Inheriting view must inherit from ContextMixin.  This is to support the
+    generic data-displaying views.
+    """
+    @staticmethod
+    def _build_graph():
+        """
+        Build a common, shared, class-level graph (directed, non-cyclic) of
+        models and their FK relations, that may take part in generating
+        breadcumbs.
+        """
+        gr = {Dataset: None}  # breadcrumbs are rooted in Dataset
+        models = set(GenericModelMixin.get_allowed_models())
+        models.remove(Dataset)
+        while models:
+            for m in models:
+                for f in m._meta.get_fields():
+                    if not f.many_to_one:
+                        continue  # not a FK
+                    if f.related_model is m:
+                        continue  # FK on self
+                    if f.related_model in gr:
+                        gr[m] = f
+                        break
+            count = len(models)
+            for m in gr:
+                models.discard(m)
+            if len(models) == count:
+                # no change, abort here
+                for m in models:
+                    # add these as "root" models, disjoint from the rest
+                    # TODO: do we need these?
+                    gr[m] = None
+
+        return gr
+
+    _graph = _build_graph()
+    """ The graph, build at initial module load, usually during ready(), and
+    shared by all inheriting views. """
+
+    def get_breadcrumb_fks(self, model):
+        """
+        Get sequence of ForeignKeys to follow back to root of breadcrumb graph
+        """
+        fields = []
+        while fk := self._graph.get(model):
+            fields.append(fk)
+            model = fk.related_model
+        return fields
+
+    def get_breadcrumb_data(self):
+        """
+        The initial breadcumb, a link back to home
+
+        Inheriting views should override this method (typically) by first
+        calling super().get breadcrumb_data() and adding to and return its
+        result.
+        """
+        return [dict(url=reverse('frontpage'), text='Home'),]
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['breadcrumbs'] = self.get_breadcrumb_data()
+        return ctx
 
 
 _estimated_row_totals_cache = {}
@@ -622,10 +713,10 @@ class ModelTableMixin(GenericModelMixin, ExportMixin):
     To view a table with model-specific customization if available or fall-back
     to generic table.
 
-    Improves columns for relation fields.  The inheriting view must set
-    self.model
+    Improves columns for relation fields.  The inheriting view override
+    self.model if it is not provided by the URL.
     """
-    model = None  # model needs to be set by inheriting class
+    model = None  # model may be set by inheriting class
 
     table_class = None
     """ The table class can be set by an implementing class, if it remains
@@ -648,6 +739,7 @@ class ModelTableMixin(GenericModelMixin, ExportMixin):
 
     EXTRA_EXPORT_OPTIONS = {
         Sample: ['taxonabundance', 'functional_abundance'],
+        Contig: ['sequence_fasta'],
     }
 
     def setup(self, request, *args, **kwargs):
@@ -734,6 +826,7 @@ class ModelTableMixin(GenericModelMixin, ExportMixin):
             else:
                 # regular FK field
                 kwargs['linkify'] = tables.linkify_value
+                kwargs['verbose_name'] = i.related_model._meta.verbose_name
             cols.append((i.name, Column(**kwargs)))
         return cols
 
@@ -754,6 +847,25 @@ class MapMixin():
     """
     Mixin for views that display samples on a map
     """
+    Mode = Enum('MapOperationMode', 'auto defer include only')
+    DEFAULT_MAP_MODE = Mode.include
+    INCLUDE_MAP_DATA_LIMIT = 500
+
+    def get(self, request, **kwargs):
+        try:
+            self.mapmode = self.Mode[request.GET.get('mapmode')]
+        except KeyError:
+            self.mapmode = self.DEFAULT_MAP_MODE
+
+        return super().get(request, **kwargs)
+
+    def render_to_response(self, context, **response_kwargs):
+        if self.mapmode is self.Mode.only:
+            return context['map_data_response']
+        else:
+            # regular view response
+            return super().render_to_response(context, **response_kwargs)
+
     def get_sample_queryset(self):
         """
         Return a Sample queryset of the samples to be displayed on the map.
@@ -775,32 +887,73 @@ class MapMixin():
         else:
             return Sample.objects.none()
 
+    map_points_responses = {}
+
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['map_points'] = self.get_map_points()
-        if ctx['map_points'] or self.model in (Sample, Dataset):
-            ctx['show_map'] = True
-        else:
-            ctx['show_map'] = False
+        match self.mapmode:
+            case self.Mode.only:
+                t0 = time.monotonic()
+                try:
+                    resp = JsonResponse({'points': self.get_map_points()})
+                except Exception as e:
+                    if settings.DEBUG:
+                        raise
+                    else:
+                        msg = 'failed generating map points'
+                        print(f'[ERROR] {msg} -- {e.__class__.__name__}: {e}')
+                        # this may be displayed to user on empty map or so
+                        resp = JsonResponse({'error': msg})
+                ctx['map_data_response'] = resp
+                t1 = time.monotonic()
+                log.info(f'timing map points: {t1 - t0=}s')
+                # return as other context vars below are not needed for map-
+                # points-only response.
+                return ctx
+
+            case self.Mode.auto:
+                # TODO: need to know number of samples or so ahead of time?
+                raise NotImplementedError('auto mode not implemented')
+
+            case self.Mode.defer:
+                # map points get fetched later
+                ctx['defer_map_data'] = True
+                ctx['map_data'] = None
+
+            case self.Mode.include:
+                # include map points in document
+                ctx['defer_map_data'] = False
+                ctx['map_data'] = self.get_map_points()
+            case _:
+                raise ValueError(f'invalid mode: {self.mapmode}')
+
+        # common context vars for normal view
+        ctx['include_map'] = True  # include leaflet resources
         ctx['fit_map_to_points'] = True
+        if self.model in (Sample, Dataset):
+            ctx['hide_empty_map'] = False
+        else:
+            ctx['hide_empty_map'] = True
+
         return ctx
 
     def get_map_points(self):
         """
         Prepare sample data to be passed to the map
 
-        Returns a dict str->str to be turned into json in the template.
+        Returns a list of dicts str->str to be turned into json in the template.
         """
         # Sample fields to be included in map data:
         map_data_fields = [
-            'id', 'sample_name', 'latitude', 'longitude', 'sample_type',
+            'id', 'sample_name', 'latitude', 'longitude',
             'collection_timestamp', 'sample_id', 'biosample',
         ]
         qs = self.get_sample_queryset()
-        qs = exclude_private_data(qs)
+        qs = exclude_private_data(qs, self.request.user)
         qs = qs.exclude(longitude=None)
         qs = qs.exclude(latitude=None)
         qs = qs.prefetch_related('dataset', 'dataset__primary_ref')
+        qs = qs.prefetch_related('seqsample_set')
         qs = qs.only(*map_data_fields, 'dataset_id')
         qs = qs.order_by('longitude', 'latitude')
 
@@ -820,14 +973,20 @@ class MapMixin():
             item['sample_url'] = sample.get_absolute_url()
             item['dataset_url'] = sample.dataset.get_absolute_url()
             item['dataset_name'] = dataset_name[sample.dataset_id]
+            item['sample_type'] = '/'.join(sorted(set(
+                i.sample_type for i in sample.seqsample_set.all()
+            )))
 
             # types_at_location: construct a CSS selector prefix for the map
             # marker/icon.  The map javascript will add '-icon'.  Assumes that
             # any possible selector is defined in the loaded style sheet.  If
             # no sample in the group has a sample_type then we put in an empty
-            # string, resulting in a (hopefully) invalid selector in which case
-            # no marker will be displayed.
-            stypes = set((i.sample_type for i in grp if i.sample_type))
+            # string and map.js should handle that case.
+            stypes = set((
+                j.sample_type
+                for i in grp
+                for j in i.seqsample_set.all()
+            ))
             item['types_at_location'] = '-'.join(sorted(stypes))
 
             if len(grp) > 1:
@@ -858,6 +1017,163 @@ class MapMixin():
             map_data.append(item)
 
         return map_data
+
+
+class ObjectRelatedMixin:
+    """ Mixin for TableView for listing records related to an object """
+    template_name = 'glamr/relations_list.html'
+
+    obj_model = None
+    """ model of object """
+
+    related_field_name = None
+    """ name of the related field """
+
+    model = None
+    """ related model """
+
+    object = None
+
+    @classmethod
+    def get_base_attrs(cls, *args, **kwargs):
+        """
+        Get the basic class attributes from urlconf passed arg/kwargs.
+
+        Raises for certain errors, in particular when an attribute is declared
+        by both the class and the urlconf's kwargs.
+        """
+        attrs = {}
+
+        if 'obj_model' in kwargs:
+            if cls.obj_model is not None:
+                raise TypeError(
+                    '"obj_model" is provided via kwargs but also set by class'
+                )
+            try:
+                attrs['obj_model'] = get_registry().models[kwargs['obj_model']]
+            except KeyError as e:
+                raise Http404(f'no such model: {e}') from e
+
+        if 'field' in kwargs and cls.related_field_name:
+            raise TypeError(
+                '"field" is passed by kwargs and "related_field_name" is also '
+                'set by class'
+            )
+        elif field_name := kwargs.get('field', cls.related_field_name):
+            # get field from field name
+            if obj_model := attrs.get('obj_model', cls.obj_model):
+                try:
+                    field = obj_model._meta.get_field(field_name)
+                except FieldDoesNotExist as e1:
+                    raise Http404(f'no such field: {e1}') from e1
+
+                if not field.one_to_many and not field.many_to_many:
+                    raise Http404('field is not *-to_many')
+
+                attrs['field'] = field
+            else:
+                raise TypeError(f'got field name ({field_name}) but no model')
+
+        if 'field' in attrs:
+            # also get the related model
+            if cls.model is None:
+                attrs['model'] = field.related_model
+            else:
+                if cls.model is not field.related_model:
+                    raise RuntimeError(
+                        f'Mismatch: {cls.__name__}.model={cls.model} but field'
+                        f' {field} relates to {field.related_model}'
+                    )
+
+        return attrs
+
+    def setup(self, request, *args, **kwargs):
+        """
+        Set up obj_model, field etc. from the kwargs.  Some of these may be
+        provided by an inheriting class and thus get skipped.  Also sets the
+        model, which will be picked up by as super().setup() is called last.
+        """
+        attrs_from_kwargs = self.get_base_attrs(*args, **kwargs)
+        for name, value in attrs_from_kwargs.items():
+            if getattr(self, name, None) is None:
+                setattr(self, name, value)
+            else:
+                raise RuntimeError(
+                    f'Attribute {name}={value} got passed (or inferred) via '
+                    f'kwargs but is already set by class '
+                    f'({type(self).__name__})'
+                )
+
+        if self.field and self.model is not self.field.related_model:
+            raise RuntimeError(
+                f'{self.field=} {self.field.related_model=} does not match '
+                f'{self.model=}'
+            )
+
+        # hide the column for the object:
+        self.exclude.append(self.field.remote_field.name)
+
+        try:
+            self.accessor_name = self.field.get_accessor_name()
+        except AttributeError:
+            self.accessor_name = self.field.name
+
+        super().setup(request, *args, **kwargs)
+
+    def get_object_lookups(self):
+        return {'pk': self.kwargs['pk']}
+
+    def get_object(self, queryset=None):
+        """ This is similar to DetailView.get_object() """
+        if queryset is None:
+            queryset = self.obj_model.objects.all()
+
+        queryset = queryset.filter(**self.get_object_lookups())
+        queryset = exclude_private_data(queryset, self.request.user)
+
+        try:
+            return queryset.get()
+        except self.obj_model.DoesNotExist:
+            raise Http404(f'no such {self.obj_model} record')
+
+    def get_queryset(self):
+        self.object = self.get_object()
+        qs = super().get_queryset()
+        qs = qs.filter(**{self.field.remote_field.name: self.object})
+        return qs
+
+    def get_breadcrumb_data(self):
+        # Only get the base breadcrumb, skip addition by ModelTableMixin
+        data = super(ModelTableMixin, self).get_breadcrumb_data()
+
+        middle = []
+        obj = self.object
+        for fk in self.get_breadcrumb_fks(self.obj_model):
+            obj = getattr(obj, fk.name)
+            if obj is None:
+                break
+            url = get_record_url(obj)
+            text = fk.related_model._meta.verbose_name
+            middle.append(dict(url=url, text=text))
+        data += reversed(middle)
+        data.append(dict(
+            url=get_record_url(self.object),
+            text=self.obj_model._meta.verbose_name)
+        )
+        data.append(dict(
+            url=None,
+            text=self.model._meta.verbose_name_plural,
+        ))
+        return data
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['object'] = self.object
+        ctx['object_model_name'] = self.obj_model._meta.model_name
+        ctx['object_model_name_verbose'] = self.obj_model._meta.verbose_name
+        ctx['field'] = self.field
+        ctx['verbose_name_plural'] = self.model._meta.verbose_name_plural
+        return ctx
 
 
 class SearchFormMixin:
@@ -989,8 +1305,11 @@ class SearchMixin(SearchFormMixin):
             'user': self.request.user,
         }
 
-        # first search
-        search_result = models.Searchable.objects.search(**search_kwargs)
+        search_result = AccessionSearcher.search(**search_kwargs)
+
+        if not search_result:
+            # first full-text search
+            search_result = models.Searchable.objects.search(**search_kwargs)
 
         if not search_result:
             # get and process spelling suggestions
@@ -1039,6 +1358,125 @@ class SearchMixin(SearchFormMixin):
         else:
             ctx['result_stats'] = None
         return ctx
+
+
+class TableView(FilterMixin, MapMixin, ModelTableMixin, BreadCrumbMixin,
+                BaseMixin, SingleTableView):
+    template_name = 'glamr/filter_list.html'
+
+    _views = None
+    """ private attribute to store views for the view dispatcher """
+
+    @classonlymethod
+    def _get_views(cls):
+        """
+        Get the views for the view dispatcher.
+
+        Upon first invocation, to collect views, go through subclasses in the
+        order they are defined, if they have a model declared take the first
+        for that model to dispatch to.  TableView is the default.
+
+        Call this from the view dispatcher on its first run.
+        """
+        if cls._views is None:
+            views = DefaultDict(default=cls.as_view())
+            for view_cls in get_subclasses(cls):
+                if view_cls.model is None:
+                    # other generic view, generic case is handles by TableClass
+                    continue
+                if issubclass(view_cls, ObjectRelatedMixin):
+                    continue
+                model_name = view_cls.model._meta.model_name
+                if model_name in views:
+                    continue
+                views[model_name] = view_cls.as_view()
+            cls._views = views
+        return cls._views
+
+    @classonlymethod
+    def disp_view(cls, request, *args, **kwargs):
+        """
+        Dispatch to view function based on the model
+
+        Use as view function.  It will dispatch to the proper view class' view
+        function as returned by its as_view(). Raises a KeyError if 'model' is
+        not passed via kwargs.
+        """
+        if cls.model is not None:
+            raise RuntimeError(
+                'only call this on a generic view class with model=None'
+            )
+        view = cls._get_views()[kwargs['model']]
+        if view.view_class.model is not None:
+            # using a model-specific view, so remove model from kwargs
+            del kwargs['model']
+        return view(request, *args, **kwargs)
+
+    def get_breadcrumb_data(self):
+        text = self.model._meta.verbose_name_plural
+        item = dict(url=None, text=text)
+        if self.filter and self.filter.applied_filters:
+            alt_url = reverse('generic_table', kwargs=dict(
+                model=self.model._meta.model_name,
+            ))
+            item['alternative'] = dict(url=alt_url, text='all')
+            item['secondary'] = 'filtered'
+        return super().get_breadcrumb_data() + [item]
+
+
+class ObjRelTableView(ObjectRelatedMixin, TableView):
+
+    @classonlymethod
+    @cache
+    def _get_view(cls, obj_model=None, field=None, model=None):
+        # try for specialized views, obj_model and field name must match
+        for subcls in get_subclasses(ObjectRelatedMixin):
+            test1 = obj_model and subcls.obj_model is obj_model
+            test2 = field and subcls.related_field_name == field.name
+            if test1 and test2:
+                view_cls = subcls
+                break
+        else:
+            if model:
+                # fall-back to generic mixin with specialized TableView
+                table_view = TableView._get_views()[model._meta.model_name]
+                base_cls = table_view.view_class
+                view_cls = type(
+                    'AutoObjRel' + base_cls.__name__,
+                    (ObjectRelatedMixin, base_cls),
+                    {},
+                )
+            else:
+                # fall-back to fully generic, this class
+                view_cls = cls
+        return view_cls.as_view()
+
+    @classonlymethod
+    def disp_view(cls, request, *args, **kwargs):
+        """
+        Dispatch to view function based on the model
+
+        Use as view function.  It will dispatch to the proper view class' view
+        function as returned by its as_view(). Raises a KeyError if 'model' is
+        not passed via kwargs.
+        """
+        if cls.model is not None:
+            raise RuntimeError(
+                'only call this on a generic view class with model=None'
+            )
+
+        base_attrs = cls.get_base_attrs(*args, **kwargs)
+        view_fn = cls._get_view(**base_attrs)
+
+        # only pass required kwargs to view function
+        if 'obj_model' in kwargs and view_fn.view_class.obj_model:
+            del kwargs['obj_model']
+        if 'field' in kwargs and view_fn.view_class.related_field_name:
+            del kwargs['field']
+        if 'model' in kwargs and view_fn.view_class.model:
+            del kwargs['model']
+
+        return view_fn(request, *args, **kwargs)
 
 
 class AboutView(BaseMixin, DetailView):
@@ -1114,7 +1552,8 @@ class AboutHistoryView(BaseMixin, SingleTableView):
     table_class = tables.AboutHistoryTable
 
 
-class AbundanceView(MapMixin, ModelTableMixin, BaseMixin, SingleTableView):
+class AbundanceView(MapMixin, BreadCrumbMixin, ModelTableMixin, BaseMixin,
+                    SingleTableView):
     """
     Lists abundance data for a single object of certain models
     """
@@ -1122,60 +1561,88 @@ class AbundanceView(MapMixin, ModelTableMixin, BaseMixin, SingleTableView):
 
     # view attributes set by setup:
     VIEW_ATTRS = {
-        'taxnode': {
-            'model': TaxonAbundance,
+        TaxonAbundance: {
             'table_class': tables.TaxonAbundanceTable,
-            'sample_filter_key': 'taxonabundance__taxon',
+            'sample_filter_key': 'seqsample__taxonabundance__taxon',
         },
-        'uniref100': {
-            'model': ReadAbundance,
+        ReadAbundance: {
             'table_class': tables.ReadAbundanceTable,
-            'sample_filter_key': 'functional_abundance__ref',
+            'sample_filter_key': 'seqsample__functional_abundance__ref',
         },
-        'funcrefdbentry': {
-            'model': FuncAbundance,
+        FuncAbundance: {
             'table_class': tables.FunctionAbundanceTable,
-            'sample_filter_key': 'funcabundance__function',
+            'sample_filter_key': 'seqsample__function_abundance__function',
         },
-        'compoundrecord': {
-            'model': CompoundAbundance,
+        CompoundAbundance: {
             'table_class': tables.CompoundAbundanceTable,
-            'sample_filter_key': 'compoundabundance__compound',
+            'sample_filter_key': 'seqsample__compoundabundance__compound',
+        },
+        FunctionNameAbundance: {
+            'table_class': tables.FunctionNameAbundanceTable,
+            'sample_filter_key': 'seqsample__function_name_abundance__name',
         },
     }
 
-    def setup(self, request, *args, **kwargs):
-        super().setup(request, *args, **kwargs)
-        obj_model_name = kwargs['model']
+    @classmethod
+    def get_view_attrs(cls, object_model):
+        """
+        Collect object-model-dependent view attributes
+
+        Returns a dict if the model is supported, otherwise raises Http404.
+        """
         try:
-            view_attrs = self.VIEW_ATTRS[obj_model_name]
+            field = object_model._meta.get_field('abundance')
+        except FieldDoesNotExist as e:
+            raise Http404(f'unsupported model: {e}') from e
+
+        model = field.remote_field.model
+
+        try:
+            view_attrs = cls.VIEW_ATTRS[model]
         except KeyError as e:
             raise Http404(f'unsupported model: {e}') from e
 
-        for key, value in view_attrs.items():
-            setattr(self, key, value)
+        view_attrs['model'] = model
+        return view_attrs
 
+    @classmethod
+    def supports_abundance(cls, object_model):
+        """ Tell if view supports given model for objects """
         try:
-            self.object_model = get_registry().models[obj_model_name]
+            cls.get_view_attrs(object_model)
+        except Http404:
+            return False
+        else:
+            return True
+
+    def setup(self, request, *args, **kwargs):
+        super().setup(request, *args, **kwargs)
+        try:
+            self.object_model = get_registry().models[kwargs['model']]
         except KeyError as e:
             raise Http404(f'no such model: {e}') from e
 
+        for key, value in self.get_view_attrs(self.object_model).items():
+            setattr(self, key, value)
+
         try:
             self.object = self.object_model.objects.get(pk=kwargs['pk'])
-        except self.model.DoesNotExist:
-            raise Http404('no such object')
-
-        self.model = self.object.abundance.model
+        except self.model.DoesNotExist as e:
+            raise Http404('no such object: {e}') from e
 
     def get_queryset(self):
-        try:
-            qs = self.object.abundance.all()
-        except AttributeError:
-            # (object-)model lacks reverse abundance relation
-            raise
-
+        qs = self.object.abundance.all()
         qs = exclude_private_data(qs, self.request.user)
         return qs
+
+    def get_breadcrumb_data(self):
+        data = super().get_breadcrumb_data()
+        data.append(dict(
+            url=get_record_url(self.object),
+            text=self.object_model._meta.verbose_name,
+        ))
+        data.append(dict(url=None, text=self.model._meta.verbose_name))
+        return data
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
@@ -1268,6 +1735,29 @@ class ContactView(BaseMixin, TemplateView):
     template_name = 'glamr/contact.html'
 
 
+class ContigListView(TableView):
+    model = Contig
+
+    def get_export_link(self, option):
+        if option != 'sequence_fasta':
+            return super().get_export_link(option)
+        qstr = self.request.GET.copy()
+        qstr[self.export_query_param] = option
+        url = f'?{qstr.urlencode()}'
+        return (url, 'sequences')
+
+    def get_format(self):
+        return ('fasta', '.fasta', TextRenderer)
+
+    def get_values(self):
+        """ Get data for export """
+        if self.requested_export_option != 'sequence_fasta':
+            return super().get_values()
+
+        # export as fasta
+        return self.get_queryset().to_fasta()
+
+
 class DBInfoView(StaffLoginRequiredMixin, BaseMixin, SingleTableView):
     template_name = 'glamr/dbinfo.html'
     model = None  # set by setup()
@@ -1302,7 +1792,7 @@ class DBInfoView(StaffLoginRequiredMixin, BaseMixin, SingleTableView):
         return qs.filter(q)
 
 
-class RecordView(BaseMixin, DetailView):
+class RecordView(BaseMixin, BreadCrumbMixin, DetailView):
     """
     View details of a single object of any model
     """
@@ -1362,7 +1852,10 @@ class RecordView(BaseMixin, DetailView):
         natural key from the URL.  It should return a dict that can be used as
         kwargs in QuerySet.filter().
         """
-        return dict(pk=key)
+        if issubclass(self.model, IDMixin):
+            return {self.model.id_attr: f'{self.model.id_prefix}{key}'}
+        else:
+            return dict(pk=key)
 
     def get_object(self, lookups=None, queryset=None):
         if queryset is None:
@@ -1379,6 +1872,42 @@ class RecordView(BaseMixin, DetailView):
 
         return obj
 
+    def get_breadcrumb_data(self):
+        data = super().get_breadcrumb_data()
+
+        middle = []
+        obj = self.object
+        parental_fk = None
+        parental_obj = None
+        for fk in self.get_breadcrumb_fks(self.model):
+            obj = getattr(obj, fk.name)
+            if parental_fk is None:
+                parental_fk = fk
+                parental_obj = obj
+            if obj is None:
+                break
+            url = get_record_url(obj)
+            text = fk.related_model._meta.verbose_name
+            middle.append(dict(url=url, text=text))
+        data += reversed(middle)
+
+        item = dict(
+            url=None,
+            text=self.model._meta.verbose_name,
+            secondary='detail',
+        )
+        if parental_obj is not None:
+            # add link to list of siblings
+            item['alternative'] = {
+                'url': reverse('relations', kwargs=dict(
+                    obj_model=parental_fk.related_model._meta.model_name,
+                    pk=parental_obj.pk,
+                    field=parental_fk.remote_field.name,
+                )),
+                'text': 'all',
+            }
+        return data + [item]
+
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['object_model_name'] = self.model._meta.model_name
@@ -1386,9 +1915,8 @@ class RecordView(BaseMixin, DetailView):
         ctx['details'] = self.get_details()
         ctx['relations'] = self.get_relations()
         ctx['external_url'] = self.object.get_external_url()
-        ctx['has_abundance'] = (
-            self.model._meta.model_name in AbundanceView.VIEW_ATTRS
-        )
+        ctx['supports_abundance'] = AbundanceView.supports_abundance(self.model)
+        ctx['header_link_groups'] = []
 
         return ctx
 
@@ -1470,7 +1998,7 @@ class RecordView(BaseMixin, DetailView):
                 # this is the m2m field
                 rel_attr = i.name
             qs = getattr(self.object, rel_attr).all()
-            qs = exclude_private_data(qs)
+            qs = exclude_private_data(qs, self.request.user)
             qs = qs[:self.max_to_many]
             data.append((name, model_name, qs, i))
 
@@ -1489,7 +2017,7 @@ class RecordView(BaseMixin, DetailView):
                 # this is the m2m field
                 rel_attr = f.name
             qs = getattr(self.object, rel_attr).all()
-            value = exclude_private_data(qs).count()
+            value = exclude_private_data(qs, self.request.user).count()
             del qs
             is_blank = (value == 0)  # Let's not show zeros
         elif f.one_to_one:
@@ -1579,6 +2107,28 @@ class RecordView(BaseMixin, DetailView):
         return details
 
 
+class ContigView(RecordView):
+    model = Contig
+
+    def get_sequence_url(self):
+        """ Get URL to contig's sequence
+
+            Returns None if we don't have an assembly file.
+        """
+        asm_qs = self.object.sample.file_set.filter(
+            filetype=File.Type.METAG_ASM
+        )
+        if asm_qs.exists():
+            return reverse('contig_seq', kwargs={'pk': self.object.pk})
+        else:
+            return None
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['header_link_groups'] = [[(self.get_sequence_url(), 'sequence')]]
+        return ctx
+
+
 class DatasetAccessView(StaffLoginRequiredMixin, BaseMixin, SingleTableView):
     """ List datasets/studies with any access restrictions """
     template_name = 'glamr/dataset_access.html'
@@ -1613,10 +2163,6 @@ class DatasetView(MapMixin, RecordView):
     ]
     exclude = ['restricted_to']
 
-    def get_natural_object_lookups(self, key):
-        """ implement lookup via set number """
-        return dict(dataset_id=f'set_{key}')
-
     def get_sample_queryset(self):
         return self.object.sample_set.all()
 
@@ -1641,6 +2187,50 @@ class DatasetView(MapMixin, RecordView):
         return fields
 
 
+class FileDownloadView(BaseMixin, View):
+    def get(self, request, *arg, **kwargs):
+        """
+        Delegate sending the file to mod_xsendfile
+
+        This will check that there is an Apache 2.4 server running but that
+        mod_xsendfile is up and configured correctly is only assumed.  The
+        XSendFilePath directive does not seem to work as documented, so we will
+        set the X-Sendfile header to an absolute path, relying on a configured
+        settings.HTTPD_FILESTORAGE_ROOT which must correspond to where the web
+        server is set up to find the files.
+
+        Once we respond there is no way to verify that the file was actually
+        send.
+
+        See also https://tn123.org/mod_xsendfile/
+        """
+        if settings.HTTPD_FILESTORAGE_ROOT and settings.FILE_DOWNLOAD_URL:
+            root = Path(settings.HTTPD_FILESTORAGE_ROOT)
+        else:
+            raise Http404('direct download not configured')
+
+        path = kwargs['path']
+        qs = File.objects.exclude_private(request.user)
+        try:
+            file = qs.get(file_local=path)
+        except File.DoesNotExist:
+            raise Http404('file not found')
+
+        path = root / file.file_local.name
+
+        if request.META['SERVER_SOFTWARE'].startswith('Apache/2.4'):
+            # An error message is put into the response that may be seen by a
+            # user in case mod_xsendfile is not loaded.  Other observed errors
+            # are simple 404s from the httpd.
+            resp = HttpResponse('x-sendfile failed or is not set up')
+            resp['X-Sendfile'] = str(path)
+            resp['Content-Type'] = 'text/plain'
+            resp['Content-Disposition'] = f'attachment; filename="{path.name}"'
+            return resp
+
+        raise Http404('direct download not supported')
+
+
 class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
     model = models.Dataset
     search_model = SearchFormMixin.ANY_MODEL
@@ -1660,7 +2250,11 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
         # to get sample type in table
         qs = qs.prefetch_related(Prefetch(
             'sample_set',
-            queryset=Sample.objects.only('dataset_id', 'sample_type'),
+            queryset=Sample.objects.only('dataset_id'),
+        ))
+        qs = qs.prefetch_related(Prefetch(
+            'sample_set__seqsample_set',
+            queryset=SeqSample.objects.only('parent_id', 'sample_type'),
         ))
 
         qs = qs.annotate(sample_count=Count('sample', distinct=True))
@@ -1716,15 +2310,19 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
         # for each cell it's a tuple of URL query string and value (text or
         # count.)
         df = Dataset.objects.exclude_private(self.request.user).summary(
-            column_field='sample_type',
+            column_field='seqsample__sample_type',
             row_field='geo_loc_name',
         )
         conf = DataConfig(Dataset)
-        head = []
+        # The summary double counts datasets (if they match multiple
+        # categories) so we get the total number from the table data, which
+        # should have the length already cached.
+        dataset_count = len(ctx['table'].data)
+        head = [('', f'All datasets ({dataset_count})')]
         for i in df.columns:
             conf.filter['sample__sample_type'] = i
             head.append((conf.url_query(), i))
-        dataset_counts_data = [head]
+        dataset_summary_data = [head]
         for lake, lake_counts in df.to_dict(orient='index').items():
             conf.clear_selection()
             if lake == 'other':
@@ -1733,26 +2331,21 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
                 conf.filter = dict(sample__geo_loc_name=lake)
             row = [(conf.url_query(), lake)]
             for samp_type, count in lake_counts.items():
-                if count > 0:
-                    conf.filter['sample__sample_type'] = samp_type
-                    q_str = conf.url_query()
-                else:
-                    q_str = None
+                conf.filter['sample__seqsample__sample_type'] = samp_type
+                q_str = conf.url_query()
                 row.append((q_str, count))
-            dataset_counts_data.append(row)
-        ctx['dataset_counts'] = dataset_counts_data
-        ctx['dataset_totalcount'] = \
-            Dataset.objects.exclude_private(self.request.user).count()
+            dataset_summary_data.append(row)
+        ctx['dataset_summary_data'] = dataset_summary_data
 
         # Compile data for sample summary: Similar to above for datasets
         df = Sample.objects.exclude_private(self.request.user) \
-                           .summary('sample_type', 'geo_loc_name')
+                           .summary('seqsample__sample_type', 'geo_loc_name')
         conf = DataConfig(Sample)
-        head = []
+        head = [('', f'All samples ({df.sum().sum()})')]
         for i in df.columns:
             conf.filter['sample_type'] = i
             head.append((conf.url_query(), i))
-        sample_counts_data = [head]
+        sample_summary_data = [head]
         for lake, lake_counts in df.to_dict(orient='index').items():
             conf.clear_selection()
             if lake == 'other':
@@ -1761,16 +2354,66 @@ class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
                 conf.filter = dict(geo_loc_name=lake)
             row = [(conf.url_query(), lake)]
             for samp_type, count in lake_counts.items():
-                if count > 0:
-                    conf.filter['sample_type'] = samp_type
-                    q_str = conf.url_query()
-                else:
-                    q_str = None
+                conf.filter['seqsample__sample_type'] = samp_type
+                q_str = conf.url_query()
                 row.append((q_str, count))
-            sample_counts_data.append(row)
-        ctx['sample_counts'] = sample_counts_data
-        ctx['sample_totalcount'] = df.sum().sum()
+            sample_summary_data.append(row)
+        ctx['sample_summary_data'] = sample_summary_data
 
+        return ctx
+
+
+class FunctionView(RecordView):
+    """
+    Shows compact info of records related to function name
+    """
+    model = FunctionName
+    template_name = 'glamr/function.html'
+
+    def get_object_lookups(self):
+        if 'natkey' in self.kwargs:
+            return super().get_object_lookups()
+        try:
+            pk = int(self.kwargs['name'])
+        except ValueError:
+            return dict(entry=self.kwargs['name'])
+        else:
+            return dict(pk=pk)
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        samp_qs = SeqSample.objects.exclude_private(self.request.user)
+        uref_qs = UniRef100.objects.annotate(sample_count=Count(
+            'abundance',
+            filter=Q(abundance__sample__in=samp_qs),
+        ))
+        pf = Prefetch('uniref100_set', queryset=uref_qs)
+        qs = qs.prefetch_related(pf, 'uniref100_set__function_names')
+        qs = qs.prefetch_related('uniref100_set__function_refs')
+        return qs
+
+    def gather_data(self):
+        obj = self.object
+        urefs = obj.uniref100_set.all()  # got prefetched in get_queryset()
+
+        data = []
+        for ur90, grp in groupby(urefs, key=lambda x: x.uniref90):
+            grp = list(grp)
+            data.append((
+                ur90,
+                [(
+                    i,
+                    sorted([i for i in i.function_names.all() if i != obj], key=lambda x: x.entry),  # noqa:E501
+                    sorted(i.function_refs.all(), key=lambda x: x.accession),
+                ) for i in grp],
+            ))
+
+        return data
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['data'] = self.gather_data()
+        ctx['name'] = self.object.entry
         return ctx
 
 
@@ -1789,10 +2432,6 @@ class ReferenceView(RecordView):
 
     def get_queryset(self):
         return super().get_queryset().prefetch_related('dataset_set')
-
-    def get_natural_object_lookups(self, key):
-        """ implement lookup via paper number """
-        return dict(reference_id=f'paper_{key}')
 
     def get_publication_detail(self, field, item):
         name, info, values, unit = item
@@ -1838,7 +2477,7 @@ class ReferenceView(RecordView):
 
 
 class SampleView(MapMixin, RecordView):
-    model = get_sample_model()
+    model = models.Sample
     template_name = 'glamr/sample_detail.html'
     fields = [
         'dataset',
@@ -1854,11 +2493,9 @@ class SampleView(MapMixin, RecordView):
     def get_queryset(self):
         qs = super().get_queryset()
         qs = qs.select_related('dataset', 'dataset__primary_ref')
+        qs = qs.prefetch_related('seqsample_set', 'seqsample_set__tracking')
+        qs = qs.prefetch_related('seqsample_set__file_set')
         return qs
-
-    def get_natural_object_lookups(self, key):
-        """ implement lookup via sample number """
-        return dict(sample_id=f'samp_{key}')
 
     def get_ordered_fields(self):
         fields = []
@@ -1881,58 +2518,72 @@ class SampleView(MapMixin, RecordView):
         value = self.object.format_collection_timestamp()
         return (name, info, [(value, None)], None)
 
-    def get_header_links(self):
-        """ a list of lists of pairs (url, link text) """
-        obj = self.object
-        tr = {i.flag for i in obj.tracking.all()}
+    def get_seqsample_data(self):
+        """ get URLs and context data to display seqsample info """
+        data = []
+        for seqsamp in self.object.seqsample_set.all():
+            flags = {i.flag for i in seqsamp.tracking.all()}
+            urls = {}
 
-        krona_url = None
-        taxabund_url = None
-        if SampleTracking.Flag.TAXABUND in tr:
-            krona_url = reverse(
-                'krona', kwargs=dict(samp_no=obj.get_record_id_no())
-            )
-            taxabund_url = reverse(
-                'relations',
-                kwargs=dict(
-                    obj_model='sample',
-                    pk=obj.pk,
-                    field='taxonabundance',
-                ),
-            )
-        abund_links = [
-            (krona_url, 'krona chart'),
-            (taxabund_url, 'abundance/taxa'),
-        ]
-
-        if obj.sample_type == 'metagenome':
-            funcabund_url = None
-            if SampleTracking.Flag.UR1ABUND in tr:
-                funcabund_url = reverse(
+            if SampleTracking.Flag.TAXABUND in flags:
+                urls['krona chart'] = reverse(
+                    'krona', kwargs=dict(samp_no=seqsamp.get_record_id_no())
+                )
+                urls['abundance/taxa'] = reverse(
                     'relations',
                     kwargs=dict(
-                        obj_model='sample',
-                        pk=obj.pk,
-                        field='functional_abundance',
+                        obj_model='seqsample',
+                        pk=seqsamp.pk,
+                        field='taxonabundance',
                     ),
                 )
-            abund_links.append((funcabund_url, 'abundance/functions'))
 
-        if obj.file_set.exists():
-            urlkw = dict(
-                obj_model='sample',
-                pk=obj.pk,
-                field='file',
-            )
-            dl_url = reverse('relations', kwargs=urlkw)
-        else:
-            dl_url = None
+            if seqsamp.sample_type == SeqSample.Type.METAGENOME:
+                if SampleTracking.Flag.UR1ABUND in flags:
+                    urls['abundance/functions'] = reverse(
+                        'relations',
+                        kwargs=dict(
+                            obj_model='seqsample',
+                            pk=seqsamp.pk,
+                            field='functional_abundance',
+                        ),
+                    )
+                if SampleTracking.Flag.BINNING in flags:
+                    urls['MAGs'] = reverse(
+                        'relations',
+                        kwargs=dict(
+                            obj_model='seqsample',
+                            pk=seqsamp.pk,
+                            field='bin',
+                        ),
+                    )
+            elif seqsamp.sample_type == SeqSample.Type.AMPLICON:
+                if seqsamp.asvabundance_set.exists():  # TODO repl w/flag test
+                    urls['ASV abundance'] = reverse(
+                        'relations',
+                        kwargs=dict(
+                            obj_model='seqsample',
+                            pk=seqsamp.pk,
+                            field='asvabundance',
+                        ),
+                    )
 
-        return [abund_links, [(dl_url, 'file downloads')]]
+            if seqsamp.file_set.exists():
+                urlkw = dict(
+                    obj_model='seqsample',
+                    pk=seqsamp.pk,
+                    field='file',
+                )
+                urls['file downloads'] = reverse('relations', kwargs=urlkw)
+            seqsamp.urls = urls
+            data.append(seqsamp)
+        return data
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['header_link_groups'] = self.get_header_links()
+        # ctx['header_link_groups'] = self.get_header_links()
+        ctx['seqsample_table'] = \
+            tables.SeqSampleTable(self.get_seqsample_data())
         return ctx
 
 
@@ -1999,100 +2650,19 @@ class SearchModelView(EditFilterMixin, BaseMixin, TemplateView):
         return ctx
 
 
-class TableView(FilterMixin, MapMixin, ModelTableMixin, BaseMixin,
-                SingleTableView):
-    template_name = 'glamr/filter_list.html'
-
-
-class ToManyListView(FilterMixin, ModelTableMixin, BaseMixin, SingleTableView):
-    """ List records related to other record """
-    template_name = 'glamr/relations_list.html'
-    obj_model = None
-    object = None
-
-    def setup(self, request, *args, **kwargs):
-        """
-        Set up obj_model, field etc. from the kwargs.  Some of
-        these may be provided by an inheriting class and thus get skipped.
-        """
-        if self.obj_model is None:
-            obj_model = kwargs['obj_model']
-            try:
-                self.obj_model = get_registry().models[obj_model]
-            except KeyError as e:
-                raise Http404(f'no such model: {e}') from e
-
-        try:
-            field = self.obj_model._meta.get_field(kwargs['field'])
-        except FieldDoesNotExist as e:
-            raise Http404('no such field') from e
-
-        if not field.one_to_many and not field.many_to_many:
-            raise Http404('field is not *-to_many')
-
-        self.field = field
-        if self.model is None:
-            self.model = field.related_model
-        else:
-            if self.model is not field.related_model:
-                raise RuntimeError(f'{field=} {field.related_model=} does not '
-                                   f'match {self.model=}')
-        # hide the column for the object:
-        self.exclude.append(self.field.remote_field.name)
-
-        try:
-            self.accessor_name = field.get_accessor_name()
-        except AttributeError:
-            self.accessor_name = field.name
-
-        # hand over to ModelTableMixin
-        super().setup(request, *args, **kwargs)
-
-    def get_object_lookups(self):
-        return {'pk': self.kwargs['pk']}
-
-    def get_object(self, queryset=None):
-        """ This is similar to DetailView.get_object() """
-        if queryset is None:
-            queryset = self.obj_model.objects.all()
-
-        queryset = queryset.filter(**self.get_object_lookups())
-        queryset = exclude_private_data(queryset, self.request.user)
-
-        try:
-            return queryset.get()
-        except self.obj_model.DoesNotExist:
-            raise Http404(f'no such {self.obj_model} record')
-
-    def get_queryset(self):
-        self.object = self.get_object()
-        qs = super().get_queryset()
-        qs = qs.filter(**{self.field.remote_field.name: self.object})
-        return qs
-
-    def get_context_data(self, **ctx):
-        ctx = super().get_context_data(**ctx)
-        ctx['object'] = self.object
-        ctx['object_model_name'] = self.obj_model._meta.model_name
-        ctx['object_model_name_verbose'] = self.obj_model._meta.verbose_name
-        ctx['field'] = self.field
-        ctx['verbose_name_plural'] = self.model._meta.verbose_name_plural
-        return ctx
-
-
-class SampleListView(MapMixin, ToManyListView):
+class SampleListView(ObjectRelatedMixin, TableView):
     """ List of samples belonging to a given dataset  """
     template_name = 'glamr/sample_list.html'
     table_class = tables.SampleTable
-    model = models.Sample
     obj_model = models.Dataset
-
-    def setup(self, request, *args, **kwargs):
-        """ adapt setup call to ToManyListView's expectations """
-        super().setup(request, *args, field='sample', **kwargs)
+    model = models.Sample
+    related_field_name = 'sample'
 
     def get_object_lookups(self):
-        set_no = self.kwargs['set_no']
+        try:
+            set_no = self.kwargs['set_no']
+        except KeyError:
+            return super().get_object_lookups()
         return {'dataset_id': f'set_{set_no}'}
 
 
@@ -2134,8 +2704,8 @@ class SearchResultListView(SearchResultMixin, SearchMixin, BaseMixin,
     template_name = 'glamr/result_list.html'
 
 
-class AdvFilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
-                          BaseMixin, SingleTableView):
+class AdvFilteredListView(SearchFormMixin, BreadCrumbMixin, MapMixin,
+                          ModelTableMixin, BaseMixin, SingleTableView):
     """
     View for the advanced filtering option
 
@@ -2170,6 +2740,22 @@ class AdvFilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
         qs = exclude_private_data(qs, self.request.user)
         return qs
 
+    def get_breadcrumb_data(self):
+        data = super().get_breadcrumb_data()
+        data.append(dict(
+            url=None,
+            text=self.model._meta.verbose_name_plural,
+            secondary='filtered',
+            alternative=dict(
+                url=reverse(
+                    'generic_table',
+                    kwargs=dict(model=self.model._meta.model_name)
+                ),
+                text='all',
+            ),
+        ))
+        return data
+
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         self.set_filter()
@@ -2178,12 +2764,6 @@ class AdvFilteredListView(SearchFormMixin, MapMixin, ModelTableMixin,
             for k, v in self.conf.filter.items()
         ] + [('', i) for i in self.conf.q]
         return ctx
-
-
-class FilteredListView(SearchFormMixin, FilterMixin, MapMixin, ModelTableMixin,
-                       BaseMixin, SingleTableView):
-    """ Similar to FilteredListView but got via django-filter filters """
-    template_name = 'glamr/filter_list.html'
 
 
 class UniRef100View(RecordView):
@@ -2202,7 +2782,9 @@ class UniRef100View(RecordView):
 
 
 record_view_registry = DefaultDict(
+    contig=ContigView.as_view(),
     dataset=DatasetView.as_view(),
+    functionname=FunctionView.as_view(),
     sample=SampleView.as_view(),
     reference=ReferenceView.as_view(),
     taxnode=TaxonView.as_view(),

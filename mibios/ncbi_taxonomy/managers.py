@@ -88,7 +88,7 @@ class Loader(UMRADLoader):
 
 class CitationLoader(Loader):
 
-    def parse_nodes(self, value, obj):
+    def parse_nodes(self, value, **ctx):
         if value is None:
             return None
 

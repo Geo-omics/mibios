@@ -98,7 +98,7 @@ class BulkCreateWrapperMixin:
                         ignore_conflicts=ignore_conflicts,
                     )
                 except Exception as e:
-                    print(f'ERROR saving to {model_name or "?"}: batch 1st: '
+                    print(f'\nERROR saving to {model_name or "?"}: batch 1st: '
                           f'{vars(batch[0])=}')
                     raise RuntimeError('error saving batch', batch[:9]) from e
                 pp.inc(len(batch))
@@ -257,7 +257,7 @@ class QuerySet(BulkCreateWrapperMixin, MibiosQuerySet):
             BATCH_SIZE = 250000
 
         res = []
-        for i in range(0, len(id_list) - 1, BATCH_SIZE):
+        for i in range(0, len(id_list), BATCH_SIZE):
             f = {f'{field_name}__in': id_list[i:i + BATCH_SIZE]}
             part = self.filter(**f).values_list(field_name, 'pk')
             res += part
@@ -509,7 +509,7 @@ class BaseLoader(MibiosBaseManager):
 
                 if callable(fn):
                     try:
-                        value = fn(value, obj)
+                        value = fn(value, obj=obj, field=field)
                     except SkipRow as e:
                         if e.log:
                             skipped_log.append(dict(
@@ -521,8 +521,8 @@ class BaseLoader(MibiosBaseManager):
                         else:
                             skipped_log_not_logged += 1
                         break  # skips line / avoids for-else block
-                    except Exception as e:
-                        if skip_on_error and isinstance(e, InputFileError):
+                    except InputFileError as e:
+                        if skip_on_error:
                             # skip line on expected errors
                             skipped_log.append(dict(
                                 lineno=lineno,
@@ -534,9 +534,17 @@ class BaseLoader(MibiosBaseManager):
                             ))
                             break  # skips line / avoids for-else block
                         else:
-                            print(f'\nERROR at line {lineno} / field {field}: '
-                                  f'value was "{value}" -- {e}')
+                            print(
+                                f'\nERROR at line {lineno} / field {field} '
+                                f'[set skip_on_error=True to proceed after bad'
+                                f'line]: value was "{value}" -- {e}'
+                            )
                             raise
+                    except Exception as e:
+                        print(f'\nERROR at line {lineno} / field {field}: '
+                              f'value was "{value}" -- {e.__class__.__name__}:'
+                              f' {e}')
+                        raise
 
                 if value is self.spec.IGNORE_COLUMN or field is None:
                     continue  # next column
@@ -639,7 +647,7 @@ class BaseLoader(MibiosBaseManager):
                         blanked_log = self._validate(obj, blank_invalid)
                     except ValidationError as e:
                         print(f'\nERROR on line {lineno}: '
-                              f'{"(new)" if obj_is_new else "(update)"} {e}'
+                              f'{"(new)" if obj_is_new else "(update)"} {e} '
                               f'offending row:\n{self.current_row}')
                         print(f'{vars(obj)=}')
                         if skip_on_error:
@@ -990,36 +998,36 @@ class BaseLoader(MibiosBaseManager):
         """
         Return pre-processing method for choice value prepping
         """
+        # This is called from spec setup for regular choice fields but also for
+        # the ReactionCompound loader.  In latter case the prep method calls do
+        # not pass the context and so the field (renamed to _field) is passed
+        # as as default argument so the sanity check (is the method is called
+        # on the correct field?) can be passed.
         prep_values = {j: i for i, j in field.choices}
+        _field = field
+        del field
 
-        def prep_choice_value(self, value, row=None, obj=None):
+        def prep_choice_value(self, value, field=_field, **ctx):
             """ get the prepared field value for a choice field """
-            return prep_values.get(value, value)
+            if field == _field:
+                return prep_values.get(value, value)
+            else:
+                raise ValueError('method called for wrong field')
 
         return partial(prep_choice_value, self)
 
-    def split_m2m_value(self, value, row=None, sep=None):
+    def split_m2m_value(self, value, row=None, sep=';'):
         """
         Pre-processor to split list-field values
-
-        sep:
-            If this is None, then commas or semi-colons are recognized as
-            separators.  A ValueError is raised if a comma and semi-colon bot
-            appear in the value.
 
         This will additionally strip leading or trailing white-space, ignore
         extra separators (meaning blanks can not appear as a listed value), and
         sort and remove duplicates.  If you don't want this use the
-        split_m2m_value_simple() method.
+        split_m2m_value_simple() method or pre-process the values.
         """
         if value is None:
             return []
 
-        if sep is None:
-            if ',' in value and ';' in value:
-                raise ValueError('ambigious separators')
-            value = value.replace(',', ';')
-            sep = ';'
         items = (val for i in value.split(sep) if (val := i.strip()))
         return sorted(set(items))
 
@@ -1235,7 +1243,7 @@ class CompoundRecordLoader(BulkLoader):
     def get_file(self):
         return settings.UMRAD_ROOT / 'MERGED_CPD_DB.txt'
 
-    def chargeconv(self, value, obj):
+    def chargeconv(self, value, **ctx):
         """ Pre-processor to convert '2+' -> 2 / '2-' -> -2 """
         if value == '' or value is None:
             return None
@@ -1249,7 +1257,7 @@ class CompoundRecordLoader(BulkLoader):
             except ValueError as e:
                 raise InputFileError from e
 
-    def collect_others(self, value, obj):
+    def collect_others(self, value, **ctx):
         """
         Pre-processor triggered on kegg column to collect from other columns
         """
@@ -1352,14 +1360,14 @@ class ReactionRecordLoader(BulkLoader):
     def get_file(self):
         return settings.UMRAD_ROOT / 'MERGED_RXN_DB.txt'
 
-    def errata_check(self, value, obj):
+    def errata_check(self, value, **ctx):
         """ Pre-processor to skip extra header rows """
         # FIXME: remove this function when source data is fixed
         if value == 'rxn':
             raise SkipRow('value == "rxn" (see source code)')
         return value
 
-    def process_xrefs(self, value, obj):
+    def process_xrefs(self, value, **ctx):
         """
         Pre-processor to collect data from all xref columns
 
@@ -1373,7 +1381,7 @@ class ReactionRecordLoader(BulkLoader):
         xrefs = [(i, ) for i in xrefs if i != row[0]]  # rm this rxn itself
         return xrefs
 
-    def process_compounds(self, value, obj):
+    def process_compounds(self, value, **ctx):
         """
         Pre-processor to collect data from the 18 compound columns
 
@@ -1459,6 +1467,99 @@ class ReactionRecordLoader(BulkLoader):
     )
 
 
+class UniRef90Loader(BulkLoader):
+    def get_file(self):
+        """ get path to UNIREF100_INFO file made by Create_Alignment_DB.pl """
+        return settings.UMRAD_ROOT / 'UNIREF100_INFO.txt'
+
+    @atomic_dry
+    def load(self, file=None, update=False, bulk=True, validate=False,
+             skip_on_error=False, batch_size=10_000_000, limit=None):
+        """
+        Load UniRef90 accessions from the UNIREF100_INFO file's UR90 column.
+
+        update:
+            If False, then input data already stored in the DB will trigger
+            integrity errors.
+        """
+        if not bulk:
+            raise NotImplementedError('non-bulk mode not implemented')
+
+        if file is None:
+            file = self.get_file()
+
+        if update:
+            print('Retrieving existing records... ', end='', flush=True)
+            existing = set(self.values_list('accession', flat=True))
+            print(f'{len(existing)} [OK]')
+        else:
+            existing = set()
+
+        infile = open(file)
+        print(f'Reading {infile.name}...')
+        header = infile.readline().strip('\n').split('\t')
+        try:
+            col = header.index('UR90')
+        except ValueError:
+            raise RuntimeError('no UR90 column found: {infile.name}')
+
+        PREFIX = 'UNIREF90_'
+        len_pref = len(PREFIX)
+
+        def save_batch(batch):
+            objs = (self.model(accession=i) for i in batch)
+            if validate:
+                objs = list(objs)
+                for i in objs:
+                    i.full_clean()
+            print()
+            self.bulk_create(objs)
+
+        accns = set()
+        error_count = 0
+        pp = ProgressPrinter('processing uniref90s')
+        for lnum, line in pp(enumerate(infile, start=1)):
+            if limit and limit < lnum:
+                break
+            try:
+                try:
+                    value = line.strip().split('\t', maxsplit=col + 1)[col]
+                except IndexError:
+                    raise RuntimeError(
+                        f'Failed parsing line {lnum}: columns missing?\n{line}'
+                    )
+
+                value = value.strip()
+                if not value:
+                    # UniRef100 record w/o assigned UniRef90 cluster
+                    continue
+
+                if not value.startswith(PREFIX):
+                    raise RuntimeError(
+                        f'failed parsing uniref90 accession at line {lnum}: "{value}"'
+                    )
+
+                value = value[len_pref:]
+
+                if value in existing:
+                    continue
+
+                accns.add(value)
+            except Exception:
+                if skip_on_error:
+                    error_count += 1
+                    continue
+                raise
+
+            if batch_size and lnum % batch_size == 0:
+                save_batch(accns)
+                existing.update(accns)
+                accns = set()
+
+        # save final batch
+        save_batch(accns)
+
+
 class UniRef100Loader(BulkLoader):
     """ loader for OUT_UNIREF.txt """
 
@@ -1522,7 +1623,14 @@ class UniRef100Loader(BulkLoader):
         """ helper to parse UniRef100 accessions """
         return value.upper().removeprefix('UNIREF100_')
 
-    def parse_and_filter(self, value, obj):
+    def parse_ur90(self, value, **ctx):
+        """ remove prefix """
+        if value:
+            return value.upper().removeprefix('UNIREF90_')
+        else:
+            return value
+
+    def parse_and_filter(self, value, **ctx):
         """ for selective loading, check if row is to be skipped """
         value = self.parse_ur100(value)
         if self.selected_accns is not None:
@@ -1530,7 +1638,7 @@ class UniRef100Loader(BulkLoader):
                 raise SkipRow('record was not selected by caller', log=False)
         return value
 
-    def process_func_xrefs(self, value, obj):
+    def process_func_xrefs(self, value, **ctx):
         """ Pre-processor ro collect COG through EC columns """
         ret = []
         for (db_code, _), vals in zip(self.func_dbs, self.current_row[13:19]):
@@ -1546,7 +1654,7 @@ class UniRef100Loader(BulkLoader):
                 ret.append((i, ))
         return ret
 
-    def process_reactions(self, value, obj):
+    def process_reactions(self, value, **ctx):
         """ Pre-processor to collect all reactions """
         rxns = set()
         for i in self.current_row[17:20]:
@@ -1558,7 +1666,7 @@ class UniRef100Loader(BulkLoader):
                     rxns.add(j)
         return [(i, ) for i in rxns]
 
-    def merge_taxids(self, value, obj):
+    def merge_taxids(self, value, **ctx):
         """ replace any merged taxid with new taxid """
         items = self.split_m2m_value(value)
         if not items:
@@ -1575,7 +1683,7 @@ class UniRef100Loader(BulkLoader):
 
     spec = CSV_Spec(
         ('UR100', 'accession', parse_and_filter),
-        ('UR90', 'uniref90'),
+        ('UR90', 'uniref90', parse_ur90),
         ('Name', 'function_names'),
         ('Length', 'length'),
         ('SigPep', 'signal_peptide'),

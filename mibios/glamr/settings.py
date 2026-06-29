@@ -17,13 +17,17 @@ INSTALLED_APPS.append('django_filters')  # noqa:F405
 
 # add crispy forms
 INSTALLED_APPS.append('crispy_forms')  # noqa:F405
-CRISPY_ALLOWED_TEMPLATE_PACKS = 'bootstrap4'
-CRISPY_TEMPLATE_PACK = 'bootstrap4'
+INSTALLED_APPS.append('crispy_bootstrap5')  # noqa:F405
+CRISPY_TEMPLATE_PACK = 'bootstrap5'
 
 # find bootstrap icons as template
 TEMPLATES[0]['DIRS'].append('/usr/share/bootstrap-icons/svg/')  # noqa:F405
 BASE_TEMPLATE_NAME = 'glamr/base.html'
 
+STATICFILES_DIRS = [
+    ('bootstrap5', '/usr/share/bootstrap-html'),  # Debian's libjs-bootstrap5
+    ('popper2', '/usr/share/javascript/popperjs2'),  # Debian's node-popper2
+]
 # override mibios' urls since glamr has it's own
 ROOT_URLCONF = 'mibios.glamr.urls0'
 
@@ -31,7 +35,10 @@ ROOT_URLCONF = 'mibios.glamr.urls0'
 OMICS_SAMPLE_MODEL = 'glamr.Sample'
 OMICS_DATASET_MODEL = 'glamr.Dataset'
 
-DJANGO_TABLES2_TEMPLATE = 'django_tables2/bootstrap4.html'
+DJANGO_TABLES2_TEMPLATE = 'django_tables2/bootstrap5.html'
+
+# Django's default is same-origin
+SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
 
 # Django's default is same-origin
 SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
@@ -49,9 +56,17 @@ MESSAGE_TAGS = {
     message_constants.ERROR: 'alert-danger',
 }
 
+MEDIA_ROOT = None
+MEDIA_URL = None
+
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'frontpage'
 LOGOUT_REDIRECT_URL = 'frontpage'
+# To allow logins w/o knowing the password (for development only) set this True
+SKIP_PASSWORD_CHECK = False
+
+# base URL for 'file_download'
+FILE_DOWNLOAD_URL = '/download/'
 
 # Set to True to enable URLs for testing
 ENABLE_TEST_VIEWS = False
@@ -59,3 +74,7 @@ ENABLE_TEST_VIEWS = False
 # Set to True to activate an unauthenticated admin interface, only to be used
 # in restricted environments please
 ENABLE_OPEN_ADMIN = False
+
+# To enable file download via mod_xsendfile, set this to correspond to the
+# httpd's XSenfFilePath directive.
+HTTPD_FILESTORAGE_ROOT = None

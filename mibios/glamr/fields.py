@@ -1,3 +1,6 @@
+import decimal
+from functools import cached_property
+
 from django.core.validators import URLValidator
 from django.db.models import DecimalField, URLField
 
@@ -33,3 +36,10 @@ class FreeDecimalField(DecimalField):
             return 'numeric'
         else:
             return super().db_type(connection)
+
+    @cached_property
+    def context(self):
+        return decimal.Context(
+            prec=self.max_digits,
+            rounding=decimal.ROUND_HALF_UP,
+        )

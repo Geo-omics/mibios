@@ -5,11 +5,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>{% block title %}GLAMR{% endblock %}</title>
-    {% block head_links_and_scripts %}
     <link rel="icon" type="image/png" href="{% static 'glamr/img/GLMA_Logo_Icon.png' %}">
     <link rel="stylesheet" href="{% static 'glamr/css/base.css' %}">
-    <link rel="stylesheet" href="{% static 'glamr/css/bootstrap.min.css' %}">
-    {% endblock %}
+    <link rel="stylesheet" href="{% static 'bootstrap5/css/bootstrap.min.css' %}">
+    {% block head_extras %}{% endblock %}
 </head>
 <body>
 {% block top_of_body %}{% endblock %}
@@ -46,15 +45,16 @@
 
 
     <div class="container-fluid py-4">
+    {% block breadcrumbs %}{% endblock %}
     {% block notifications %}{% endblock %}
     {% block content %}{% endblock %}                                                                
     </div>
     <footer class="d-flex flex-wrap justify-content-center py-2 mt-4 border-top">
         <a href="https://umich.edu/" class="text-muted text-decoration-none mx-4">University of Michigan</a>
-        <span class="text-muted">© 2024 <a href="https://regents.umich.edu/" class="text-muted text-decoration-none">Regents of the University of Michigan</a></span>
+        <span class="text-muted">© 2026 <a href="https://regents.umich.edu/" class="text-muted text-decoration-none">Regents of the University of Michigan</a></span>
     </footer>
 </div>
-{% block bottom_of_body %}{% endblock %}
+{%block body_bottom%}{%endblock%}
 </body>
 </html>
 

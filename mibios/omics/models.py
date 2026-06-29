@@ -1,4 +1,6 @@
-from datetime import datetime
+from collections import defaultdict
+from datetime import datetime, timedelta
+from itertools import groupby
 from logging import getLogger
 from pathlib import Path
 import re
@@ -6,28 +8,129 @@ from subprocess import PIPE, Popen, TimeoutExpired
 from time import time
 
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.core.files.storage import storages
+from django.db import connection, models
 from django.db.transaction import atomic
+from django.urls import reverse
+from django.urls.exceptions import NoReverseMatch
+
+from pypelib.amplicon import dispatch
+from pypelib.amplicon.hmm import HMM
 
 from mibios.data import TableConfig
 from mibios.ncbi_taxonomy.models import TaxNode
-from mibios.umrad.fields import AccessionField, PathField, PathPrefixValidator
+from mibios.umrad.fields import AccessionField
 from mibios.umrad.model_utils import (
     digits, opt, ch_opt, fk_req, fk_opt, uniq_opt, Model,
 )
-from mibios.umrad.models import CompoundRecord, FuncRefDBEntry, UniRef100
+from mibios.umrad.models import (
+    CompoundRecord, FunctionName, FuncRefDBEntry, UniRef100, UniRef90
+)
 from mibios.umrad.manager import Manager
 from mibios.umrad.utils import ProgressPrinter
 
 from . import managers, get_sample_model, sra
 from .amplicon import get_target_genes, quick_analysis, quick_annotation
-from .fields import DataPathField
-from .queryset import FileQuerySet, SampleQuerySet
-from .utils import get_fasta_sequence
+from .fields import DataPathField, ReadOnlyFileField
+from .filetypes import FileType
+from .queryset import DataTrackingQuerySet, FileQuerySet, SeqSampleQuerySet
+from .utils import check_modtime_microseconds, get_fasta_sequence
 
 
 log = getLogger(__name__)
+
+
+class IDMixin:
+    """ model mixin to support standard ID/accession patterns """
+
+    id_prefix = None
+    """ The implementing model must set this. """
+
+    id_attr = None
+    """ Name of the attribute (usually a field) used to store the ID/accession.
+    This must be set by an inheriting class. """
+
+    @property
+    def accession(self):
+        return getattr(self, self.id_attr)
+
+    def get_record_id_no(self):
+        """
+        Strip ID prefix and return the record's ID number (as int)
+
+        Raises ValueError if the ID does not conform to convention.  We want to
+        be rather strict when parsing the ID as elsewhere we do the reverse,
+        re-creating the ID from the number. This may not result in the original
+        value.  E.g. int() is lossy as in int(' 123 ') == 123 is True.
+        """
+        value = getattr(self, self.id_attr).removeprefix(self.id_prefix)
+        if not value.isdecimal():
+            raise ValueError('value without prefix must be decimal')
+        return int(value)
+
+    @classmethod
+    def _get_url_template(cls):
+        """
+        Helper to get record URL
+
+        This runs reverse() with a placeholder.  Nature and number of args to
+        pass to reverse depends on the url pattern.
+        """
+        try:
+            return cls._url_template
+        except AttributeError:
+            # try common glamr url patterns
+            try:
+                # model name must also be URL name
+                # arg number and order must correspond to url conf
+                cls._url_template = reverse(
+                    cls._meta.model_name,
+                    args=['_KEY_'],
+                )
+            except NoReverseMatch:
+                cls._url_template = reverse(
+                    'record',
+                    args=[cls._meta.model_name, '_KEY_'],
+                )
+
+            return cls._url_template
+
+    @classmethod
+    def get_record_url(cls, key, ktype=None):
+        """
+        Get the URL for detail view of record with given ID/accession.
+
+        key:
+            Something to identify the objects.  Can be the objects itself, or
+            its PK or natural key.
+        ktype:
+            Key type, allowed values match what's in the url pattern
+        """
+        if ktype is None:
+            ktype = 'natkey'
+        elif ktype not in ['pk', 'natkey']:
+            raise ValueError(f'illegal key type: {ktype=}')
+
+        if isinstance(key, cls):
+            # object given
+            if ktype == 'natkey':
+                try:
+                    key = key.get_record_id_no()
+                except ValueError:
+                    # unusual id/accession, degrade to pk: url style
+                    ktype = 'pk'
+
+            if ktype == 'pk':
+                key = key.pk
+
+        key = f'{"" if ktype == "natkey" else ktype + ":"}{key}'
+        return cls._get_url_template().replace('_KEY_', key)
+
+    def get_absolute_url(self):
+        return self.get_record_url(self)
 
 
 class AbstractAbundance(Model):
@@ -36,7 +139,7 @@ class AbstractAbundance(Model):
 
     With data from the Sample_xxxx_<something>_VERSION.txt files
     """
-    sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    sample = models.ForeignKey('SeqSample', **fk_req)
     scos = models.DecimalField(**digits(12, 2))
     rpkm = models.DecimalField(**digits(12, 2))
     # lca ?
@@ -45,17 +148,126 @@ class AbstractAbundance(Model):
         abstract = True
 
 
-class AbstractSample(Model):
-    TYPE_AMPLICON = 'amplicon'
-    TYPE_METAGENOME = 'metagenome'
-    TYPE_METATRANS = 'metatranscriptome'
-    TYPE_ISOLATE = 'isolate_genome'
-    SAMPLE_TYPES_CHOICES = (
-        (TYPE_AMPLICON, TYPE_AMPLICON),
-        (TYPE_METAGENOME, TYPE_METAGENOME),
-        (TYPE_METATRANS, TYPE_METATRANS),
-        (TYPE_ISOLATE, TYPE_ISOLATE),
+class AmpliconTarget(Model):
+    hmm = models.TextField(
+        max_length=30, verbose_name='HMM name',
+        help_text='Short name of the HMM model.',
     )
+    tax_group = models.TextField(
+        max_length=30,
+        verbose_name='taxonomic group',
+        help_text='Name of the targeted organism or taxonomic group',
+    )
+    gene = models.TextField(
+        max_length=30, verbose_name='target gene name',
+        help_text='Common name of the targed gene',
+    )
+    start = models.PositiveSmallIntegerField(
+        help_text='Start position of the amplicon target per HMM',
+    )
+    end = models.PositiveSmallIntegerField(
+        help_text='End position of the amplicon target per HMM',
+    )
+    region = models.TextField(
+        max_length=30, **ch_opt,
+        verbose_name='variable region',
+        help_text='Common name of the targeted variable region(s) if any.'
+    )
+
+    objects = managers.AmpliconTargetManager()
+
+    class Meta:
+        constraints = (
+            models.UniqueConstraint(
+                'hmm', 'start', 'end',
+                name='uniq_amplicon_target',
+            ),
+        )
+
+    def __str__(self):
+        region = f':{self.region}' if self.region else ''
+        return f'{self.spec}{region}'
+
+    @property
+    def spec(self):
+        """
+        Get unique identifier string for target
+
+        Used to identify the correct dada2 output directory, distinct from
+        __str__().
+        """
+        return f'{self.hmm}.{self.start}-{self.end}'
+
+
+class ASV(IDMixin, Model):
+    accession = models.TextField(max_length=12, unique=True, **ch_opt)
+    type = models.ForeignKey(AmpliconTarget, **fk_req, verbose_name='target')
+    seq = models.TextField(verbose_name='sequence')
+    taxon = models.ForeignKey(
+        TaxNode, **fk_opt,
+        verbose_name='taxonomic classification',
+    )
+
+    loader = managers.ASVLoader()
+
+    class Meta:
+        verbose_name = 'ASV'
+        constraints = (
+            models.UniqueConstraint('type', 'seq', name='uniq_asv'),
+            models.CheckConstraint(
+                check=models.Q(seq__regex=r'^[atgc]+$'),
+                name='sequence_atgc',
+            ),
+        )
+
+    id_prefix = 'ASV'
+    id_attr = 'accession'
+
+
+class ASVAbundance(Model):
+    sample = models.ForeignKey('SeqSample', **fk_req)
+    asv = models.ForeignKey(ASV, **fk_req)
+    count = models.PositiveIntegerField()
+    relabund = models.FloatField(
+        verbose_name='relative abundance',
+    )
+
+    loader = managers.ASVAbundanceLoader()
+
+    class Meta:
+        verbose_name = 'ASV abundance'
+        constraints = (
+            models.UniqueConstraint('sample', 'asv', name='uniq_asv_abund'),
+        )
+
+
+class SeqSample(IDMixin, Model):
+    class Type(models.TextChoices):
+        """ Sample types enum: declared as (str value, Path) tuple.  The magic
+        depends on the second element to not be a str, that way the enum
+        instatiation will not use it a label. """
+
+        AMPLICON = ('amplicon', Path('amplicons'))
+        METAGENOME = ('metagenome', Path('metagenomes'))
+        METATRANS = ('metatranscriptome', Path('metatranscriptomes'))
+        ISOLATE = ('isolate_genome', Path('genomes'))
+        METABOLOME = ('metabolome', Path('metabolomes'))
+
+        def __new__(cls, value, dirpath):
+            """ dirpath: a pathlib.Path """
+            obj = str.__new__(cls, value)
+            obj._value_ = value
+            obj.dirpath = dirpath
+            return obj
+
+        @property
+        def sample_dir(self):
+            return settings.OMICS_PIPELINE_DATA / 'omics' / self.dirpath
+
+        @property
+        def label(self):
+            # overrides the automatic labelling
+            return self.value
 
     sample_id = models.CharField(
         max_length=32,
@@ -67,38 +279,25 @@ class AbstractSample(Model):
         **ch_opt,
         help_text='sample ID or name as given by original data source',
     )
-    dataset = models.ForeignKey(
-        settings.OMICS_DATASET_MODEL,
+    parent = models.ForeignKey(
+        settings.OMICS_SAMPLE_MODEL,
         **fk_req,
     )
-    sample_type = models.CharField(
-        max_length=32,
-        choices=SAMPLE_TYPES_CHOICES,
-        **opt,
-    )
-    has_paired_data = models.BooleanField(**opt)
-    sra_accession = models.TextField(max_length=16, **ch_opt)
-    amplicon_target = models.TextField(max_length=16, **ch_opt)
+
+    sample_type = models.CharField(max_length=32, choices=Type.choices, **opt)
+    amplicon_target = models.ForeignKey(AmpliconTarget, **fk_opt)
+    sra_accession = models.TextField(max_length=16, **ch_opt,
+                                     verbose_name='SRA accession')
+    gold_analysis_id = models.TextField(max_length=32, **ch_opt)
+    gold_seq_id = models.TextField(max_length=32, **ch_opt)
+    amplicon_target_label = models.TextField(max_length=16, **ch_opt)
     fwd_primer = models.TextField(max_length=32, **ch_opt)
     rev_primer = models.TextField(max_length=32, **ch_opt)
 
-    # sample data accounting flags
-    contig_abundance_loaded = models.BooleanField(
-        default=False,
-        help_text='contig abundance/rpkm data loaded',
-    )
-    contig_lca_loaded = models.BooleanField(
-        default=False,
-        help_text='contig LCA data loaded',
-    )
-    gene_alignments_loaded = models.BooleanField(
-        default=False,
-        help_text='genes loaded via contig_tophit_aln file',
-    )
-
     analysis_dir = models.TextField(
         **opt,
-        help_text='path to results of analysis, relative to OMICS_DATA_ROOT',
+        help_text='path to results of analysis, relative to '
+        'OMICS_PIPELINE_DATA / \'omics\'',
     )
     # mapping data / header items from bbmap output:
     read_count = models.PositiveIntegerField(
@@ -113,55 +312,50 @@ class AbstractSample(Model):
         **opt,
         help_text='number of reads mapped to genes',
     )
+    notes = models.TextField(**ch_opt)
+    access = ArrayField(
+        models.SmallIntegerField(**opt),
+        default=None, null=True, blank=True,
+    )
 
-    objects = Manager.from_queryset(SampleQuerySet)()
-    loader = managers.SampleLoader.from_queryset(SampleQuerySet)()
+    objects = Manager.from_queryset(SeqSampleQuerySet)()
+    loader = managers.SeqSampleLoader.from_queryset(SeqSampleQuerySet)()
 
     class Meta:
-        abstract = True
+        indexes = [
+            GinIndex(
+                fields=['access'],
+                opclasses=['array_ops'],
+                name='seqsample_access_gin',
+            ),
+        ]
+
+    id_prefix = 'samp_'
+    id_attr = 'sample_id'
 
     def __str__(self):
         return self.sample_id
 
-    default_internal_fields = ['id', 'analysis_dir', 'sample_id']
-    """ see also the overriding get_internal_fields() """
+    def _do_insert(self, manager, using, fields, returning_fields, raw):
+        if connection.vendor != 'postgresql':
+            # saving access fails on sqlite
+            # TODO: replace this with DB-defined defaults in Django 5.0
+            fields = [i for i in fields if not i.name == 'access']
+        ret = super()._do_insert(manager, using, fields, returning_fields, raw)
+        return ret
 
-    @classmethod
-    def get_internal_fields(cls):
-        """
-        Return list of fields with non-public usage
-        """
-        return cls.default_internal_fields + [
-            i.name
-            for i in cls._meta.get_fields()
-            if i.name.endswith(('_ok', '_loaded'))
-        ]
+    default_internal_fields = [
+        'id', 'analysis_dir', 'sample_id', 'notes', 'access',
+    ]
 
-    def load_bins(self):
-        if not self.binning_ok:
-            with atomic():
-                Bin.import_sample_bins(self)
-                self.binning_ok = True
-                self.save()
-        if self.binning_ok and not self.checkm_ok:
-            with atomic():
-                CheckM.import_sample(self)
-                self.checkm_ok = True
-                self.save()
-
-    @atomic
-    def delete_bins(self):
-        with atomic():
-            qslist = [self.binmax_set, self.binmet93_set, self.binmet97_set,
-                      self.binmet99_set]
-            for qs in qslist:
-                print(f'{self}: deleting {qs.model.method} bins ...', end='',
-                      flush=True)
-                counts = qs.all().delete()
-                print('\b\b\bOK', counts)
-            self.binning_ok = False
-            self.checkm_ok = False  # was cascade-deleted
-            self.save()
+    def is_public(self):
+        """ Tell if instance is public """
+        try:
+            return 0 in self.access
+        except TypeError:
+            # self.access is None or str / sqlite3
+            # may incur a DB query or two
+            return not self.parent.database.restricted_to.exists()
 
     def get_metagenome_path(self):
         """
@@ -169,7 +363,7 @@ class AbstractSample(Model):
 
         DEPRECATED - use get_omics_file()
         """
-        path = settings.OMICS_DATA_ROOT / 'data' / 'omics' / 'metagenomes' \
+        path = settings.OMICS_PIPELINE_DATA / 'omics' / 'metagenomes' \
             / self.sample_id
         now = time()
         for i in path.iterdir():
@@ -179,15 +373,24 @@ class AbstractSample(Model):
                 raise RuntimeError('too new')
         return path
 
-    def get_omics_file(self, filetype):
+    def get_omics_file(self, filetype, **kwargs):
         """
         Convenience method to get an omics file instance
 
-        filetype: File.Type enum object or its name
+        filetype:
+            File.Type enum object or its name
+        kwargs:
+            Any extra key/values required to determine the file.  These are
+            FileType.path template parameters besides sample or dataset id.
+            These can also be job parameters, see the tracking module.
+
+        Returns a File instance, but there is no guarantee that the file
+        actually exists in storage or that it is saved to the database.
         """
-        return File.objects.get_instance(self, filetype)
+        return File.objects.get_instance(filetype, sample=self, **kwargs)
 
     def get_fq_paths(self):
+        # DEPRECATED
         base = settings.OMICS_DATA_ROOT / 'READS'
         fname = f'{self.accession}_{{infix}}.fastq.gz'
         return {
@@ -196,6 +399,7 @@ class AbstractSample(Model):
         }
 
     def get_checkm_stats_path(self):
+        # DEPRECATED
         return (settings.OMICS_DATA_ROOT / 'BINS' / 'CHECKM'
                 / f'{self.accession}_CHECKM' / 'storage'
                 / 'bin_stats.analyze.tsv')
@@ -262,15 +466,9 @@ class AbstractSample(Model):
         # Check that file names follow SRA fasterq-dump output file naming
         # conventions as expected
         if len(files) == 1:
-            if self.has_paired_data:
-                print(f'WARNING: {self}: {self.has_paired_data=} / expected '
-                      f'two files, got: {files}')
             if files[0].name != self.get_fastq_prefix() + '.fastq':
                 raise RuntimeError(f'unexpected single-end filename: {files}')
         elif len(files) == 2:
-            if not self.has_paired_data and self.has_paired_data is not None:
-                print(f'WARNING: {self}: {self.has_paired_data=} / expected '
-                      f'single file, got: {files}')
             fnames = sorted([i.name for i in files])
             if fnames[0] != self.get_fastq_prefix() + '_1.fastq':
                 raise RuntimeError(f'unexpected paired filename: {fnames[0]}')
@@ -299,9 +497,9 @@ class AbstractSample(Model):
         """
         Run quick amplicon/primer location test
         """
-        if self.sample_type != self.TYPE_AMPLICON:
+        if self.sample_type != self.Type.AMPLICON:
             raise RuntimeError(
-                f'method is only for {self.TYPE_AMPLICON} samples'
+                f'method is only for {self.Type.AMPLICON} samples'
             )
 
         for i in get_target_genes():
@@ -394,6 +592,119 @@ class AbstractDataset(Model):
             conf.filter['dataset__pk'] = self.pk
         return conf.url()
 
+    @property
+    def project_dir(self):
+        """
+        Absolute path where omics pipeline output is stored.
+        """
+        return (
+            settings.OMICS_PIPELINE_ROOT / 'data' / 'projects'
+            / self.dataset_id
+        )
+
+    @property
+    def analysis_dir(self):
+        """
+        Path where analysis results are stored, relative to OMICS_PIPELINE_DATA
+
+        This is analog to SeqSample field with same name. Returns pathlib.Path.
+        """
+        return self.project_dir.relative_to(settings.OMICS_PIPELINE_DATA)  # noqa:E501
+
+    def get_omics_file(self, filetype, **kwargs):
+        """
+        Convenience method to get an omics file instance
+
+        filetype:
+            File.Type enum object or its name
+        kwargs:
+            Any extra key/values required to determine the file.  These are
+            FileType.path template parameters besides dataset id.
+
+        Returns a File instance, but there is no guarantee that the file
+        actually exists in storage or that it is saved to the database.
+        """
+        return File.objects.get_instance(filetype, dataset=self, **kwargs)
+
+    def get_amplicon_pipeline_results(self):
+        """
+        Get a handle to available results from the amplicon pipeline (if any.)
+
+        This is a helper for loading data.  Returns a dict mapping the dada2
+        output directory and correspondning AmpliconTarget instance to a list
+        of SeqSamples.
+        """
+        # get sample->target mapping
+        try:
+            targets00 = dispatch.get_assignments(
+                self.dataset_id,
+                settings.OMICS_PIPELINE_ROOT,
+            )
+        except FileNotFoundError:
+            # target assignment file does not exist yet
+            return {}
+
+        # sort and group by target
+        targets00 = sorted(targets00.items(), key=lambda x: x[1])
+        targets0 = groupby(targets00, key=lambda x: x[1])
+
+        # Re-package samples vs targets
+        results = {}
+        for target_str, grp in targets0:
+            grp = list(grp)
+            if target_str == dispatch.UNKNOWN:
+                print(f'[WARNING] Ignoring {len(grp)} {self.dataset_id} samples with '
+                      f'unknown target')
+                continue
+            elif target_str == dispatch.SKIP:
+                print(
+                    f'[INFO] Skipping {len(grp)} {self.dataset_id} samples marked '
+                    f'{target_str}'
+                )
+                continue
+
+            try:
+                hmm, fwdprim, revprim = HMM.parse_target(target_str)
+            except LookupError as e:
+                print(
+                    f'[ERROR] bad target "{target_str}" in assignment file for '
+                    f'{self.dataset_id}: {e}\nIgnoring {len(grp)} samples with '
+                    f'this target'
+                )
+                continue
+
+            target, new = AmpliconTarget.objects.get_or_create_from_hmm(
+                hmm,
+                fwdprim.name,
+                revprim.name,
+            )
+            if new:
+                print(f'Saved new amplicon target instance: {target}')
+
+            # The directory of output files per Snakefile
+            dada2_dir_name = f'dada2.{dispatch.target2spec(target_str)}'
+
+            # combo key: for simplicity loading is per dada2 run, but
+            # theoretically we may have different primer pairs (from which the
+            # dada2 directory name is derived) mapping to the same
+            # AmpliconTarget instance because the primer pairs select sequences
+            # at exactly the same coordinates.
+            key = (self.analysis_dir / dada2_dir_name, target)
+            if key not in results:
+                results[key] = []
+
+            for sample_id, _ in grp:
+                try:
+                    results[key].append(SeqSample.objects.get(
+                        sample_id=sample_id,
+                        sample_type=SeqSample.Type.AMPLICON,
+                    ))
+                except SeqSample.DoesNotExist:
+                    print(f'[ERROR] No {self.dataset_id} amplion sample "{sample_id}" '
+                          f'-- ignoring this')
+
+        return results
+
     @classmethod
     @property
     def orphans(cls):
@@ -465,7 +776,7 @@ class AbstractDataset(Model):
         if sample_type is None:
             sample_type = self.get_sample_type()
 
-        if sample_type == AbstractSample.TYPE_AMPLICON:
+        if sample_type == SeqSample.Type.AMPLICON:
             base = Path(settings.AMPLICON_PIPELINE_BASE)
         else:
             raise NotImplementedError
@@ -492,7 +803,7 @@ class ReadAbundance(Model):
     """
     # cf. mmseqs2 easy-taxonomy output (tophit_report)
     sample = models.ForeignKey(
-        settings.OMICS_SAMPLE_MODEL,
+        SeqSample,
         related_name='functional_abundance',
         **fk_req,
     )
@@ -520,377 +831,79 @@ class ReadAbundance(Model):
         verbose_name = 'functional abundance'
 
 
-'''
-class AmpliconAnalysisUnit(Model):
-    """ a collection of amplicon samples to be analysed together """
-    dataset = models.ForeignKey(settings.OMICS_DATASET_MODEL, **fk_req)
-    seq_platform = models.CharField(max_length=32)
-    is_paired_end = models.BooleanField()
-    target_gene = models.CharField(max_length=16)
-    fwd_primer = models.CharField(max_length=16)
-    rev_primer = models.CharField(max_length=16)
-    trim_params = models.CharField(max_length=128)
+class FunctionNameAbundance(Model):
+    """
+    Aggregated abundance w.r.t single function names
+    """
+    sample = models.ForeignKey(
+        SeqSample,
+        related_name='function_name_abundance',
+        **fk_req,
+    )
+    name = models.ForeignKey(FunctionName, **fk_req, related_name='abundance',
+                             verbose_name='function name')
+    sum_tpm = models.FloatField(null=True, verbose_name='TPM')
+    sum_rpkm = models.FloatField(null=True, verbose_name='RPKM')
 
-    class Meta:
-        unique_together = (
-            ('dataset', 'seq_platform', 'is_paired_end', 'fwd_primer',
-             'rev_primer',),
-        )
-'''
+    loader = managers.FunctionNameAbundanceLoader()
+
+    class Meta(Model.Meta):
+        unique_together = (('sample', 'name'),)
+        verbose_name = 'function name abundance'
 
 
 class Bin(Model):
-    history = None
-    sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
-    number = models.PositiveIntegerField()
-    checkm = models.OneToOneField('CheckM', **fk_opt)
+    """ Metagenomic assembly bin """
+    name = models.TextField(max_length=20, unique=True)
+    sample = models.ForeignKey(SeqSample, **fk_req)
+    contigs = models.ManyToManyField('Contig', related_name='bins')
 
-    method = None  # set by inheriting model
+    # GTDB classification
+    taxon = models.TextField(max_length=100)
 
-    class Meta:
-        abstract = True
-        unique_together = (
-            ('sample', 'number'),
-        )
-
-    def __str__(self):
-        return f'{self.sample.accession} {self.method} #{self.number}'
-
-    @classmethod
-    def get_concrete_models(cls):
-        """
-        Return list of all concrete bin sub-classes/models
-        """
-        # The recursion stops at the first non-abstract models, so this may not
-        # make sense in a multi-table inheritance setting.
-        children = cls.__subclasses__()
-        if children:
-            ret = []
-            for i in children:
-                ret += i.get_concrete_models()
-            return ret
-        else:
-            # method called on a non-parent
-            if cls._meta.abstract:
-                return []
-            else:
-                return [cls]
-
-    @classmethod
-    def get_class(cls, method):
-        """
-        Get the concrete model for give binning method
-        """
-        if cls.method is not None:
-            return super().get_class(method)
-
-        for i in cls.get_concrete_models():
-            if i.method == method:
-                return i
-
-        raise ValueError(f'not a valid binning type/method: {method}')
-
-    @classmethod
-    def import_all(cls):
-        """
-        Import all binning data
-
-        This class method can be called on the abstract parent Bin class and
-        will then import data for all binning types.  Or it can be called on an
-        concrete model/class and then will only import data for the
-        corresponding binning type.
-        """
-        if not cls._meta.abstract:
-            raise RuntimeError(
-                'method can not be called by concrete bin subclass'
-            )
-        for i in get_sample_model().objects.all():
-            cls.import_sample_bins(i)
-
-    @classmethod
-    def import_sample_bins(cls, sample):
-        """
-        Import all types of bins for given sample
-        """
-        if sample.binning_ok:
-            log.info(f'{sample} has bins loaded already')
-            return
-
-        if cls._meta.abstract:
-            # Bin parent class only
-            with atomic():
-                noerr = True
-                for klass in cls.get_concrete_models():
-                    res = klass.import_sample_bins(sample)
-                    noerr = bool(res) and noerr
-                if noerr:
-                    sample.binning_ok = True
-                    sample.save()
-                return
-
-        # Bin subclasses only
-        files = list(cls.bin_files(sample))
-        if not files:
-            log.warning(f'no {cls.method} bins found for {sample}')
-            return None
-
-        for i in sorted(files):
-            res = cls._import_bins_file(sample, i)
-            if not res:
-                log.warning(f'got empty cluster from {i} ??')
-
-        return len(files)
-
-    @classmethod
-    def _import_bins_file(cls, sample, path):
-        _, num, _ = path.name.split('.')
-        try:
-            num = int(num)
-        except ValueError as e:
-            raise RuntimeError(f'Failed parsing filename {path}: {e}')
-
-        obj = cls.objects.create(sample=sample, number=num)
-        cids = []
-        with path.open() as f:
-            for line in f:
-                if not line.startswith('>'):
-                    continue
-                cids.append(line.strip().lstrip('>'))
-
-        qs = Contig.objects.filter(sample=sample, contig_id__in=cids)
-        kwargs = {cls._meta.get_field('members').remote_field.name: obj}
-        qs.update(**kwargs)
-        log.info(f'{obj} imported: {len(cids)} contigs')
-        return len(cids)
-
-
-class BinMAX(Bin):
-    method = 'MAX'
-
-    @classmethod
-    def bin_files(cls, sample):
-        """
-        Generator over bin file paths
-        """
-        pat = f'{sample.accession}_{cls.method}_bins.*.fasta'
-        path = settings.OMICS_DATA_ROOT / 'BINS' / 'MAX_BIN'
-        return path.glob(pat)
-
-    class Meta:
-        verbose_name = 'MaxBin'
-        verbose_name_plural = 'MaxBin bins'
-
-
-class BinMetaBat(Bin):
-
-    class Meta(Bin.Meta):
-        abstract = True
-
-    @classmethod
-    def bin_files(cls, sample):
-        """
-        Generator over bin file paths
-        """
-        pat = f'{sample.accession}_{cls.method}_bins.*'
-        path = settings.OMICS_DATA_ROOT / 'BINS' / 'METABAT'
-        return path.glob(pat)
-
-
-class BinMET93(BinMetaBat):
-    method = 'MET_P97S93E300'
-
-    class Meta:
-        verbose_name = 'MetaBin 97/93'
-        verbose_name_plural = 'MetaBin 97/93 bins'
-
-
-class BinMET97(BinMetaBat):
-    method = 'MET_P99S97E300'
-
-    class Meta:
-        verbose_name = 'MetaBin 99/97'
-        verbose_name_plural = 'MetaBin 99/97 bins'
-
-
-class BinMET99(BinMetaBat):
-    method = 'MET_P99S99E300'
-
-    class Meta:
-        verbose_name = 'MetaBin 99/99'
-        verbose_name_plural = 'MetaBin 99/99 bins'
-
-
-class CheckM(Model):
-    """
-    CheckM results for a bin
-    """
-    history = None
-    translation_table = models.PositiveSmallIntegerField(
-        verbose_name='Translation table',
+    # CheckM
+    completeness = models.DecimalField(
+        max_digits=5, decimal_places=2,
     )
-    gc_std = models.FloatField(verbose_name='GC std')
-    ambiguous_bases = models.PositiveIntegerField(
-        verbose_name='# ambiguous bases',
+    contamination = models.DecimalField(
+        max_digits=5, decimal_places=2,
     )
-    genome_size = models.PositiveIntegerField(verbose_name='Genome size')
-    longest_contig = models.PositiveIntegerField(verbose_name='Longest contig')
-    n50_scaffolds = models.PositiveIntegerField(verbose_name='N50 (scaffolds)')
-    mean_scaffold_len = models.FloatField(verbose_name='Mean scaffold length')
-    num_contigs = models.PositiveIntegerField(verbose_name='# contigs')
-    num_scaffolds = models.PositiveIntegerField(verbose_name='# scaffolds')
-    num_predicted_genes = models.PositiveIntegerField(
-        verbose_name='# predicted genes',
+    heterogeneity = models.DecimalField(
+        max_digits=5, decimal_places=2,
+        verbose_name='strain heterogeneity',
     )
-    longest_scaffold = models.PositiveIntegerField(
-        verbose_name='Longest scaffold',
-    )
-    gc = models.FloatField(verbose_name='GC')
-    n50_contigs = models.PositiveIntegerField(verbose_name='N50 (contigs)')
-    coding_density = models.FloatField(verbose_name='Coding density')
-    mean_contig_length = models.FloatField(verbose_name='Mean contig length')
+
+    # abundance
+    percent_abund = models.FloatField()
+    mean_depth = models.FloatField()
+    trimmed_mean_depth = models.FloatField()
+    covered_bases = models.IntegerField()
+    variance = models.FloatField()
+    length = models.IntegerField()
+    read_count = models.IntegerField()
+    reads_per_base = models.FloatField()
+    rpkm = models.FloatField()
+    tpm = models.FloatField()
+
+    loader = managers.BinLoader()
 
     class Meta:
-        verbose_name = 'CheckM'
-        verbose_name_plural = 'CheckM records'
-
-    @classmethod
-    def import_all(cls):
-        for i in get_sample_model().objects.all():
-            if i.checkm_ok:
-                log.info(f'sample {i}: have checkm stats, skipping')
-                continue
-            cls.import_sample(i)
-
-    @classmethod
-    @atomic
-    def import_sample(cls, sample):
-        bins = {}
-        stats_file = sample.get_checkm_stats_path()
-        if not stats_file.exists():
-            log.warning(f'{sample}: checkm stats do not exist: {stats_file}')
-            return
-
-        for binid, obj in cls.from_file(stats_file):
-            # parse binid, is like: Sample_42895_MET_P99S99E300_bins.6
-            part1, _, num = binid.partition('.')  # separate number part
-            parts = part1.split('_')
-            sample_name = '_'.join(parts[:2])
-            meth = '_'.join(parts[2:-1])  # rest but without the "_bins"
-
-            try:
-                num = int(num)
-            except ValueError as e:
-                raise ValueError(f'Bad bin id in stats: {binid}, {e}')
-
-            if sample_name != sample.accession:
-                raise ValueError(
-                    f'Bad sample name in stats: {binid} -- expected: '
-                    f'{sample.accession}'
-                )
-
-            try:
-                binclass = Bin.get_class(meth)
-            except ValueError as e:
-                raise ValueError(f'Bad method in stats: {binid}: {e}') from e
-
-            try:
-                binobj = binclass.objects.get(sample=sample, number=num)
-            except binclass.DoesNotExist as e:
-                raise RuntimeError(
-                    f'no bin with checkm bin id: {binid} file: {stats_file}'
-                ) from e
-
-            binobj.checkm = obj
-
-            if binclass not in bins:
-                bins[binclass] = []
-
-            bins[binclass].append(binobj)
-
-        for binclass, bobjs in bins.items():
-            binclass.objects.bulk_update(bobjs, ['checkm'])
-
-        sample.checkm_ok = True
-        sample.save()
-
-    @classmethod
-    def from_file(cls, path):
-        """
-        Create instances from given bin_stats.analyze.tsv file.
-
-        Should normally be only called from CheckM.import_sample().
-        """
-        ret = []
-        with path.open() as fh:
-            for line in fh:
-                bin_key, data = line.strip().split('\t')
-                data = data.lstrip('{').rstrip('}').split(', ')
-                obj = cls()
-                for item in data:
-                    key, value = item.split(': ', maxsplit=2)
-                    key = key.strip("'")
-                    for i in cls._meta.get_fields():
-                        if i.is_relation:
-                            continue
-                        # assumes correclty assigned verbose names
-                        if i.verbose_name == key:
-                            field = i
-                            break
-                    else:
-                        raise RuntimeError(
-                            f'Failed parsing {path}: no matching field for '
-                            f'{key}, offending line is:\n{line}'
-                        )
-
-                    try:
-                        value = field.to_python(value)
-                    except ValidationError as e:
-                        message = (f'Failed parsing field "{key}" on line:\n'
-                                   f'{line}\n{e.message}')
-                        raise ValidationError(
-                            message,
-                            code=e.code,
-                            params=e.params,
-                        ) from e
-
-                    setattr(obj, field.attname, value)
-
-                obj.save()
-                ret.append((bin_key, obj))
-
-        return ret
+        verbose_name = 'MAG'
 
 
 class File(Model):
     """ An omics product file, analysis pipeline result """
+    Type = FileType  # convenience access to the file type enum
 
-    def get_path_prefix():
-        return settings.OMICS_DATA_ROOT / 'data' / 'omics'
-
-    def get_public_prefix():
-        return settings.PUBLIC_DATA_ROOT
-
-    class Type(models.IntegerChoices):
-        METAG_ASM = 1, 'metagenomic assembly, fasta format'
-        """ e.g. samp_14/assembly/megahit_noNORM/final.contigs.renamed.fa """
-        METAT_ASM = 2, 'metatranscriptome assembly, fasta format'
-        """ TODO """
-        FUNC_ABUND = 3, 'functional abundance, csv format'
-        """ e.g. samp_14/samp_14_tophit_report """
-        TAX_ABUND = 4, 'taxonomic abundance, csv format'
-        """ *_lca_abund_summarized.tsv """
-        FUNC_ABUND_TPM = 5, 'functional abundance (TPM) [csv]'
-
-    path = PathField(
-        root=get_path_prefix,
-        unique=True,
-    )
-    public = PathField(
-        root=get_public_prefix,
-        blank=True,
-        # null corresponds to file not published
-        null=True,
-    )
+    file_pipeline = ReadOnlyFileField(upload_to=None,
+                                      storage=storages['omics_pipeline'],
+                                      **ch_opt)
+    file_local = models.FileField(upload_to=None,
+                                  storage=storages['local_public'],
+                                  **ch_opt)
+    file_globus = models.FileField(upload_to=None,
+                                   storage=storages['globus_public'],
+                                   **ch_opt)
     filetype = models.PositiveSmallIntegerField(
         choices=Type.choices,
         verbose_name='file type',
@@ -901,7 +914,8 @@ class File(Model):
         verbose_name='MD5 sum',
     )
     modtime = models.DateTimeField(verbose_name='modification time')
-    sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    sample = models.ForeignKey(SeqSample, **fk_opt)
+    dataset = models.ForeignKey(settings.OMICS_DATASET_MODEL, **fk_opt)
 
     objects = managers.FileManager.from_queryset(FileQuerySet)()
 
@@ -912,308 +926,235 @@ class File(Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=['sample', 'filetype'],
-                name='%(app_label)s_%(class)s_sample_ftype_unique',
+                fields=['file_pipeline'],
+                condition=~models.Q(file_pipeline=''),  # blank is okay
+                name='%(app_label)s_%(class)s_file_pipline_unique',
             ),
             models.UniqueConstraint(
-                fields=['public'],
-                condition=~models.Q(public=None),  # blank is okay
-                name='%(app_label)s_%(class)s_public_path_unique',
+                fields=['file_local'],
+                condition=~models.Q(file_local=''),  # blank is okay
+                name='%(app_label)s_%(class)s_file_local_unique',
+            ),
+            models.UniqueConstraint(
+                fields=['file_globus'],
+                condition=~models.Q(file_globus=''),  # blank is okay
+                name='%(app_label)s_%(class)s_file_globus_unique',
             ),
         ]
 
-    PATH_TAILS = {
-        Type.METAG_ASM:
-            Path('assembly', 'megahit_noNORM', 'final.contigs.renamed.fa'),
-        Type.TAX_ABUND: '{sample.sample_id}_lca_abund_summarized.tsv',
-        Type.FUNC_ABUND: '{sample.sample_id}_tophit_report',
-        Type.FUNC_ABUND_TPM: '{sample.sample_id}_tophit_TPM.tsv',
-    }
-    """ file location, relative to a sample's data dir """
-
     def __str__(self):
-        return f'{self.relpath}'
+        return str(self.file_pipeline)
 
-    def __fspath__(self):
-        """ implement os.PathLike """
-        return str(self.path)
+    @property
+    def filetype_name(self):
+        """ name of filetype enum """
+        return self.Type(self.filetype).name
 
-    _stat = None
-    """ attribute holding cached stat_result, cf. File.stat() """
+    def check_stat(self):
+        """ Convenience method to check all file fields """
+        for i in ('file_pipeline', 'file_local', 'file_globus'):
+            self.check_stat_field(i)
 
-    def stat(self, from_cache=True):
+    def check_stat_field(self, field_name):
         """
-        Get stat for file under path and cache the result
+        Check field files' existence and size and modtime.
+
+        Checks that the field file exists in storage. Validates the size and
+        modtime fields against the stored file.  For file_pipeline, if size
+        and/or modtime are not set yet, then those fields will be auto-filled
+        instead.
+
+        Raise ValidationError if the file field is blank or if the stat call on
+        the file fails (usually if the file does not exist in storage.
         """
-        if not from_cache or self._stat is None:
-            self._stat = self.path.stat()
-        return self._stat
-
-    path_validator = PathPrefixValidator(settings.OMICS_DATA_ROOT / 'data' / 'omics')  # noqa:E501
-    public_validator = PathPrefixValidator(settings.PUBLIC_DATA_ROOT)  # noqa:E501
-
-    def full_clean(self):
-        # Auto set size, modtime.  This needs to happen before running
-        # full_clean() and needs a valid path, so that's validated first (and
-        # then later in super().full_clean() again).  Also prefix-validate
-        # path, public at instance level with validators outside of the field
-        # to avoid leaking settings into migrations.
-        errors = {}
-
+        field_file = getattr(self, field_name)
+        if not field_file:
+            if field_name == 'file_pipeline':
+                raise ValidationError({field_name: 'field is blank'})
+            return
         try:
-            path = self._meta.get_field('path').clean(self.path, self)
-        except ValidationError as e:
-            errors = e.update_error_dict(errors)
-        else:
-            # tests that only make sense if path is valid:
-            try:
-                self.path_validator(path)
-            except ValidationError as e:
-                errors = e.update_error_dict(errors)
+            stat = Path(field_file.path).stat()
+        except OSError as e:
+            raise ValidationError({field_name: f'Failed to get stat: {e}'})
 
-            # Usually self._stat is not populated yet, or we want to re-check a
-            # file pulled from the DB, so run stat() here on the cleaned path
-            # (as self.path may be relative, etc.)
-            try:
-                self._stat = path.stat()
-            except OSError as e:
-                ve = ValidationError({'path': f'stat call failed: {e}'})
-                errors = ve.update_error_dict(errors)
+        size = stat.st_size
+
+        errs = {}
+        if self.size is None and field_name == 'file_pipeline':
+            self.size = size
+        elif self.size != size:
+            errs['size'] = (
+                f'size changed -- expected: {self.size}, actually: {size}'
+            )
+
+        modtime = datetime.fromtimestamp(stat.st_mtime).astimezone()
+        modtime_ok = False
+
+        if self.modtime is None and field_name == 'file_pipeline':
+            self.modtime = modtime
+            modtime_ok = True
+        elif self.modtime == modtime:
+            # normal case
+            modtime_ok = True
+        elif modtime.microsecond == 0:
+            if self.modtime.replace(microsecond=0) == modtime:
+                if not field_file.storage.supports_microseconds():
+                    # times would be equal if it wasn't for missing
+                    # microseconds
+                    modtime_ok = True
+
+        if not modtime_ok:
+            errs['modtime'] = f'changed, is "{self.modtime}" but {field_file.path} has mtime of "{modtime}"'  # noqa: E501
+
+        if errs:
+            raise ValidationError(errs)
+
+    def is_public(self):
+        """
+        Convenience method telling if a file is public or restricted
+
+        Returns True for files belonging to public datasets/samples.
+
+        This may hit the database to retrieve the file's sample.
+        """
+        if self.sample is not None:
+            return self.sample.is_public()
+        elif self.dataset is not None:
+            return self.dataset.is_public()
+        else:
+            raise RuntimeError(f'{self}: has no sample nor dataset')
+
+    def compute_local_path(self):
+        """
+        Return what the local storage path **should** be.
+
+        Would return empty str for files not to be published via local storage.
+
+        The POLICY is to publish to local storage all non-public files and all
+        metagenomic assemblies for public samples.  Files keep their original
+        name and relative path.
+        """
+        if not self.is_public():
+            # since public files are available via globus
+            return self.file_pipeline.name
+        if self.filetype == self.Type.METAG_ASM:
+            # need all these to access sequences
+            return self.file_pipeline.name
+
+        return ''
+
+    def compute_globus_path(self):
+        """
+        Return what the globus/public path **should** be.
+
+        Would return empty str for files not to be published via globus.
+
+        The current POLICY is to publish all tracked files from a public sample
+        under their original name and relative path.
+        """
+        if self.is_public():
+            return self.file_pipeline.name
+        else:
+            return ''
+
+    def set_file_local(self, save=True):
+        """ Automatically set value for file_local field """
+        changed = self.update_storage('file_local')
+        if changed and save:
+            self.save()
+
+    def set_file_globus(self, save=True):
+        """ Automatically set value for file_globus field """
+        changed = self.update_storage('file_globus')
+        if changed and save:
+            self.save()
+
+    def update_storage(self, field_name, force_name=None, dry_run=False):
+        """
+        Ensure file's existence in storage follows policy.
+
+        force_name: Override policy with this name, only for testing/debugging.
+        dry_run bool: Only print what would be done, for dev/debug.
+
+        Returns True if anything changed, False otherwise.  The instance will
+        not be saved.  Raises exception if underlying storage operation fails.
+        In such an error case the field-file's name attribute is not reset and
+        may differ from the original and what's stored at the DB.
+        """
+        if force_name is None:
+            if field_name == 'file_local':
+                new_name = self.compute_local_path()
+            elif field_name == 'file_globus':
+                new_name = self.compute_globus_path()
             else:
-                size = self.stat().st_size
-                modtime = datetime.fromtimestamp(self.stat().st_mtime) \
-                                  .astimezone()
-                if self.pk is None:
-                    self.size = size
-                    self.modtime = modtime
-                else:
-                    errs = {}
-                    if self.size != size:
-                        errs['size'] = (
-                            f'size changed -- expected: {self.size}, actually:'
-                            f' {size}'
+                raise ValueError('illegal field_name')
+        else:
+            new_name = force_name
+
+        file = getattr(self, field_name)
+
+        if file:
+            # file is believed to exists on storage
+            if file.name == new_name:
+                # no change, check the stored file and return
+                if file.storage.exists(file.name):
+                    if file.size != self.size:
+                        raise ValidationError(
+                            {'size': f'file exists but size differs: {file}'}
                         )
-
-                    if self.modtime != modtime:
-                        errs['modtime'] = (
-                            f'modtime changed -- expected: {self.modtime}, '
-                            f'actually: {modtime}'
-                        )
-                    if errs:
-                        ve = ValidationError(errs)
-                        errors = ve.update_error_dict(errors)
-
-        try:
-            public = self._meta.get_field('public').clean(self.public, self)
-        except ValidationError as e:
-            errors = e.update_error_dict(errors)
-        else:
-            if public:
-                try:
-                    self.public_validator(public)
-                except ValidationError as e:
-                    errors = e.update_error_dict(errors)
-
-        try:
-            super().full_clean()
-        except ValidationError as e:
-            errors = e.update_error_dict(errors)
-
-        if errors:
-            raise ValidationError(errors)
-
-    @property
-    def root(self):
-        return self._meta.get_field('path').root
-
-    @property
-    def public_root(self):
-        return self._meta.get_field('public').root
-
-    @property
-    def relpath(self):
-        """ The path relative to the common path prefix """
-        if self.root:
-            return self.path.relative_to(self.root)
-        elif self.path.is_absolute():
-            raise ValueError('path is absolute abnd no root configured')
-        else:
-            return self.path
-
-    @property
-    def relpublic(self):
-        """
-        The public path relative to the common path prefix
-
-        This property may be exposed on a public page.
-
-        Returns None if no public path is set.
-        """
-        if self.public_root:
-            return self.public.relative_to(self.public_root)
-        elif self.public and self.public.is_absolute():
-            raise ValueError('public path is absolute and no root configured')
-        else:
-            # is a rel path or None
-            return self.public
-
-    def compute_public_path(self):
-        """
-        Return what the public path **should** be.
-
-        Would return None for files not to be published.
-
-        The hereby implemented POLICY is to publish all tracked files not from
-        a private sample under their original name and relative path.
-        """
-        # Uncomment this to unpublish all files
-        # return None
-        if self.sample.dataset.private is False:
-            return self.public_root / self.relpath
-        else:
-            return None
-
-    def manage_public_path(self):
-        """
-        Manage the public path
-
-        This method will set the public field according to policy.  The policy
-        itself is not implemented in here but via compute_public_path().  This
-        method will ensure the published file exist in the public space in the
-        filesystem.  It will set the public field, the file instance is not
-        saved however, the caller has to save it.
-
-        Returns a status tuple of booleans indicating any change of the public
-        field value: (old path unlinked, new path set).  A status of (True,
-        True) means an existing public path got changed.
-
-        Call this from File.objects.update_public_path() as that does some
-        additional safety checks.
-        """
-        old = self.public
-        self.public = self.compute_public_path()
-        if self.public == old:
-            if self.public:
-                if self.public.is_file():
-                    # all good
-                    pass
                 else:
-                    # should be a rare case
-                    print(f'[WARNING] fix missing file: {self.public}', end='', flush=True)  # noqa:E501
-                    self._hardlink()
+                    print(f'[FIX] missing {field_name}: {new_name}', end=' ',
+                          flush=True)
+                    if dry_run:
+                        print('[dryrun]')
+                    else:
+                        file.storage.link_or_copy(self.file_pipeline, file)
+                        print('[OK]')
+
+                return False
+            elif new_name:
+                # move existing file
+                old_name = file.name
+                file.name = new_name
+                print(f'[MOV] {field_name}: {new_name}', end=' ', flush=True)
+                if dry_run:
+                    print('[dryrun]')
+                else:
+                    file.storage.move(old_name, file)
                     print('[OK]')
             else:
-                # file remains unpublished
-                pass
-            # no changes
-            return (False, False)
-        elif old is None:
-            if self.public.exists():
-                print(f'[NOTICE] file already exits: {self.public}')
+                # delete
+                print(f'[ X ] {field_name}: {file.name}', end=' ', flush=True)
+                if dry_run:
+                    print('[dryrun]')
+                else:
+                    file.delete(save=False)
+                    print('[OK]')
+        elif new_name:
+            # new file
+            old_name = file.name
+            file.name = new_name
+            print(f'[NEW] {field_name}: {new_name}', end=' ', flush=True)
+            if dry_run:
+                print('[dryrun]')
             else:
-                self._hardlink()
-            # a new File
-            return (False, True)
+                file.storage.link_or_copy(self.file_pipeline, file)
+                print('[OK]')
         else:
-            # e.g. policy change
-            if old.is_file():
-                self._unlink(old)
-            else:
-                print(f'[NOTICE] file already gone: {old}')
-            if self.public:
-                self._hardlink()
-                # change
-                return (True, True)
-            else:
-                # unpublished
-                return (True, False)
+            # file not stored, no change
+            return False
 
-    def _hardlink(self):
-        """ helper to hardlink public file against internal """
-        public = self.public
-        target = self.path
-        if not public.is_relative_to(self.public_root):
-            # another safety guard
-            raise RuntimeError('unsave operation suspected')
+        if dry_run and new_name:
+            file.name = old_name
 
-        public.parent.mkdir(parents=True, exist_ok=True)
-        public.hardlink_to(target)
-
-    def _unlink(self, oldpath):
-        """
-        Helper to remove a file from the public space
-
-        Cleans up any resulting empty directories.
-        """
-        # some rail guards:
-        if not oldpath.is_relative_to(self.public_root):
-            raise RuntimeError('unsave operation suspected')
-        if oldpath == self.public:
-            raise RuntimeError('unsave operation suspected')
-        if oldpath.stat().st_nlink == 1:
-            raise RuntimeError(f'does not have further hardlinks: {oldpath}')
-
-        oldpath.unlink()
-        parent = oldpath.parent
-        while parent.is_relative_to(self.public_root):
-            if parent == self.public_root:
-                # keep the root
-                break
-            try:
-                parent.rmdir()
-            except OSError:
-                # e.g. is not empty
-                break
-
-            parent = parent.parent
-
-    @property
-    def download_url(self):
-        """ direct download URLs """
-        if settings.GLOBUS_DIRECT_URL_BASE and self.relpublic:
-            # cf. https://docs.globus.org/globus-connect-server/v5.4/https-access-collections/  # noqa:E501
-            base = settings.GLOBUS_DIRECT_URL_BASE.rstrip('/')
-            return f'{base}/{self.relpublic}?download'
-        else:
-            return None
+        return True
 
     @property
     def description(self):
         return f'{self.get_filetype_display()} for {self.sample}'
 
     @classmethod
-    def make_omics_pipeline_checkout(cls, outpath=None):
-        """
-        Compile and save list of timestamped pipeline output files
-
-        This is a utility for development and testing purpose.
-        """
-        root = cls.get_path_prefix()
-        Sample = cls._meta.get_field('sample').related_model
-        with open(outpath, 'w') as ofile:
-            for i in Sample.loader.exclude(analysis_dir=None):
-                for j in cls.Type:
-                    try:
-                        path = i.get_omics_file(j).path
-                    except ValueError:
-                        if j not in cls.PATH_TAILS:
-                            # type is not in File.PATH_TAILS
-                            continue
-                        else:
-                            raise
-
-                    try:
-                        st = path.stat()
-                    except OSError:
-                        # e.g. file not found
-                        continue
-
-                    relpath = path.relative_to(root)
-                    dt = datetime.fromtimestamp(st.st_mtime).astimezone()
-                    ofile.write(f'{dt}\t{relpath}\n')
-
-    @classmethod
-    def load_pipeline_checkout(cls, path=settings.OMICS_CHECKOUT_FILE):
+    def load_pipeline_checkout(cls, path):
         """
         helper to import the omics pipeline good output files listing
 
@@ -1222,29 +1163,123 @@ class File(Model):
         files = {}
         with open(path) as ifile:
             for line in ifile:
-                mtime, _, relpath = line.strip().partition('\t')
+                mtime, _, _, relpath = line.strip().split('\t')
                 # later entries overwrite earlier
                 files[Path(relpath)] = datetime.fromisoformat(mtime)
         cls.pipeline_checkout = files
 
-    def verify_with_pipeline(self):
-        """ Verify that modtime matches pipeline checkout time """
+    @classmethod
+    def pipeline_checkout_show_changes(cls, path=None):
+        """
+        Utility to show history of omics checkout file
+        """
+        if path is None:
+            path = settings.OMICS_CHECKOUT_FILE
+        files = defaultdict(list)
+        with open(path) as ifile:
+            for line in ifile:
+                mtime, _, _, relpath = line.strip().split('\t')
+                files[relpath].append(mtime)
+        num_dupes = 0
+        for relpath, times in files.items():
+            count = len(times)
+            times = set(times)
+            num_dupes += (count - len(times))
+
+            if len(times) == 1:
+                continue
+            print(relpath)
+            for i in sorted(times):
+                print(f'    {datetime.fromisoformat(i)}')
+        if num_dupes:
+            print(f'[NOTICE] There are {num_dupes} duplicate entries')
+
+    def verify_with_pipeline(self, proxy_diff=False):
+        """
+        Verify that modtime matches pipeline checkout time
+
+        proxy_diff [bool]:
+            If True then return the difference to the proxy modtime instead of
+            None and don't raise ValidationError if the file age is not withing
+            the validation window. For testing only.  A negative return value
+            indicates the the file is younger than the proxy.
+
+        This is a no-op if OMICS_CHECKOUT_FILE is not set.
+
+        Raises ValidationError is anything goes wrong.
+        """
+        if settings.OMICS_CHECKOUT_FILE is None:
+            return
         cls = self.__class__
         if cls.pipeline_checkout is None:
-            cls.load_pipeline_checkout()
-        mtime = cls.pipeline_checkout.get(self.relpath, None)
+            cls.load_pipeline_checkout(settings.OMICS_CHECKOUT_FILE)
+
+        if proxy := self.Type(self.filetype).checkout_proxy:
+            if self.sample:
+                proxy = proxy.format(sample=self.sample)
+                proxy = Path('omics', self.sample.analysis_dir, proxy)
+            elif self.dataset:
+                proxy = proxy.format(dataset=self.dataset)
+                proxy = self.dataset.analysis_dir / proxy
+            else:
+                raise RuntimeError('logic bug')
+
+            mtime = cls.pipeline_checkout.get(proxy, None)
+        else:
+            mtime = cls.pipeline_checkout.get(Path(self.file_pipeline.name), None)
+
         if mtime is None:
-            raise ValidationError('file not in pipeline checkout')
+            if proxy:
+                raise ValidationError(
+                    {'proxy file not in pipeline checkout': f'{self} --> {proxy}'}
+                )
+            else:
+                raise ValidationError({'file not in pipeline checkout': str(self)})
+
         if not self.modtime:
-            raise ValidationError(f'modtime not set: {self}')
-        if self.modtime != mtime:
-            raise ValidationError(f'{self}: modtime {self.modtime} differs '
-                                  f'from pipeline checkout {mtime}')
+            raise ValidationError({'modtime not set': str(self)})
+
+        if proxy:
+            if proxy_diff:
+                return mtime - self.modtime
+
+            # File must be older within grace period than (or same age) as touch/done.
+            grace = timedelta(
+                seconds=self.Type(self.filetype).checkout_proxy_grace_secs
+            )
+            if self.modtime <= mtime + grace:
+                return
+            else:
+                # no microsec check here compared to non-proxy case, as missing
+                # those would only make the file appear older
+                raise ValidationError(
+                    {'modtime attr differs from pipeline checkout proxy':
+                     f'file={self} proxy: path={proxy} modtime={self.modtime} > {mtime}'
+                     f'(checkout proxy)'}
+                )
+        else:
+            if self.modtime == mtime:
+                return
+
+        if not self.modtime.microsecond:
+            # This should only happen if the file in certain test setup where
+            # the filesystem does not support microsecond precision and with
+            # file objects not yet stored in the DB.  Normally, modtimes from
+            # the DB are expected to have microseconds.
+            if self.modtime == mtime.replace(microsecond=0):
+                if not check_modtime_microseconds(self.file_pipeline.path):
+                    # times would be the same, except for missing microseconds
+                    return
+
+        raise ValidationError(
+            {'modtime attr differs from pipeline checkout':
+             f'file={self} modtime={self.modtime} != {mtime} (checkout)'}
+        )
 
 
 class TaxonAbundance(Model):
     """ Abundance of taxon in a sample """
-    sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    sample = models.ForeignKey(SeqSample, **fk_req)
     # Fields cf. Kraken-style report mmseqs2 userguide
     taxon = models.ForeignKey(
         TaxNode,
@@ -1304,7 +1339,7 @@ class SequenceLike(Model):
     Abstract model for sequences as found in fasta (or similar) files
     """
     history = None
-    sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    sample = models.ForeignKey(SeqSample, **fk_req)
 
     fasta_offset = models.PositiveBigIntegerField(
         **opt,
@@ -1340,8 +1375,14 @@ class SequenceLike(Model):
             raise ValueError('incompatible parameters: can only ask for '
                              'original header with fasta format')
         if file is None:
-            p = self._meta.managers_map['loader'].get_fasta_path(self.sample)
-            fh = p.open('rb')
+            file_obj = self.sample.get_omics_file('METAG_ASM')
+            # open() might still raise FileNotFoundError
+            if file_obj.file_local:
+                fh = file_obj.file_local.open('rb')
+            elif file_obj.file_pipeline:
+                fh = file_obj.file_pipeline.open('rb')
+            else:
+                raise FileNotFoundError(f'{file_obj} has no relevant file paths set')
         else:
             fh = file
 
@@ -1375,12 +1416,6 @@ class Contig(SequenceLike):
     # lca from *_contig_lca.tsv
     lca = models.ForeignKey(TaxNode, **fk_opt)
 
-    # bin membership
-    bin_max = models.ForeignKey(BinMAX, **fk_opt, related_name='members')
-    bin_m93 = models.ForeignKey(BinMET93, **fk_opt, related_name='members')
-    bin_m97 = models.ForeignKey(BinMET97, **fk_opt, related_name='members')
-    bin_m99 = models.ForeignKey(BinMET99, **fk_opt, related_name='members')
-
     loader = managers.ContigLoader()
 
     class Meta:
@@ -1401,38 +1436,57 @@ class Contig(SequenceLike):
         self.contig_no = int(fasta_head_line.strip().split('_')[2])
 
 
-class FuncAbundance(AbstractAbundance):
+class FuncAbundance(Model):
     """
-    abundance vs functions
-
-    With data from the Sample_xxxx_functions_VERSION.txt files
+    Aggregated abundance w.r.t single function cross references
     """
+    sample = models.ForeignKey(
+        SeqSample,
+        related_name='function_abundance',
+        **fk_req,
+    )
     function = models.ForeignKey(
         FuncRefDBEntry,
         related_name='abundance',
         **fk_req,
     )
+    sum_tpm = models.FloatField(null=True, verbose_name='TPM')
+    sum_rpkm = models.FloatField(null=True, verbose_name='RPKM')
 
     loader = managers.FuncAbundanceLoader()
 
     class Meta(Model.Meta):
-        unique_together = (
-            ('sample', 'function'),
-        )
+        unique_together = (('sample', 'function'),)
+        verbose_name = 'function abundance'
 
-    def genes(self):
-        """
-        Queryset of associated genes
-        """
-        return Gene.objects.filter(
-            sample=self.sample,
-            besthit__function_refs=self.function,
-        )
+
+class UniRef90Abundance(Model):
+    """
+    Aggregated abundance w.r.t a UniRef90 cluster
+    """
+    sample = models.ForeignKey(
+        SeqSample,
+        related_name='uniref90_abundance',
+        **fk_req,
+    )
+    ref = models.ForeignKey(
+        UniRef90,
+        related_name='abundance',
+        **fk_req,
+    )
+    sum_tpm = models.FloatField(null=True, verbose_name='TPM')
+    sum_rpkm = models.FloatField(null=True, verbose_name='RPKM')
+
+    loader = managers.UniRef90AbundanceLoader()
+
+    class Meta(Model.Meta):
+        unique_together = (('sample', 'ref'),)
+        verbose_name = 'UniRef90 abundance'
 
 
 class Gene(Model):
     """ Model for a contig vs. UniRef100 alignment hit """
-    sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    sample = models.ForeignKey(SeqSample, **fk_req)
     # fields below cf. BLAST output fmt 6 (mmseqs2 tophit_aln)
     contig = models.ForeignKey('Contig', **fk_req)
     ref = models.ForeignKey(UniRef100, **fk_req)
@@ -1458,7 +1512,7 @@ class Gene(Model):
 
 class NCRNA(Model):
     history = None
-    sample = models.ForeignKey(settings.OMICS_SAMPLE_MODEL, **fk_req)
+    sample = models.ForeignKey(SeqSample, **fk_req)
     contig = models.ForeignKey('Contig', **fk_req)
     match = models.ForeignKey('RNACentralRep', **fk_req)
     part = models.PositiveIntegerField(**opt)
@@ -1527,7 +1581,7 @@ class Protein(SequenceLike):
 
 class ReadLibrary(Model):
     sample = models.OneToOneField(
-        settings.OMICS_SAMPLE_MODEL,
+        SeqSample,
         on_delete=models.CASCADE,
         related_name='reads',
     )
@@ -1550,7 +1604,7 @@ class ReadLibrary(Model):
         if not no_counts:
             raise NotImplementedError('read counting is not yet implemented')
 
-        for i in get_sample_model().objects.filter(reads=None):
+        for i in SeqSample.objects.filter(reads=None):
             obj = cls.from_sample(i)
             try:
                 obj.full_clean()
@@ -1608,8 +1662,8 @@ class RNACentral(Model):
         (27, 'vault_RNA'),
         (28, 'Y_RNA'),
     )
-    INPUT_FILE = (settings.OMICS_DATA_ROOT / 'NCRNA' / 'RNA_CENTRAL'
-                  / 'rnacentral_clean.fasta.gz')
+    INPUT_FILE = (settings.OMICS_PIPELINE_DATA / 'omics' / 'NCRNA'
+                  / 'RNA_CENTRAL' / 'rnacentral_clean.fasta.gz')
 
     accession = AccessionField()
     taxon = models.ForeignKey(TaxNode, **fk_req)
@@ -1666,40 +1720,43 @@ class RNACentralRep(Model):
     history = None
 
 
-class SampleTracking(Model):
+class DataTracking(Model):
     """
     Track progress loading omics data for a sample
     """
     class Flag(models.TextChoices):
+        ASSEMBLY = 'ASM', 'assembly loaded'
+        ASVABUND = 'ASV', 'ASV abundance loaded'
+        BINNING = 'BIN', 'bins loaded'
+        CABUND = 'CAB', 'contig abundance loaded'
+        FNABUND = 'FAB', 'fn name abundance loaded'
+        FXABUND = 'FXA', 'fn xref abundance loaded'
         METADATA = 'MD', 'meta data loaded'
         PIPELINE = 'PL', 'omics pipeline registered'
-        ASSEMBLY = 'ASM', 'assembly loaded'
+        TAXABUND = 'TAB', 'taxa abundance loaded'
         UR1ABUND = 'UAB', 'reads/UR100 abundance loaded'
         UR1TPM = 'TPM', 'reads/UR100/TPM loaded'
-        TAXABUND = 'TAB', 'taxa abundance loaded'
+        U9ABUND = 'U9A', 'UR90 abundance loaded'
 
     flag = models.CharField(max_length=3, choices=Flag.choices)
-    sample = models.ForeignKey(
-        settings.OMICS_SAMPLE_MODEL,
-        on_delete=models.CASCADE,
-        related_name='tracking',
-    )
+    subject = None  # FK to IDMixin model
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
     info = models.JSONField(blank=True, default=dict)
 
-    objects = managers.SampleTrackingManager()
+    objects = managers.DataTrackingManager.from_queryset(DataTrackingQuerySet)()  # noqa:E501
 
     class Meta:
+        abstract = True
         constraints = [
             models.UniqueConstraint(
-                fields=['flag', 'sample'],
-                name='uniq_samptrack_flag',
+                fields=['flag', 'subject'],
+                name='uniq_%(class)s_subject_flag',
             ),
         ]
 
     def __str__(self):
-        return f'{self.sample.sample_id}/{self.flag}'
+        return f'{self.subject.accession}/{self.flag}'
 
     @property
     def job(self):
@@ -1707,15 +1764,36 @@ class SampleTracking(Model):
         # FIXME: the returned job may come from the job class-level cache and
         # then may have a different tracking instance. This may just be ugly
         # but I should re-think the surrounding design .
-        return jobcls.for_sample(self.sample, tracking=self)
+        return jobcls.for_subject(self.subject, tracking=self)
+
+    def undo(self, fake=False):
+        """
+        Unload the data loaded by our job and delete this tracking item.
+
+        fake bool:
+            If True then the job's undo function will not be run.  Use with
+            care.  The default is False.
+        """
+        if fake:
+            return self.job.fake_undo()
+        else:
+            return self.job.run_undo()
 
 
-class Sample(AbstractSample):
-    """
-    Placeholder model for samples
-    """
-    class Meta:
-        swappable = 'OMICS_SAMPLE_MODEL'
+class DatasetTracking(DataTracking):
+    subject = models.ForeignKey(
+        settings.OMICS_DATASET_MODEL,
+        on_delete=models.CASCADE,
+        related_name='tracking',
+    )
+
+
+class SampleTracking(DataTracking):
+    subject = models.ForeignKey(
+        SeqSample,
+        on_delete=models.CASCADE,
+        related_name='tracking',
+    )
 
 
 class Dataset(AbstractDataset):
@@ -1724,3 +1802,13 @@ class Dataset(AbstractDataset):
     """
     class Meta:
         swappable = 'OMICS_DATASET_MODEL'
+
+
+class Sample(Model):
+    """
+    Placeholder model for samples
+    """
+    # dataset = models.ForeignKey(Dataset, **fk_opt)
+
+    class Meta:
+        swappable = 'OMICS_SAMPLE_MODEL'

@@ -41,6 +41,7 @@
     --col-metagenome: #1E88E5;
     --col-metatranscriptome: #FFC107;
     --col-multi-type-border: var(--bs-gray-600);
+    --col-other: #999999;
 }
 
 /* sample type markers/icons: 3 types make 7 combinations, selectors with
@@ -88,6 +89,11 @@
     background: conic-gradient(var(--col-amplicon) 120deg, var(--col-metagenome) 120deg, var(--col-metagenome) 240deg, var(--col-metatranscriptome) 240deg);
     border: 1px solid var(--col-multi-type-border);
     border-radius: 7px;
+}
+.other-icon {
+	background: var(--col-other);
+	border: 1px solid rgba(255,255,255,0.5);
+	border-radius: 7px;
 }
 
 .legend {

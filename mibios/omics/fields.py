@@ -1,6 +1,8 @@
 from django.conf import settings
+from django.db.models.fields.files import FileField
 
 from mibios.umrad.fields import OldPathField
+from .storage import ReadOnlyFieldFile
 
 
 class DataPathField(OldPathField):
@@ -10,4 +12,8 @@ class DataPathField(OldPathField):
     Class remains to support migrations
     """
     description = 'a path under the data root directory'
-    default_base = settings.OMICS_DATA_ROOT
+    default_base = settings.OMICS_PIPELINE_DATA / 'omics'
+
+
+class ReadOnlyFileField(FileField):
+    attr_class = ReadOnlyFieldFile

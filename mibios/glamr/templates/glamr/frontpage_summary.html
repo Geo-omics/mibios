@@ -1,64 +1,26 @@
-<button type="button" class="btn btn-primary m-2" data-bs-toggle="collapse" data-bs-target="#frontpage_summary_datasets" aria-expanded="false" aria-controls="frontpage_summary_datasets">
-    Summary of Available Datasets
-</button>
-<button type="button" class="btn btn-primary m-2" data-bs-toggle="collapse" data-bs-target="#frontpage_summary_samples" aria-expanded="false" aria-controls="frontpage_summary_samples">
-    Summary of Available Samples
-</button>
-<div id="frontpage_summary_datasets" class="frontpage_summary collapse">
-	<div class="card mb-2 mt-2">
-		<div style="display: flex; flex-direction: row" class="card-header">
-	        <h5 class="card-title m-2">Available Datasets ({{dataset_totalcount}})</h5>
-	    </div>
-		<div class="card-body">
-			<div class="card-text">
-				<table class="table table-hover table-condensed table-sm">
-                                {%for row in dataset_counts %}
-                                    {% if forloop.first %}<thead>
-                                        <tr>
-                                            <th>Location</th>
-                                            {%for qstr, value in row%}<th><a href="{% url 'filter_result' model='dataset'%}?{{qstr}}">{{value}}</a></th>{%endfor%}
-                                        </tr>
-				    </thead><tbody>
-                                    {%else%}
-                                        <tr>
-                                        {%for qstr, value in row%}
-                                            <td>{%if qstr%}<a href="{% url 'filter_result' model='dataset'%}?{{qstr}}">{%endif%}{{value}}{%if qstr%}</a>{%endif%}</td>
-                                        {%endfor%}
-                                        </tr>
-                                    {%endif%}
-				    {%if forloop.last%}</tbody>{%endif%}
-                                {%endfor%}
-				</table>
-			</div>
-		</div>
-	</div>
+<div class="col-md-6">
+    <div class="row">
+<table id="frontpage_summary_datasets" class="col-sm-6 table table-hover table-sm border bg-light">
+    <caption>Dataset summary</caption>
+    {%for row in dataset_summary_data %}
+        {% if forloop.first %}<thead>{%endif%}
+        <tr>
+            {%for qstr, value in row%}{% if forloop.parentloop.first %}<th scope="col">{%else%}<td>{%endif%}<small>{%if value%}<a href="{% url 'filter_result' model='dataset'%}?{{qstr}}">{%endif%}{{value}}{%if value%}</a>{%endif%}</small>{% if forloop.parentloop.first %}</th>{%else%}</td>{%endif%}{%endfor%}
+        </tr>
+        {%if forloop.first%}</thead><tbody>{%endif%}
+        {%if forloop.last%}</tbody>{%endif%}
+    {%endfor%}
+</table>
+<table id="frontpage_summary_samples" class="col-sm-6 table table-hover table-sm border bg-light">
+    <caption>Sample summary</caption>
+    {%for row in sample_summary_data %}
+        {% if forloop.first %}<thead>{%endif%}
+        <tr>
+            {%for qstr, value in row%}{% if forloop.parentloop.first %}<th scope="col">{%else%}<td>{%endif%}<small>{%if value%}<a href="{% url 'filter_result' model='sample'%}?{{qstr}}">{%endif%}{{value}}{%if value%}</a>{%endif%}</small>{% if forloop.parentloop.first %}</th>{%else%}</td>{%endif%}{%endfor%}
+        </tr>
+        {%if forloop.first%}</thead><tbody>{%endif%}
+        {%if forloop.last%}</tbody>{%endif%}
+    {%endfor%}
+</table>
 </div>
-<div id="frontpage_summary_samples" class="frontpage_summary collapse">
-	<div class="card mb-2 mt-2">
-		<div style="display: flex; flex-direction: row" class="card-header">
-	        <h5 class="card-title m-2">Available Samples ({{sample_totalcount}})</h5>
-	    </div>
-		<div class="card-body">
-			<div class="card-text">
-				<table class="table table-hover table-condensed table-sm">
-                                {%for row in sample_counts %}
-                                    {% if forloop.first %}<thead>
-                                        <tr>
-                                            <th>Location</th>
-                                            {%for qstr, value in row%}<th><a href="{% url 'filter_result' model='sample'%}?{{qstr}}">{{value}}</a></th>{%endfor%}
-                                        </tr>
-				    </thead><tbody>
-                                    {%else%}
-                                        <tr>
-                                        {%for qstr, value in row%}
-                                            <td>{%if qstr%}<a href="{% url 'filter_result' model='sample'%}?{{qstr}}">{%endif%}{{value}}{%if qstr%}</a>{%endif%}</td>
-                                        {%endfor%}
-                                        </tr>
-                                    {%endif%}
-				    {%if forloop.last%}</tbody>{%endif%}
-                                {%endfor%}
-				</table>
-			</div>
-		</div>
-	</div>
 </div>

@@ -1,3 +1,4 @@
+from django.db.models import Prefetch
 from django.urls import reverse
 from django.utils.html import escape, format_html, mark_safe
 
@@ -240,8 +241,15 @@ class CompoundAbundanceTable(Table):
 
 
 class ContigTable(Table):
+    sample = Column(linkify=linkify_value)
+    name = Column(linkify=linkify_record, empty_values=())
+
     class Meta:
         model = omics_models.Contig
+        sequence = ['sample', 'name', '...']
+
+    def render_name(self, record):
+        return f'{record.sample.sample_id}_{record.contig_no}'
 
 
 class DBInfoTable(Table):
@@ -295,43 +303,50 @@ class DBInfoTable(Table):
 
 class FileTable(OmicsFileTable):
     """ List files belonging to a sample """
+    file = Column(
+        order_by='file_pipeline',
+        empty_values=(),  # trigger render_FOO()
+    )
+
     class Meta:
         model = omics_models.File
-        fields = ['download_url', 'filetype', 'size', 'modtime']
-        exclude = ['is_public']
+        fields = ['file', 'filetype', 'size', 'modtime']
+        sequence = ['file', 'filetype', 'size', 'modtime']
+        exclude = ['file_pipeline', 'file_local', 'file_globus']
 
-    def render_download_url(self, value, record):
-        if record.public:
-            name = record.public.name
-            if value:
-                return format_html('<a href="{}">{}</a>', value, name)
-            else:
-                return f'{name} (unavailable)'
+    def render_file(self, record):
+        if record.file_globus:
+            file = record.file_globus
+        elif record.file_local:
+            file = record.file_local
         else:
-            return '(unavailable)'
+            file = record.file_pipeline
+
+        try:
+            url = file.url
+        except ValueError:
+            # raised by the storage, not configured for downloads
+            return f'{file.name} (not available)'
+        else:
+            return format_html('<a href="{}">{}</a>', url, file.name)
 
 
 class FunctionAbundanceTable(Table):
-    related_genes = Column(
-        linkify=lambda record:
-            reverse(
-                'record_abundance_genes',
-                kwargs={
-                    'model': record.function._meta.model_name,
-                    'pk': record.function.pk,
-                    'sample': record.sample.accession,
-                },
-            ),
-        verbose_name='Related genes',
-        empty_values=(),  # to trigger render_FOO()
-    )
+    sample = Column()
+    sum_tpm = Column()
 
     class Meta:
         model = omics_models.FuncAbundance
         exclude = ['id']
 
-    def render_related_genes(self):
-        return 'genes'
+
+class FunctionNameAbundanceTable(Table):
+    sample = Column()
+    sum_tpm = Column()
+
+    class Meta:
+        model = omics_models.FunctionNameAbundance
+        exclude = ['id']
 
 
 class ReadAbundanceTable(Table):
@@ -558,7 +573,10 @@ class DatasetTable(Table):
         }
 
     def customize_queryset(self, qs):
-        return qs.select_related('primary_ref').prefetch_related('sample_set')
+        return qs \
+            .select_related('primary_ref') \
+            .prefetch_related('sample_set') \
+            .prefetch_related('sample_set__seqsample_set')
 
     def get_extra_excludes(self):
         excludes = list(glamr_models.Dataset.get_internal_fields())
@@ -591,9 +609,10 @@ class DatasetTable(Table):
 
     def render_sample_type(self, record):
         values = set((
-            i.sample_type
+            j.sample_type
             for i in record.sample_set.all()
-            if i.sample_type
+            for j in i.seqsample_set.all()
+            if j.sample_type
         ))
         values = sorted(values)
 
@@ -635,6 +654,7 @@ class SampleTable(Table):
         linkify=linkify_record,
         empty_values=[],
     )
+    sample_type = Column(empty_values=[])
     geo_loc_name = Column(
         empty_values=[],
         verbose_name='Location / site',
@@ -660,7 +680,10 @@ class SampleTable(Table):
         }
 
     def customize_queryset(self, qs):
-        return qs.select_related('dataset', 'dataset__primary_ref')
+        pf_qs = omics_models.SeqSample.objects.only('parent_id', 'sample_type')
+        return qs \
+            .select_related('dataset', 'dataset__primary_ref') \
+            .prefetch_related(Prefetch('seqsample_set', queryset=pf_qs))
 
     def get_extra_excludes(self):
         return list(glamr_models.Sample.get_internal_fields())
@@ -668,12 +691,71 @@ class SampleTable(Table):
     def render_sample_name(self, record):
         return str(record)
 
+    def render_sample_type(self, record):
+        values = sorted(set((
+            i.sample_type for i in record.seqsample_set.all()
+        )))
+        return ' '.join(values)
+
     def render_geo_loc_name(self, record):
         items = [record.geo_loc_name, record.noaa_site]
         return ' / '.join([i for i in items if i])
 
     def render_collection_timestamp(self, record):
         return record.format_collection_timestamp()
+
+
+class SeqSampleTable(Table):
+    """
+    table of SeqSamples belonging to one bio sample
+
+    for display on bio sample detail page
+    """
+    sample_type = Column(orderable=False)
+    accession = Column(orderable=False, empty_values=[''])
+    amplicon_target = Column(orderable=False)
+    primers = Column(orderable=False, empty_values=[])
+    links = Column(
+        verbose_name='Data analysis',
+        orderable=False,
+        empty_values=[]
+    )
+
+    html_fields = (
+        'accession', 'sample_type', 'amplicon_target', 'primers',
+    )
+
+    class Meta:
+        model = omics_models.SeqSample
+        sequence = [
+            'sample_type', 'sra_accession', 'amplicon_target', 'primers',
+        ]
+        empty_text = 'no sample sequencing data available'
+
+    def render_accession(self, record):
+        accn = ' '.join((
+            str(i) for i in
+            [record.sra_accession, record.gold_analysis_id, record.gold_seq_id]
+            if i
+        ))
+        # TODO linkify these
+        return accn
+
+    def render_primers(self, record):
+        return ' / '.join((
+            i for i in
+            (record.fwd_primer, record.rev_primer)
+            if i
+        ))
+
+    def render_links(self, record):
+        urls = []
+        for txt, url in record.urls.items():
+            urls.append(format_html(
+                '<a href="{url}">{txt}</a>',
+                url=url, txt=txt,
+            ))
+        return mark_safe(' | '.join(urls))
 
 
 class ChainedTableData(TableData):

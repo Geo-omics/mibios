@@ -796,13 +796,28 @@ class CSVTabRendererZipped(CSVRendererZipped):
     delimiter = '\t'
 
 
+class TextRenderer(BaseRenderer):
+    description = 'plain text file'
+    content_type = 'text/plain'
+    streaming_support = True
+
+    def render(self, data):
+        if self.response.streaming:
+            self.response.streaming_content = data
+        else:
+            for chunk in data:
+                self.response.write(chunk)
+
+
 class TextRendererZipped(BaseRenderer):
     description = 'zipped text file'
     content_type = 'application/zip'
     streaming_support = False
 
     def __init__(self, filename):
-        super().__init__(filename=filename[:-len('.zip')])
+        filename = filename.removesuffix('.zip')
+        super().__init__(filename=filename)
+        self.filename = filename
 
     def render(self, values):
         """
@@ -1305,6 +1320,9 @@ class ImportFileDownloadView(CuratorRequiredMixin, View):
     Reply to file download request with X-Sendfile headed response
     """
     def get(self, request, *args, **kwargs):
+        if not settings.MEDIA_URL:
+            raise Http404('direct download not configured')
+
         path = 'imported/' + str(kwargs['year']) + '/' + kwargs['name']
         try:
             file = ImportFile.objects.get(file=path)

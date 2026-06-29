@@ -1,7 +1,7 @@
 """
 Module for data load managers
 """
-from collections import defaultdict
+from collections import Counter, defaultdict
 from contextlib import ExitStack
 from datetime import date
 from functools import cached_property, partial
@@ -13,25 +13,29 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import traceback
+from textwrap import dedent
 
+from django.apps import apps
 from django.conf import settings
-from django.core.exceptions import ValidationError
-from django.db.transaction import atomic, set_rollback
+from django.core.files.storage import storages
+from django.db import connection
+from django.db.models import F, Q, Sum, Window
+from django.db.models.functions import FirstValue
+from django.db.models.signals import post_save
+from django.db.transaction import atomic
 from django.utils.module_loading import import_string
 
-from mibios import __version__ as version
 from mibios.models import QuerySet
 from mibios.ncbi_taxonomy.models import (
     DeletedNode, MergedNodes, TaxNode, TaxName,
 )
-from mibios.umrad.models import UniRef100
+from mibios.umrad.models import FuncRefDBEntry, FunctionName, UniRef100
 from mibios.umrad.manager import BulkLoader, Manager, MetaDataLoader
-from mibios.umrad.utils import CSV_Spec, atomic_dry, InputFileError, SkipRow
+from mibios.umrad.utils import (
+    CSV_Spec, atomic_dry, InputFileError, SkipRow, ModelSpec,
+)
 
-from . import get_sample_model
-from .utils import (call_each, gentle_int, get_fasta_sequence,
-                    get_sample_blocklist, Timestamper)
+from .utils import call_each, get_fasta_sequence, get_sample_blocklist
 
 log = getLogger(__name__)
 
@@ -48,51 +52,18 @@ def resolve_glob(path, pat):
 
 
 class SampleLoadMixin:
-    """ Mixin for Loader class that loads per-sample files """
-
-    load_flag_attr = None
-    """ may be specified by implementing class """
+    """ Mixin for Loader class that loads per-seqsample files """
 
     sample = None
     """ sample is set by load_sample() for use in per-field helper methods """
 
     @atomic_dry
-    def load_sample(self, sample, template=None, sample_filter=None,
-                    done_ok=True, redo=False, undo=False, **kwargs):
-
-        if undo and redo:
-            raise ValueError('Option undo is incompatible with option redo.')
-
-        if undo and kwargs.get('update'):
-            raise ValueError('Option undo is incompatible with option update.')
-
+    def load_sample(self, sample, template=None, sample_filter=None, **kwargs):
         if template is None:
             template = {'sample': sample}
 
         if sample_filter is None:
             sample_filter = template
-
-        if 'flag' in kwargs:
-            flag = kwargs.pop('flag')
-            if flag is None:
-                # explicit override / no flag check/set
-                pass
-        else:
-            flag = self.load_flag_attr
-
-        if flag:
-            update = kwargs.get('update', False)
-            done = getattr(sample, flag)
-            if done and done_ok and not redo:
-                # nothing to do
-                return
-
-            if done and not done_ok:
-                raise RuntimeError(f'already loaded: {flag}->{sample}')
-
-            if done and redo and not update:
-                # have to delete records for sample
-                self.undo(sample, sample_filter, flag)
 
         if 'file' not in kwargs:
             kwargs.update(file=self.get_file(sample))
@@ -100,34 +71,23 @@ class SampleLoadMixin:
         self.sample = sample
         self.load(template=template, **kwargs)
         # ensure subsequent calls of manager methods never get wrong sample:
+        # FIXME: this is a stupid design
         self.sample = None
 
-        if flag:
-            setattr(sample, flag, True)
-            sample.save()
-
-    @atomic
-    def unload_sample(self, sample, sample_filter=None, flag=None):
+    @atomic_dry
+    def unload_sample(self, sample, sample_filter=None):
         """
         Delete all objects related to the given sample
 
         This is to undo the effect of load_sample().  Override this method if a
         more delicate operation is needed.
         """
-        if flag is None:
-            flag = getattr(self, 'load_flag_attr')
-        if flag is None:
-            raise ValueError('load progress flag needs to be provided')
-
         if sample_filter is None:
             sample_filter = {'sample': sample}
 
         print('Deleting... ', end='', flush=True)
         dels = self.model.objects.filter(**sample_filter).delete()
         print(dels, '[OK]')
-
-        setattr(sample, flag, False)
-        sample.save()
 
 
 class TaxNodeMixin:
@@ -136,7 +96,7 @@ class TaxNodeMixin:
 
     Use together with SampleLoadMixin.
     """
-    def check_taxid(self, value, obj):
+    def check_taxid(self, value, **ctx):
         """
         Check validity of NCBI taxids
 
@@ -178,6 +138,435 @@ class TaxNodeMixin:
         del self.merged, self.merged_count, self.deleted, self.deleted_count
 
 
+class AmpliconTargetManager(Manager):
+    def get_or_create_from_hmm(self, hmm, fwd_primer_name, rev_primer_name):
+        """ Create instance from amplicon pipeline target guessing data """
+        for i in hmm.fwd_primers:
+            if fwd_primer_name == i.name:
+                fwd_primer = i
+                break
+        else:
+            raise ValueError('not a fwd primer valid for {hmm}')
+
+        for i in hmm.rev_primers:
+            if rev_primer_name == i.name:
+                rev_primer = i
+                break
+        else:
+            raise ValueError('not a rev primer valid for {hmm}')
+
+        f_region = None
+        r_region = None
+        if fwd_primer.region:
+            f_region = fwd_primer.region.rstrip('-')
+        if rev_primer.region:
+            r_region = rev_primer.region.lstrip('-')
+        if f_region or r_region:
+            if f_region == r_region:
+                region = f_region  # a single region
+            else:
+                # spans multiple regions
+                region = f'{f_region or "?"}-{r_region or "?"}'
+        else:
+            region = ''  # e.g. no common name for region
+
+        others = dict(
+            tax_group='?',  # TODO
+            gene=fwd_primer.gene_target,
+            region=region,
+        )
+        obj, new = self.get_or_create(
+            hmm=hmm.name,
+            start=fwd_primer.end + 1,
+            end=rev_primer.start - 1,
+            defaults=others,
+        )
+        if not new:
+            # Check that the existing instance has the other attributes as
+            # expected
+            for attr in others.keys():
+                if getattr(obj, attr) != others[attr]:
+                    print(f'WARNING: AmpliconTarget mismatch of {attr}: '
+                          f'{obj=} vs. {others=}')
+        return obj, new
+
+
+class ASVAbundanceLoader(BulkLoader):
+    @atomic_dry
+    def load_dataset(self, dataset, amplicon_target, **kwargs):
+        """
+        Load amplicon data for one dataset and amplicon target.
+
+        This is the primary entrypoint to load amplicon data
+        """
+        # Get all samples' target assignments, these come as a dict mapping
+        # sample IDs to target string identifiers
+        results = dataset.get_amplicon_pipeline_results()
+        for (dada2_dir, target), samples in results.items():
+            if target == amplicon_target:
+                break
+        else:
+            raise LookupError(
+                f'Amplicon target {amplicon_target} not found in dada2 result '
+                f'set for {dataset.accession}'
+            )
+
+        print(f'Loading amplicon data for {target} and {len(samples)} '
+              f'samples...')
+        self.load_for_target(dataset, dada2_dir, target, samples)
+
+    @atomic_dry
+    def unload_dataset(self, dataset, amplicon_target, **kwargs):
+        """
+        Delete abundances for given dataset and target, together with any ASVs
+        that did not occur in any other dataset.
+
+          * will *not* unload AmpliconTarget that become unusd
+        """
+        ASV = apps.get_model('omics', 'ASV')
+        qs = self.filter(
+            sample__parent__dataset=dataset,
+            asv__type=amplicon_target,
+        )
+        delcounts = Counter()
+        _, counts = qs.delete()
+        delcounts.update(counts)
+        # delete any ASVs w/o abundances
+        qs = ASV.objects.filter(type=amplicon_target, asvabundance=None)
+        _, counts = qs.delete()
+        delcounts.update(counts)
+        return delcounts
+
+    def load_for_target(self, dataset, dada2_dir, target, samples):
+        ASV = import_string('mibios.omics.models.ASV')
+        SeqSample = import_string('mibios.omics.models.SeqSample')
+
+        samples = {i.sample_id: i for i in samples}
+        dada2_dir = settings.OMICS_PIPELINE_DATA / dada2_dir
+        fasta = dada2_dir / 'rep_seqs.fasta'
+        asvs = ASV.loader.load(target, dataset, fasta)
+
+        objs = []
+        samples_upd = []
+        with open(dada2_dir / 'asv_table.tsv') as ifile:
+            _, *asv_names = ifile.readline().rstrip('\n').split('\t')
+            if len(asvs) != len(asv_names) or set(asvs) != set(asv_names):
+                raise ValueError(
+                    'dada2 asv name mismatch between fastq and abundance?'
+                )
+            asvs = [asvs[i] for i in asv_names]
+
+            for line in ifile:
+                sample_id, *counts = line.rstrip('\n').split('\t')
+                sample = samples.pop(sample_id)
+                counts = [int(i) for i in counts]
+                total = sum(counts)
+                sample.amplicon_target = target
+                sample.read_count = total
+                samples_upd.append(sample)
+                for asv, count in zip(asvs, counts, strict=True):
+                    count = int(count)
+                    if count == 0:
+                        continue
+                    objs.append(self.model(
+                        sample=sample,
+                        asv=asv,
+                        count=count,
+                        relabund=count / total,
+                    ))
+            if samples:
+                print(f'[WARNING] For {len(samples)} samples abundance data is'
+                      f' missing from {ifile.name}')
+
+        self.bulk_create(objs)
+        SeqSample.objects.bulk_update(
+            samples_upd,
+            fields=('amplicon_target', 'read_count'),
+        )
+
+
+class ASVLoader(BulkLoader):
+    @atomic_dry
+    def load(self, target, dataset, file=None, bulk=True, validate=False):
+        """
+        Load ASVs from fasta file
+
+        Returns dada2-given accessions paired with instances.
+        """
+        dada2_accns = []
+        objs = []
+        templ = {'seq': '', 'type': target}
+        with open(file) as ifile:
+            fields = None
+            for line in ifile:
+                line = line.strip()
+                if line.startswith('>'):
+                    if fields is not None:
+                        objs.append(self.model(**fields))
+                    fields = templ.copy()
+                    dada2_accn = line.removeprefix('>')
+                    dada2_accns.append(dada2_accn)
+                    fields['accession'] = (
+                        f'provisional.{str(target).replace(" ", "_")}'
+                        f'.{dataset.dataset_id}'
+                        f'.{dada2_accn}'
+                    )
+                else:
+                    fields['seq'] += line.lower()
+            # do final record
+            if fields is not None:
+                objs.append(self.model(**fields))
+
+        old_qs = self.filter(type=target, seq__in=[i.seq for i in objs])
+        if old := {i.seq: i for i in old_qs}:
+            print(f'ASVs: {len(old)} of {len(objs)} already exist')
+            objs = [old.get(i.seq, i) for i in objs]
+            new_objs = [i for i in objs if i.pk is None]
+        else:
+            new_objs = objs
+
+        if validate:
+            for i in new_objs:
+                i.full_clean()
+        if bulk:
+            self.bulk_create(new_objs)
+        else:
+            for i in objs:
+                i.save()
+
+        return dict(zip(dada2_accns, objs, strict=True))
+
+
+class BinLoader(SampleLoadMixin, BulkLoader):
+    def get_file(self, sample=None):
+        # CSV_Spec.setup() needs this to be implemented, return None is fine
+        # here.
+        return None
+
+    def load_sample(self, sample, file=None, **kwargs):
+        """
+        Load all the sample's binning data
+
+        file:
+            This must be None.  Input files must be passed via kwargs.
+        kwargs:
+            To pass input files, add kwargs with key being lower-case
+            models.File.Type names and values either File instances or just a
+            path as Path or str.
+
+        """
+        if file is not None:
+            raise ValueError('files must be provided by filetype=file kwargs')
+
+        # get file kwargs for other methods, remove them from kwargs which is
+        # passed on separately
+        bin_contig_file = kwargs.pop('bin_contig', None)
+        file_kwargs = {}
+        for i in ['BIN_COV', 'BIN_CLASS_ARC', 'BIN_CLASS_BAC', 'BIN_CHECKM']:
+            key = i.casefold()
+            if key in kwargs:
+                file_kwargs[key] = kwargs.pop(key)
+
+        spec = ModelSpec(rows=self.get_rows(sample, **file_kwargs))
+        with atomic():
+            super().load_sample(sample, spec=spec, file=None, **kwargs)
+            self.load_binning(sample, file=bin_contig_file)
+
+    def get_spec_columns(self):
+        """
+        Return ordered field names, the fields to be populated by load_sample.
+        """
+        field_names = []
+        for i in self.model._meta.get_fields():
+            if i.auto_created and i.is_relation:
+                # skip reverse relations, i.e. fields declared in other models
+                # Unsure how robust this test is, beware!
+                continue
+            if i.get_internal_type() == 'AutoField':
+                # skip the auto-increment field
+                continue
+            if i.name == 'contigs':
+                # skip, as it would break _update_m2m due to 2-field accession
+                continue
+            field_names.append(i.name)
+        return field_names
+
+    def get_rows(self, sample, **file_kwargs):
+        """
+        Generate rows for load_sample()
+        """
+        # 1. get all input files args so that they can be passed to open()
+        # Since FieldFile.open() does not return a file handle a readline() to
+        # get the header followed by iterating over the rows as below won't
+        # work as the the FieldFile machinery will make the row iteration start
+        # all over with the header being the first line read.  So below will
+        # always open() a PathLike old fashionedly.
+        files = {
+            i: file_kwargs.get(i.casefold(), sample.get_omics_file(i))
+            for i
+            in ['BIN_COV', 'BIN_CLASS_ARC', 'BIN_CLASS_BAC', 'BIN_CHECKM']
+        }
+        for k, v in files.items():
+            if isinstance(v, (str, Path)):
+                pass
+            else:
+                # assume a models.File instance
+                files[k] = v.file_pipeline.path
+
+        data = {}
+        # 2. read coverage for each bin
+        with open(files['BIN_COV']) as ifile:
+            header = ifile.readline().strip().split('\t')
+            NAME_POS = header.index('Genome')
+            REL_ABUND_POS = header.index('Relative Abundance (%)')
+            MEAN_POS = header.index('Mean')
+            TR_MEAN_POS = header.index('Trimmed Mean')
+            BASES_POS = header.index('Covered Bases')
+            VAR_POS = header.index('Variance')
+            LEN_POS = header.index('Length')
+            COUNT_POS = header.index('Read Count')
+            RPB_POS = header.index('Reads per base')
+            RPKM_POS = header.index('RPKM')
+            TPM_POS = header.index('TPM')
+
+            for line in ifile:
+                row = line.strip().split('\t')
+                if (name := row[NAME_POS]) == 'unmapped':
+                    continue
+
+                data[name] = {
+                    'percent_abund': row[REL_ABUND_POS],
+                    'mean_depth': row[MEAN_POS],
+                    'trimmed_mean_depth': row[TR_MEAN_POS],
+                    'covered_bases': row[BASES_POS],
+                    'variance': row[VAR_POS],
+                    'length': row[LEN_POS],
+                    'read_count': row[COUNT_POS],
+                    'reads_per_base': row[RPB_POS],
+                    'rpkm': row[RPKM_POS],
+                    'tpm': row[TPM_POS],
+                }
+
+        # 3. read taxa for bins that have a classification
+        for filetype in ('BIN_CLASS_ARC', 'BIN_CLASS_BAC'):
+            with open(files[filetype]) as ifile:
+                header = ifile.readline().strip().split('\t')
+                NAME_POS = header.index('user_genome')
+                TAXON_POS = header.index('classification')
+
+                for line in ifile:
+                    row = line.strip().split('\t')
+                    if rec := data.get(row[NAME_POS], None):
+                        if 'taxon' in rec:
+                            raise InputFileError(f'duplicate classifi? {line}')
+                        rec['taxon'] = row[TAXON_POS]
+                    else:
+                        # not a rep bin
+                        pass
+
+        # 4. read checkm stats for bins that have it
+        with open(files['BIN_CHECKM']) as ifile:
+            header = ifile.readline().strip().split('\t')
+            NAME_POS = header.index('Bin Id')
+            COMPL_POS = header.index('Completeness')
+            CONTAM_POS = header.index('Contamination')
+            HETEROG_POS = header.index('Strain heterogeneity')
+
+            for line in ifile:
+                row = line.strip().split('\t')
+                if rec := data.get(row[NAME_POS], None):
+                    rec['completeness'] = row[COMPL_POS]
+                    rec['contamination'] = row[CONTAM_POS]
+                    rec['heterogeneity'] = row[HETEROG_POS]
+                else:
+                    # not a rep bin
+                    pass
+
+        # 5. Create tuples with all values
+        fields = [
+            self.model._meta.get_field(i)
+            for i in self.get_spec_columns()
+        ]
+        for name, record in data.items():
+            record['name'] = name
+            record['sample'] = sample.sample_id
+            # order values as fields were declared in model, missing taxa or
+            # checkm stats get a blank inserted
+            yield tuple((
+                record.get(field.name, None if field.null else '')
+                for field in fields
+            ))
+
+    @atomic_dry
+    def load_binning(self, sample, file=None):
+        """ Load the Bin<->Contig m2m relation """
+        print('Retrieving bins...', end='', flush=True)
+        bins = {i.name: i for i in sample.bin_set.all()}
+        print(f' {len(bins)} [OK]')
+        print('Retrieving contigs...', end='', flush=True)
+        contigs = {i.contig_no: i for i in sample.contig_set.all()}
+        print(f' {len(contigs)} [OK]')
+
+        if file is None:
+            file = sample.get_omics_file('BIN_CONTIG')
+
+        if isinstance(file, (str, Path)):
+            path = file
+        else:
+            # assume omics.models.File
+            path = file.file_pipeline.path
+
+        print('Converting RDS file ...', end='', flush=True)
+        with tempfile.TemporaryDirectory() as tmpd:
+            tmpd = Path(tmpd)
+            rscript = dedent(f"""
+            data = readRDS('{path}')
+            write.csv(data, '{tmpd}/binning.csv', quote=FALSE, row.names=FALSE)
+            """)
+            subprocess.run(['Rscript', '--vanilla', '-e', rscript], check=True)
+            print(' [OK]')
+
+            print('Reading binning data...', end='', flush=True)
+            data = []
+            with open(tmpd / 'binning.csv') as ifile:
+                head = ifile.readline().strip().split(',')
+                contig_pos = head.index('contig')
+                bin_pos = head.index('new_bin_name')
+                for line in ifile:
+                    row = line.strip().split(',')
+                    contig = row[contig_pos]
+                    if contig == 'bad bin':
+                        continue
+                    bin_name = row[bin_pos]
+                    contig_no = contig.removeprefix(f'{sample.sample_id}_')
+                    try:
+                        contig_no = int(contig_no)
+                    except ValueError:
+                        raise InputFileError(f'bad contig id: {contig}')
+                    if not bin_name.startswith(f'{sample.sample_id}_'):
+                        raise InputFileError(f'bad bin id: {contig}')
+
+                    if bin_name not in bins:
+                        # not a drep representative, or otherwise not loaded
+                        continue
+
+                    if contig_no not in contigs:
+                        raise InputFileError(f'unknown contig: {contig}')
+
+                    data.append((bins[bin_name], contigs[contig_no]))
+            print(f' {len(data)} [OK]')
+
+        Through = self.model._meta.get_field('contigs').remote_field.through
+        if sample.bin_set.exclude(contigs=None).exists():
+            print('Deleting existing Bin<->Contig links for update...', end='',
+                  flush=True)
+            delinfo, _ = Through.objects.filter(bin__sample=sample).delete()
+            print(f'{delinfo} [OK]')
+
+        objs = ((Through(bin=bin, contig=contig) for bin, contig in data))
+        self.bulk_create_wrapper(Through.objects.bulk_create)(objs)
+
+
 class CompoundAbundanceLoader(BulkLoader, SampleLoadMixin):
     """ loader manager for CompoundAbundance """
     load_flag_attr = 'comp_abund_ok'
@@ -205,28 +594,27 @@ class SequenceLikeQuerySet(QuerySet):
 
     def to_fasta(self):
         """
-        Make fasta-formatted sequences
+        Generate fasta-formatted sequences from file
+
+        Yields bytes.
         """
-        files = {}
-        lines = []
-        fields = ('fasta_offset', 'fasta_len', 'gene_id', 'sample__accession')
-        qs = self.select_related('sample').values_list(*fields)
-        try:
-            for offs, length, gene_id, sampid in qs.iterator():
-                if sampid not in files:
-                    sample = get_sample_model().objects.get(accession=sampid)
-                    files[sampid] = \
-                        self.model.loader.get_fasta_path(sample).open('rb')
+        File = import_string('mibios.omics.models.File')
+        SeqSample = import_string('mibios.omics.models.SeqSample')
 
-                lines.append(f'>{sampid}:{gene_id}')
-                lines.append(
-                    get_fasta_sequence(files[sampid], offs, length).decode()
-                )
-        finally:
-            for i in files.values():
-                i.close()
-
-        return '\n'.join(lines)
+        qs = self.annotate(sample_pk=Window(
+            expression=FirstValue('sample__pk'),
+            partition_by=F('sample'),
+        ))
+        qs = qs.values_list('fasta_offset', 'fasta_len', 'contig_no',
+                            'sample_pk')
+        for sample_pk, grp in groupby(qs, key=lambda x: x[3]):
+            sample = SeqSample.objects.get(pk=sample_pk)
+            # NOTE: this assumes contigs from metagenomic assembly
+            file = sample.get_omics_file(File.Type.METAG_ASM)
+            with file.file_pipeline.open('rb') as ifile:
+                for (offs, length, contig_no, _) in grp:
+                    yield f'>{sample.sample_id}:{contig_no}\n'.encode()
+                    yield get_fasta_sequence(ifile, offs, length)
 
 
 SequenceLikeManager = Manager.from_queryset(SequenceLikeQuerySet)
@@ -330,19 +718,9 @@ class SequenceLikeLoader(SampleLoadMixin, BulkLoader):
 class ContigLoader(TaxNodeMixin, SequenceLikeLoader):
     """ Manager for the Contig model """
     def get_fasta_path(self, sample):
-        return sample.get_omics_file('METAG_ASM').path
+        return Path(sample.get_omics_file('METAG_ASM').file_pipeline.path)
 
-    def get_contig_abund_path(self, sample):
-        """ get path to samp_NNN_contig_abund.tsv file """
-        fname = f'{sample.sample_id}_contig_abund.tsv'
-        return sample.get_metagenome_path() / fname
-
-    def get_contig_lca_path(self, sample):
-        """ get path to samp_NNN_contig_lca.tsv file """
-        fname = f'{sample.sample_id}_contig_lca.tsv'
-        return sample.get_metagenome_path() / fname
-
-    def get_contig_no(self, value, obj):
+    def get_contig_no(self, value, **ctx):
         sample_id, _, contig_no = value.rpartition('_')
         if sample_id != self.sample.sample_id:
             raise InputFileError(
@@ -370,27 +748,22 @@ class ContigLoader(TaxNodeMixin, SequenceLikeLoader):
     )
 
     contig_lca_spec = CSV_Spec(
+        # FIXME - outdated, format changed, using GTDB taxonomy
         ('contig_no', get_contig_no),
         ('lca', 'check_taxid'),
     )
 
     @atomic_dry
-    def unload_fasta_sample(self, sample):
-        super().unload_fasta_sample(sample)
-        # since this deletes the whole object
-        sample.contig_abundance_loaded = False
-        sample.contig_lca_loaded = False
-        sample.save()
+    def load_abundance(self, sample, file=None, **kwargs):
+        if file is None:
+            file = Path(sample.get_omics_file('CONT_ABUND').file_pipeline.path)
+        kwargs.setdefault('spec', self.contig_abund_spec)
+        kwargs.setdefault('update', True)
 
-    @atomic_dry
-    def load_abundance(self, sample, **kwargs):
-        self.load_sample(
-            sample,
-            flag='contig_abundance_loaded',
-            spec=self.contig_abund_spec,
-            file=self.get_contig_abund_path(sample),
-            update=True,
-            **kwargs)
+        if not kwargs['update']:
+            raise ValueError('method must run in update mode')
+
+        self.load_sample(sample, file=file, **kwargs)
 
     @atomic_dry
     def unload_abundance(self, sample):
@@ -399,37 +772,86 @@ class ContigLoader(TaxNodeMixin, SequenceLikeLoader):
         print('Unsetting abundance fields... ', end='', flush=True)
         count = self.filter(sample=sample).update(**{i: None for i in fields})
         print(f'[{count} OK]')
-        sample.contig_abundance_loaded = False
-        sample.save()
 
     @atomic_dry
-    def load_lca(self, sample, **kwargs):
-        self.load_sample(
-            sample,
-            flag='contig_lca_loaded',
-            spec=self.contig_lca_spec,
-            file=self.get_contig_lca_path(sample),
-            update=True,
-            **kwargs,
-        )
+    def load_lca(self, sample, file=None, **kwargs):
+        if file is None:
+            file = Path(sample.get_omics_file('CONT_LCA').file_pipeline.path)
+        kwargs.setdefault('update', True)
+
+        if not kwargs['update']:
+            raise ValueError('method must run in update mode')
+
+        self.load_sample(sample, spec=self.contig_lca_spec, file=file,
+                         **kwargs)
 
     @atomic_dry
     def unload_lca(self, sample):
         print('Unsetting lca... ', end='', flush=True)
         count = self.filter(sample=sample).update(lca=None)
         print(f'[{count} OK]')
-        setattr(sample, 'contig_lca_loaded', False)
-        sample.save()
 
 
-class FuncAbundanceLoader(BulkLoader, SampleLoadMixin):
-    load_flag_attr = 'func_abund_ok'
+class FuncAbundanceLoader(SampleLoadMixin, BulkLoader):
+    """ Precalculate per-function-xref abundance """
 
-    def get_file(self, sample):
-        return resolve_glob(
-            sample.get_metagenome_path() / 'annotation',
-            f'{sample.sample_id}_functionss_*.txt'
+    @atomic_dry
+    def load_sample(self, sample, **kwargs):
+        # This double counts tpm due to ur100<->funcxref M2M rel.  This is
+        # intentional and okay as long as we consider the tpm sum of individual
+        # xrefs.  Conparing two function xrefs is OK.  But don't group xrefs,
+        # adding the sums together again.
+        qs = (FuncRefDBEntry.objects
+              .filter(uniref100__abundance__sample=sample)
+              .order_by('pk')
+              .values_list('pk', 'uniref100__abundance__tpm')
+              )
+        print('Reading ur100 abundance... ', end='', flush=True)
+        qs = list(qs)
+        print(f'{len(qs)} [OK]')
+        objs = (
+            self.model(
+                sample=sample,
+                function_id=pk,
+                sum_tpm=sum(tpm for _, tpm in grp),
+            )
+            for pk, grp in groupby(qs, key=lambda x: x[0])
         )
+        self.bulk_create(objs)
+
+    @atomic_dry
+    def unload_sample(self, sample, **kwargs):
+        _, counts = self.filter(sample=sample).delete()
+        return counts
+
+
+class UniRef90AbundanceLoader(SampleLoadMixin, BulkLoader):
+    """ Precalculate per-UniRef90-cluster abundance """
+
+    @atomic_dry
+    def load_sample(self, sample, **kwargs):
+        ReadAbundance = apps.get_model('omics', 'ReadAbundance')
+        qs = ReadAbundance.objects \
+            .filter(sample=sample) \
+            .exclude(ref__uniref90=None) \
+            .order_by('ref__uniref90') \
+            .values('sample', 'ref__uniref90') \
+            .annotate(Sum('tpm'))
+
+        objs = (
+            self.model(
+                sample=sample,
+                ref_id=row['ref__uniref90'],
+                sum_tpm=row['tpm__sum'],
+            )
+            for row in qs
+        )
+        self.bulk_create(objs)
+
+    @atomic_dry
+    def unload_sample(self, sample, **kwargs):
+        _, counts = self.filter(sample=sample).delete()
+        return counts
 
 
 fkmap_cache = {}
@@ -443,7 +865,7 @@ def fkmap_cache_reset():
 
 class UniRefMixin:
     """ Mixin for dealing with uniref100 columns """
-    def parse_ur100(self, value, obj):
+    def parse_ur100(self, value, **ctx):
         """ Preprocessing method, add this to spec line """
         # UniRef100_XYZ --> XYZ
         return UniRef100.loader.parse_ur100(value)
@@ -512,7 +934,7 @@ class GeneLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
         return sample.get_metagenome_path() \
             / f'{sample.sample_id}_contig_tophit_aln'
 
-    def to_contig_id(self, value, obj):
+    def to_contig_id(self, value, **ctx):
         """ return ID tuple based on sample and contig number """
         return self.sample.pk, int(value.rpartition('_')[2])
 
@@ -573,11 +995,7 @@ class GeneLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
         ]
         self.spec.fkmap_filters['contig'] = {'sample': sample}
 
-        self.load_sample(
-            sample,
-            flag='gene_alignments_loaded',
-            **kwargs,
-        )
+        self.load_sample(sample, **kwargs)
 
 
 class GeneAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
@@ -604,6 +1022,39 @@ class GeneAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
         super().load_sample(sample, *args, **kwargs)
 
 
+class FunctionNameAbundanceLoader(SampleLoadMixin, BulkLoader):
+    """ Calculate pre-function-name abundance """
+
+    @atomic_dry
+    def load_sample(self, sample, **kwargs):
+        # This double counts tpm due to ur100<->funcname M2M rel.  This is
+        # intentional and okay as long as we consider the tpm sum of individual
+        # function names.  Conparing two function names is OK.  But don't group
+        # function names, adding the sums together again.
+        qs = (FunctionName.objects
+              .filter(uniref100__abundance__sample=sample)
+              .order_by('pk')
+              .values_list('pk', 'uniref100__abundance__tpm')
+              )
+        print('Reading ur100 abundance... ', end='', flush=True)
+        qs = list(qs)
+        print(f'{len(qs)} [OK]')
+        objs = (
+            self.model(
+                sample=sample,
+                name_id=pk,
+                sum_tpm=sum(tpm for _, tpm in grp),
+            )
+            for pk, grp in groupby(qs, key=lambda x: x[0])
+        )
+        self.bulk_create(objs)
+
+    @atomic_dry
+    def unload_sample(self, sample, **kwargs):
+        _, counts = self.filter(sample=sample).delete()
+        return counts
+
+
 class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
     """ load data from *_tophit_report files """
 
@@ -625,7 +1076,7 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
 
     def get_file(self, sample):
         """ get the *_tophit_report file """
-        return sample.get_omics_file('FUNC_ABUND')
+        return Path(sample.get_omics_file('FUNC_ABUND').file_pipeline.path)
 
     @atomic_dry
     def load_sample(self, sample, *args, spec=None, **kwargs):
@@ -651,19 +1102,31 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
         self.spec.pre_load_hook = \
             partial(self.uniref100_helper, field_name='ref')
         if file is None:
-            file = sample.get_omics_file('FUNC_ABUND_TPM')
+            file = Path(
+                sample.get_omics_file('FUNC_ABUND_TPM').file_pipeline.path
+            )
         update = kwargs.pop('update', True)
         if not update:
             raise ValueError('update kwarg must not be False, loader method '
                              'must run in update mode')
         super().load_sample(sample, *args, file=file, update=True, **kwargs)
 
+    @atomic_dry
+    def unload_tpm_sample(self, sample):
+        num = self.filter(sample=sample).update(tpm=None, rpkm=None)
+        print(f'{sample.sample_id}: tpm+rpkm erased for {num} '
+              f'{self.model._meta.model_name}')
 
-class SampleLoader(MetaDataLoader):
+
+class SeqSampleLoader(MetaDataLoader):
     """ Loader manager for Sample """
-    def get_omics_import_file(self):
+
+    empty_values = ['NA', 'NF']
+
+    @classmethod
+    def get_omics_import_file(cls):
         """ get the omics data import log """
-        basedir = settings.OMICS_DATA_ROOT / 'data' / 'import_logs'
+        basedir = settings.OMICS_PIPELINE_ROOT / 'data' / 'import_logs'
         # log file name begins with date YYYYMMDD:
         basename = '_sample_status.tsv'
         most_recent_date = ''
@@ -674,9 +1137,67 @@ class SampleLoader(MetaDataLoader):
                 most_recent_date = date
                 most_recent_file = i
         if most_recent_file is None:
-            raise RuntimeError('sample status file / import log not found')
+            raise RuntimeError(
+                f'sample status file / import log not found under {basedir}'
+            )
         else:
             return most_recent_file
+
+    def get_file(self):
+        return settings.GLAMR_META_ROOT / 'Great_Lakes_Omics_Datasets.xlsx - sequencing.tsv'  # noqa:E501
+
+    def check_id(self, value, **ctx):
+        if value in self.blocklist:
+            raise SkipRow('found in blocklist')
+        return value
+
+    def check_parent(self, value, **ctx):
+        if not value:
+            # presumably data entry WIP, so skip
+            raise SkipRow('parent biosample missing')
+        return value
+
+    spec = CSV_Spec(
+        ('SeqSampleID', 'sample_id', check_id),
+        ('SRA accession', 'sra_accession'),
+        ('sample_type', 'sample_type'),
+        ('SampleName', 'sample_name'),
+        ('BioSampleID', 'parent', check_parent),
+        ('GOLD_analysis_projectID', 'gold_analysis_id'),
+        ('GOLD_sequencing_projectID', 'gold_seq_id'),
+        # ('sequencing_type', 'sequencing_type'),  TODO
+        ('amplicon_target', 'amplicon_target_label'),
+        ('F_primer', 'fwd_primer'),
+        ('R_primer', 'rev_primer'),
+        ('Notes', 'notes'),
+    )
+
+    @atomic_dry
+    def load(self, **kwargs):
+        """ loads meta data from google sequencing sheet """
+        SampleTracking = apps.get_model('omics', 'SampleTracking')
+        self._saved_samples = []
+        post_save.connect(self.on_save, sender=self.model)
+        self.blocklist = {
+            key: [i for i in field_list if i != 'omics']
+            for key, field_list in get_sample_blocklist().items()
+        }
+        super().load(**kwargs)
+        if connection.vendor == 'postgresql':
+            self.model.objects.update_access()
+        flag = SampleTracking.Flag.METADATA
+        for i in self._saved_samples:
+            tr, new = SampleTracking.objects.get_or_create(subject=i, flag=flag)
+            if not new:
+                tr.save()  # update timestamp
+
+    def on_save(self, instance=None, **kwargs):
+        """
+        callback for seqsample post_save
+
+        Remember seqsamples for tracking while doing load()
+        """
+        self._saved_samples.append(instance)
 
     @atomic_dry
     def update_from_pipeline_registry(
@@ -734,13 +1255,19 @@ class SampleLoader(MetaDataLoader):
                 else:
                     raise RuntimeError(msg)
 
-            objs = self.select_related('dataset') \
+            objs = self.select_related('parent__dataset') \
                        .in_bulk(field_name='sample_id')
+
+            old_tr_objs = {}
+            for tr in SampleTracking.objects.filter(flag=SampleTracking.Flag.PIPELINE):
+                if tr.subject_id in old_tr_objs:
+                    raise RuntimeError('duplicate tracking record? {tr=}')
+                old_tr_objs[tr.subject_id] = tr
 
             if source_file is None:
                 source_file = self.get_omics_import_file()
 
-            print(f'Reading {source_file} ...')
+            print(f'Processing {source_file} ...', end='', flush=True)
             srcf = estack.enter_context(open(source_file))
             head = srcf.readline().rstrip('\n').split('\t')
             for index, column in COLUMN_NAMES:
@@ -751,12 +1278,14 @@ class SampleLoader(MetaDataLoader):
                     )
 
             good_seen = []
+            changed_objs = []
+            tr_objs = []
             samp_id_seen = set()
             changed = 0
             unchanged = 0
             notfound = 0
             nosuccess = 0
-            for lineno, line in enumerate(srcf, start=1):
+            for lineno, line in enumerate(srcf, start=2):
                 row = line.rstrip('\n').split('\t')
                 sample_id = row[SAMPLE_ID]
                 dataset = row[STUDY_ID]
@@ -780,6 +1309,8 @@ class SampleLoader(MetaDataLoader):
                     nosuccess += 1
                     continue
 
+                # Check consistency -- for these attrs: sample_id, dataset_id,
+                # or sample_type the omics import listing is not authoritive
                 try:
                     obj = objs[sample_id]
                 except KeyError:
@@ -788,10 +1319,10 @@ class SampleLoader(MetaDataLoader):
                     notfound += 1
                     continue
 
-                if obj.dataset.dataset_id != dataset:
+                if obj.parent.dataset.dataset_id != dataset:
                     err(
                         f'line {lineno}: {obj} dataset changed: '
-                        f'{obj.dataset.dataset_id} -> {dataset}'
+                        f'{obj.parent.dataset.dataset_id} -> {dataset}'
                     )
                     continue
 
@@ -802,40 +1333,48 @@ class SampleLoader(MetaDataLoader):
                     )
                     continue
 
-                updateable = ['analysis_dir']
-                change_set = []
-                for attr in updateable:
-                    val = locals()[attr]
-                    if getattr(obj, attr) != val:
-                        setattr(obj, attr, val)
-                        change_set.append(attr)
-                if change_set:
-                    need_save = True
-                    save_info = (f'INFO update: {obj} change_set: '
-                                 f'{", ".join(change_set)}')
-                else:
+                # process attributes for which the omics import listing is
+                # authoritive, only the analysis_dir currently
+                analysis_dir = analysis_dir.removeprefix('data/omics/')
+                if analysis_dir == obj.analysis_dir:
                     need_save = False
                     unchanged += 1
+                else:
+                    need_save = True
+                    save_info = (
+                        f'INFO update: {obj} analysis_dir: {obj.analysis_dir} '
+                        f'-> {analysis_dir}'
+                    )
+                    obj.analysis_dir = analysis_dir
 
                 if need_save:
-                    obj.full_clean()
-                    obj.save()
+                    obj.full_clean()  # this accounts for 1/2 the run time
+                    changed_objs.append(obj)
                     log(save_info)
                     changed += 1
 
                 good_seen.append(obj.pk)
 
-                tr, new = SampleTracking.objects.get_or_create(
-                    sample=obj,
-                    flag=SampleTracking.Flag.PIPELINE,
-                )
-                if not new:
-                    tr.save()  # update timestamp
+                if not (tr := old_tr_objs.get(obj.pk)):
+                    tr = SampleTracking(
+                        subject=obj,
+                        flag=SampleTracking.Flag.PIPELINE,
+                    )
+                    tr.full_clean()
+                tr_objs.append(tr)  # adds old and new records
 
             srcf.close()
+            print(f'{lineno} lines [OK]')
+            print('Saving tracking tickets... ', end='', flush=True)
+            for i in tr_objs:
+                # save both new and old records, old ones will get their
+                # timestamp updated!
+                i.save()
+            print(f'{len(tr_objs)} [OK]')
+            self.bulk_update(changed_objs, ['analysis_dir'])
 
             log('Summary:')
-            log(f'  records read from file: {lineno}')
+            log(f'  records read from file: {lineno - 1}')
             log(f'  (unique) samples listed: {len(samp_id_seen)}')
             log(f'  samples updated: {changed}')
             if notfound:
@@ -860,166 +1399,46 @@ class SampleLoader(MetaDataLoader):
                 log(f'WARNING The DB has {missing.count()} samples not at all '
                     f'listed in {source_file}')
 
-    def get_metagenomic_loader_script(self):
-        """
-        Gets 'script' to load metagenomic data
-
-        This is a list of pairs (progress_flag, functions) where functions
-        means either a single callable that takes a sample as argument or a
-        list of such callables.
-        """
-        Contig = import_string('mibios.omics.models.Contig')
-        Gene = import_string('mibios.omics.models.Gene')
-
-        return [
-            ('contig_abundance_loaded', Contig.loader.load_abundance),
-            ('contig_lca_loaded', Contig.loader.load_lca),
-            ('gene_alignments_loaded', Gene.loader.load_alignments),
-        ]
-
-    def get_omics_blocklist(self):
+    def get_omics_blocklist(self, verbose=False):
         """
         Return QuerySet of samples for which 'omics data loading is blocked
 
         Blocked samples are those for which something is wrong with the omics
         data.
         """
-        blocklist = []
-        for sample_id, fields in get_sample_blocklist().items():
-            if not fields or 'omics' in fields:
-                blocklist.append(sample_id)
-
-        # assumes the block list has valid sample_id values, if not this will
-        # fail silently
-        return self.filter(sample_id__in=blocklist)
-
-    @gentle_int
-    def load_omics_data(self, jobs=None, samples=None, dry_run=False):
-        """
-        Run given jobs or ready jobs for given samples
-
-        Usually called via Sample.loader.all().load_omics_data()
-
-        This is a wrapper to handle the dry_run parameter.  In a dry run
-        everything is done inside an outer transaction that is then rolled
-        back, as usual.  But in a production run we don't want the outer
-        transaction as to not lose work of successful jobs when we later crash.
-        """
-        if dry_run:
-            with atomic():
-                ret = self._load_omics_data(jobs=jobs, samples=samples)
-                set_rollback(True)
-                return ret
-        else:
-            return self._load_omics_data(jobs=jobs, samples=samples)
-
-    def _load_omics_data(self, jobs=None, samples=None):
-        if jobs and samples:
-            raise ValueError('either provide jobs or sample, not both')
-
-        if not jobs and not samples:
-            raise ValueError('either jobs or sample must be provided')
-
-        timestamper = Timestamper(
-            template='[ {timestamp} ]  ',
-            file_copy=settings.OMICS_LOADING_LOG,
-        )
-        with timestamper:
-            print(f'Loading omics data / version: {version}')
-            if samples:
-                if isinstance(samples, self._queryset_class):
-                    sample_qs = samples
+        Dataset = apps.get_model(settings.OMICS_DATASET_MODEL)
+        filters = []
+        for record_id, qualifiers in get_sample_blocklist().items():
+            if record_id.startswith(Dataset.id_prefix):
+                f = {'parent__dataset__dataset_id': record_id}
+                if types := set(qualifiers).intersection(self.model.Type.values):
+                    f['sample_type__in'] = types
                 else:
-                    sample_qs = self.filter(pk__in=[i.pk for i in samples])
-                jobs = sample_qs.get_ready(sort_by_sample=True)
-                if not jobs:
-                    print('NOTICE: Given samples have no ready jobs.')
-
-            jobs_total = len(jobs)
-            # some of the accounting below makes more sense if jobs are sorted
-            # by sample, but the logic should still work even if later jobs
-            # return to same sample.
-            jobs_per_sample = [
-                (sample, list(job_grp))
-                for sample, job_grp
-                in groupby(jobs, key=lambda x: x.sample)
-            ]
-            sample_count = len(set((i for i, _ in jobs_per_sample)))
-            if samples:
-                if no_job_sample_count := len(samples) - sample_count:
-                    print(f'{no_job_sample_count} of the given samples have no'
-                          f' jobs ready')
-            print(f'{jobs_total} jobs over {sample_count} samples are ready to'
-                  f'go...')
-
-        template = '[ {sample} {{stage}}/{{total_stages}} {{{{timestamp}}}} ]  '  # noqa: E501
-        fkmap_cache_reset()
-        for num, (sample, job_grp) in enumerate(jobs_per_sample):
-            print(f'{len(jobs) - num} samples to go...')
-            abort_sample = False
-            # for flag, funcs in script:  # OLD
-            stage = 0
-            while job_grp:
-                job = job_grp.pop(0)
-                stage += 1
-
-                t = template.format(sample=sample.sample_id)
-
-                timestamper = Timestamper(
-                    template=t.format(stage=stage, total_stages=stage + len(job_grp)),  # noqa: E501
-                    file_copy=settings.OMICS_LOADING_LOG,
-                )
-                with atomic(), timestamper:
-                    if stage == 1:
-                        print(f'--> {type(job).__name__}')
-
-                    try:
-                        job()
-                    except KeyboardInterrupt as e:
-                        print(repr(e))
-                        raise
-                    except Exception as e:
-                        msg = (f'FAIL: {e.__class__.__name__} "{e}": on '
-                               f'{sample.sample_id} at or near {job.run=}')
-                        print(msg)
-                        # If we're configured to write a log file, then print
-                        # the stack to a special FAIL.log file and continue
-                        # with the next sample. This optimizes for the case
-                        # that the error is caused by occasional unusual data
-                        # for individual samples and not a regular bug, which
-                        # would trigger on every sample.
-                        log = settings.OMICS_LOADING_LOG
-                        if not log:
-                            raise
-                        faillog = Path(log).with_suffix(
-                            f'.{sample.sample_id}.FAIL.log'
-                        )
-                        with faillog.open('w') as ofile:
-                            ofile.write(msg + '\n')
-                            traceback.print_exc(file=ofile)
-                        print(f'see traceback at {faillog}')
-                        # skip to next sample, do not set the flag, fn() is
-                        # assumed to have rolled back any its own changes to
-                        # the DB
-                        abort_sample = True
-                        break
-                    else:
-                        # add newly ready jobs
-                        for i in reversed(job.before):
-                            if i not in job_grp:
-                                if i.is_ready(use_cache=False):
-                                    job_grp.insert(0, i)
-
-            if abort_sample:
-                print(f'Aborting {sample.sample_id}/{sample}!', end=' ')
+                    if qualifiers and 'omics' not in qualifiers:
+                        # blocks metadata only
+                        continue
+                filters.append(f)
             else:
-                print(f'Sample {sample.sample_id}/{sample} done!', end=' ')
-        print()
+                # assume a seqsample
+                if qualifiers and 'omics' not in qualifiers:
+                    # blocks metadata only
+                    continue
+                filters.append({'sample_id': record_id})
+
+        # assumes the block list has valid IDs, if not this will fail silently
+        q_filt = Q()
+        for f in filters:
+            q_filt |= Q(**f)
+
+        if verbose:
+            print(f'[DEBUG] blocklist filter: {q_filt}')
+
+        return self.filter(q_filt)
 
 
 class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
     """ loader manager for the TaxonAbundance model """
-    def process_tpm(self, value, obj):
+    def process_tpm(self, value, obj, **ctx):
         # obj.taxon may be None for unclassified or deleted taxids
         # tpm values for those get added together
         taxid = getattr(obj.taxon, 'taxid', None)
@@ -1043,7 +1462,7 @@ class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
 
     def get_file(self, sample):
         """ Get path to lca_abund_summarized file """
-        return sample.get_omics_file('TAX_ABUND')
+        return Path(sample.get_omics_file('TAX_ABUND').file_pipeline.path)
 
     @atomic_dry
     def load_sample(self, sample, **kwargs):
@@ -1079,11 +1498,17 @@ class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
                 if a_node.taxid not in closure:
                     closure[a_node.taxid] = a_node
                     new_taxids.append(a_node.taxid)
-                    # 2. add ancestors to tpm data
+                    # ancestors added with initial 0.0
                     tpm_data[a_node.taxid] = 0.0
+        if 1 not in tpm_data:
+            # ensure we have the root (not present in all samples) and
+            # ancestors.all() won't include that
+            closure[1] = TaxNode.objects.get(taxid=1)
+            new_taxids.append(1)
+            tpm_data[1] = 0.0
         print(f'{len(tpm_data)} [OK]')
 
-        # 3. push tpm numbers up the tree
+        # 2. push tpm numbers up the tree
         print('Closing TPM under ancestry... ', end='', flush=True)
         to_update = {}
         to_create = {}
@@ -1114,7 +1539,7 @@ class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
                 del tpm_data[i]
         print(f'[{len(to_update)}/{len(to_create)} OK]')
 
-        # 4. update existing objects
+        # 3. update existing objects
         objs = []
         for obj in self.filter(sample=sample).select_related('taxon'):
             # objs = qs.in_bulk(to_update.keys(), field_name='taxon__taxid')
@@ -1125,7 +1550,7 @@ class TaxonAbundanceLoader(TaxNodeMixin, SampleLoadMixin, BulkLoader):
                 objs.append(obj)
         self.fast_bulk_update(objs, ['tpm'])
 
-        # 5. create new objects (ancestry)
+        # 4. create new objects (ancestry)
         objs = [
             self.model(sample=sample, taxon=closure[taxid], tpm=tpm)
             for taxid, tpm in to_create.items()
@@ -1145,8 +1570,9 @@ class TaxonAbundanceManager(Manager):
         The default is to keep existing charts.  To re-create charts set
         keep_existing to False.
         """
-        Sample = get_sample_model()
-        for i in Sample.objects.exclude(taxonabundance=None).only('sample_id'):
+        SeqSample = import_string('mibios.omics.models.SeqSample')
+        qs = SeqSample.objects.exclude(taxonabundance=None).only('sample_id')
+        for i in qs:
             path = self.get_krona_path(i)
             if path.exists():
                 if keep_existing:
@@ -1252,162 +1678,142 @@ class TaxonAbundanceManager(Manager):
 
 
 class FileManager(Manager):
-    def get_instance(self, sample, filetype, only_new=False):
+    def get_instance(self, filetype, only_new=False, **kwargs):
         """
         Get object, if possible from the DB, but don't save a new object.
+
+        filetype:
+            Member of the FileType enum.
+
+        The file_pipeline FileField attribute will be set to something valid
+        but the underlying file may not actually exist in storage.
         """
         if isinstance(filetype, str):
             filetype = self.model.Type[filetype]
 
-        try:
-            obj = self.all().get(sample=sample, filetype=filetype)
-        except self.model.DoesNotExist as e:
-            if filetype not in self.model.PATH_TAILS:
+        dataset = kwargs.pop('dataset', None)
+        sample = kwargs.pop('sample', None)
+        if dataset and sample:
+            raise ValueError('Either pass dataset or sample, not both!')
+
+        query = dict(filetype=filetype)
+        if filetype.with_dataset:
+            if dataset:
+                query['dataset'] = dataset
+            elif sample:
+                query['dataset'] = sample.parent.dataset
+            else:
                 raise ValueError(
-                    f'File type:{filetype} is not supported by this method (I '
-                    f'don\'t know how to compute the path to the file.'
+                    f'dataset or sample required with {filetype.name}'
                 )
+        else:
+            if sample is None:
+                raise ValueError(f'sample is required with {filetype.name}')
+            query['sample'] = sample
 
-            tail = self.model.PATH_TAILS[filetype]
-            if isinstance(tail, str):
-                tail = tail.format(sample=sample)
-
+        params = kwargs.copy()
+        if dataset:
+            params['dataset'] = dataset
+            base_dir = dataset.analysis_dir
+        elif sample:
+            params['sample'] = sample
             if not sample.analysis_dir:
                 raise RuntimeError(
-                    f'can\'t create instance: sample.analysis_dir is blank '
-                    f'for {sample}'
-                ) from e
+                    f'can\'t get/create file instance for {sample}: '
+                    f'sample.analysis_dir is blank '
+                )
+            # Make this relative to OMICS_PIPELINE_DATA, since the 'omics' got
+            # stripped when the analysis_dir field was imported.
+            base_dir = Path('omics') / sample.analysis_dir
+        try:
+            path = base_dir / str(filetype.path).format(**params)
+        except KeyError as e:
+            # required param missing in kwargs?
+            raise ValueError(
+                f'required to resolve the file of type {filetype.name}: {e}'
+            )
+        query['file_pipeline'] = str(path)
 
+        try:
+            obj = self.all().get(**query)
+        except self.model.DoesNotExist:
             obj = self.model(
-                path=settings.OMICS_DATA_ROOT / sample.analysis_dir / tail,
-                public=None,
+                file_pipeline=str(path),
                 filetype=filetype,
                 sample=sample,
+                dataset=dataset,
             )
+        except self.model.MultipleObjectsReturned as e:
+            raise ValueError(
+                f'Given parameters do not unambigiously specify file of type '
+                f'{filetype.name}: {e}'
+            ) from e
         else:
             if only_new:
                 raise RuntimeError(f'File object already exists: {obj}')
         return obj
 
-    @atomic_dry
-    def full_update(self):
-        """ for transitional use """
-        Sample = self.model._meta.get_field('sample').related_model
-
-        self.model.load_pipeline_checkout()
-        print(f'Found {len(self.model.pipeline_checkout)} file in pipeline '
-              f'checkout')
-
-        existing_objs = {
-            (i.sample.sample_id, i.filetype): i
-            for i in self.all().select_related('sample')
-        }
-        print(f'Already have {len(existing_objs)} files in DB')
-
-        expected = []
-        print('Scanning samples...', end='', flush=True)
-        for i in Sample.objects.all():
-            if i.sample_type == Sample.TYPE_METAGENOME:
-                if i.contig_fasta_loaded:
-                    expected.append((i, self.model.Type.METAG_ASM))
-                if i.read_abundance_loaded:
-                    expected.append((i, self.model.Type.FUNC_ABUND))
-                if i.tax_abund_ok:
-                    expected.append((i, self.model.Type.TAX_ABUND))
-        print('[OK]')
-        print(f'Expecting about {len(expected)} files per sample status...')
-
-        count_new = 0
-        for sample, filetype in expected:
-            if obj := existing_objs.get((sample.sample_id, filetype), None):
-                pass
-            else:
-                obj = self.get_instance(sample, filetype, only_new=True)
-                is_new = True
-
-            obj.full_clean()
-
-            try:
-                obj.verify_with_pipeline()
-            except ValidationError as e:
-                print(f'checkout verification failed: {obj}: {e} ', end='')
-                if is_new:
-                    print(' [not saved]')
-                else:
-                    print(' [but we\'re keeping it?!]')
-                continue
-            else:
-                if is_new:
-                    obj.save()
-                    count_new += 1
-
-        print(f'...of those {count_new} are new')
-
-        print('Updating public filesystem paths...')
-        try:
-            rm, changed, new = self.update_public_paths()
-        except KeyboardInterrupt:
-            print('\n(aborting changes to public files)')
+    def delete_orphans(self, storage=None, dry_run=True, verbose=True):
+        """
+        Delete files in public storage that are not supposed to be published
+        """
+        if storage:
+            storage_names = [storage]
         else:
-            print(f'      new: {new}')
-            print(f'  removed: {rm}')
-            print(f'  changed: {changed}')
-        print('[All done]')
+            storage_names = ['local_public', 'globus_public']
 
-    @atomic_dry
-    def update_public_paths(self):
-        # check settings
-        root = settings.PUBLIC_DATA_ROOT
-        if 'public' not in root.parts and 'public-test' not in root.parts:
-            raise RuntimeError('PUBLIC_DATA_ROOT setting does not look right')
+        qs = self.all()
+        print(f'Total file objects: {len(qs)}')
+        stats = {}
+        for storage_name in storage_names:
+            storage_obj = storages[storage_name]
+            match storage_name:
+                case 'local_public':
+                    file_attr = 'file_local'
+                case 'globus_public':
+                    file_attr = 'file_globus'
+                case _:
+                    raise ValueError()
 
-        if not root.exists():
-            raise RuntimeError(f'PUBLIC_DATA_ROOT does not exist: {root}')
+            # set of str of valid paths relative to storage location
+            valid_paths = set(x.name for i in qs if (x := getattr(i, file_attr)))
+            stats[storage_name] = {
+                'location': storage_obj.location,
+                'valid_paths': len(valid_paths),
+                'found': 0,
+                'orphans': 0,
+            }
 
-        input(f'PLEASE CONFIRM you intend to make changes to '
-              f'{settings.PUBLIC_DATA_ROOT} !!! ')
+            for file_type, path in storage_obj.find():
+                extra = ''
+                match file_type:
+                    case 'empty':
+                        # always remove empty directories
+                        extra = '  [empty dir]'
+                    case 'file':
+                        if str(path) in valid_paths:
+                            stats[storage_name]['found'] += 1
+                            continue
+                    case 'dir':
+                        # keep non-empty dirs
+                        continue
+                    case _:
+                        raise ValueError('unexpected file type')
 
-        removed_count = 0
-        changed_count = 0
-        set_new_count = 0
-        for obj in self.all():
-            removed_old, set_new = obj.manage_public_path()
-            need_save = True
-            if removed_old and set_new:
-                changed_count += 1
-            elif removed_old:
-                removed_count += 1
-            elif set_new:
-                set_new_count += 1
-            else:
-                # unchanged
-                need_save = False
-            obj.full_clean()
-            if need_save:
-                obj.save()
+                stats[storage_name]['orphans'] += 1
+                if not dry_run:
+                    storage_obj.delete(path)
+                if verbose:
+                    print(f'  [{"dryrun" if dry_run else "DELETED"}] {path}{extra}')
 
-        return removed_count, changed_count, set_new_count
-
-    def check_for_public_orphans(self):
-        """
-        Check for any stray files or directories under the public root
-        """
-        public = {i.public: i for i in self.model.objects.exclude(public=None)}
-        for root, dirs, files in os.walk(settings.PUBLIC_DATA_ROOT):
-            root = Path(root)
-            if not dirs and not files:
-                if root == settings.PUBLIC_DATA_ROOT:
-                    # this can be empty
-                    pass
-                else:
-                    print(f'empty directory: {root})')
-            for i in files:
-                file = root / i
-                if file not in public:
-                    print(f'orphan: {file}')
+        for name, data in stats.items():
+            print(f' {name} at {data["location"]}')
+            print(f'    total valid paths: {data["valid_paths"]:>6}')
+            print(f'    found valid paths: {data["found"]:>6}')
+            print(f'         orphan paths: {data["orphans"]:>6}')
 
 
-class SampleTrackingManager(Manager):
+class DataTrackingManager(Manager):
     @cached_property
     def job_classes(self):
         """
@@ -1421,9 +1827,9 @@ class SampleTrackingManager(Manager):
             classes[cls.flag] = cls
         return classes
 
-    def ready_for_sample(self, sample):
+    def ready_for_subject(self, subject):
         ready = []
-        for obj in self.all().filter(sample=sample):
+        for obj in self.all().filter(subject=subject):
             for i in obj.job.before:
                 if i.is_ready() and i not in ready:
                     ready.append(i)

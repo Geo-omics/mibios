@@ -1,16 +1,25 @@
 from collections import defaultdict
+import io
 from itertools import groupby
 
+import matplotlib
+from matplotlib import pyplot
+
 from django.conf import settings
+from django.db.models import Count, Q
 from django.http import Http404, HttpResponse
+from django.utils.html import mark_safe
 from django.views.decorators.cache import patch_cache_control
+from django.views.generic import DetailView, TemplateView
 
 from django_tables2 import SingleTableView
 
 from mibios.views import StaffLoginRequiredMixin
-from . import get_sample_model
-from .models import File, SampleTracking, TaxonAbundance
-from .tables import FileTable, SampleTrackingTable
+from .models import (
+    Contig, DatasetTracking, File, SampleTracking, SeqSample, TaxonAbundance,
+)
+from .tables import DatasetTrackingTable, FileTable, SampleTrackingTable
+from . import get_dataset_model
 
 
 class RequiredSettingsMixin:
@@ -47,13 +56,11 @@ def krona(request, samp_no):
     """
     Display Krona visualization for taxon abundance of one sample
     """
-    Sample = get_sample_model()
-    # FIXME: exclude_private is defined in/depends on mibios.glamr
-    qs = Sample.objects.exclude_private(request.user)
+    qs = SeqSample.objects.exclude_private(request.user)
     qs = qs.filter(sample_id=f'samp_{samp_no}')
     try:
         sample = qs.get()
-    except Sample.DoesNotExist:
+    except SeqSample.DoesNotExist:
         raise Http404('no such sample')
 
     try:
@@ -65,6 +72,19 @@ def krona(request, samp_no):
     if request.user.is_authenticated:
         patch_cache_control(resp, private=True)
     return resp
+
+
+class ContigSequenceView(DetailView):
+    model = Contig
+    template_name = 'omics/contig_sequence.html'
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        try:
+            ctx['sequence'] = ctx['contig'].get_sequence()
+        except FileNotFoundError as e:
+            raise Http404(f'assembly fasta file missing: {e}') from e
+        return ctx
 
 
 class FileListingView(StaffLoginRequiredMixin, SingleTableView):
@@ -85,25 +105,22 @@ class SampleTrackingView(StaffLoginRequiredMixin, SingleTableView):
         """
         returns a list of dict
         """
-        Samples = get_sample_model()
-
         sample_fields = (
             'sample_id', 'sample_name', 'analysis_dir', 'read_count',
-            'reads_mapped_contigs', 'reads_mapped_genes',
-            'biosample',
+            'reads_mapped_contigs', 'reads_mapped_genes', 'parent',
         )
 
         samples = (
-            Samples._meta.base_manager.all()
-            .only(*sample_fields, 'dataset__dataset_id', 'dataset__private')
-            .select_related('dataset')
+            SeqSample.objects.all()
+            .only(*sample_fields, 'access', 'parent__dataset__dataset_id',)
+            .select_related('parent__dataset')
             .in_bulk()
         )
 
         self.total_sample_count = len(samples)
-        tracks = SampleTracking.objects.order_by('sample_id')
+        tracks = SampleTracking.objects.order_by('subject_id')
         data = []
-        for sample_pk, grp in groupby(tracks, lambda x: x.sample_id):
+        for sample_pk, grp in groupby(tracks, lambda x: x.subject_id):
             sample = samples[sample_pk]
             row = defaultdict(None)
             row['sample'] = sample
@@ -128,3 +145,75 @@ class SampleTrackingView(StaffLoginRequiredMixin, SingleTableView):
             for key in data:
                 data[key] += row.get(key, 0)
         return data
+
+
+class DatasetTrackingView(StaffLoginRequiredMixin, SingleTableView):
+    template_name = 'omics/dataset_tracking.html'
+    table_class = DatasetTrackingTable
+    table_pagination = False
+
+    def get_queryset(self):
+        qs = get_dataset_model().objects.all()
+        qs = qs.annotate(
+            num_biosample=Count('sample', distinct=True),
+            num_seqsample=Count('sample__seqsample', distinct=True),
+        )
+        qs = qs.annotate(**{
+            flag.value: Count(
+                'sample__seqsample__tracking',
+                filter=Q(sample__seqsample__tracking__flag=flag.value),
+                distinct=True,
+            )
+            for flag in SampleTracking.Flag
+        })
+        qs = qs.order_by('pk')
+        # per-dataset tracking (ASV, ...)
+        # These need to be done manually here as the tracking system does not
+        # really know which samples are part of a dataset job.
+        qs = qs.annotate(ASV=Count(
+            'sample__seqsample',
+            filter=~ Q(sample__seqsample__asvabundance=None),
+            distinct=True,
+        ))
+        return qs
+
+
+class ImportTimelineView(StaffLoginRequiredMixin, TemplateView):
+    template_name = 'omics/import_timeline.html'
+
+    def get_plot(self):
+        df1 = SampleTracking.objects.all().timeline()
+        df2 = DatasetTracking.objects.exclude(flag='PL').timeline(
+            alt_count='subject__sample__seqsample',
+        )
+        df = df1.join(df2, how='outer')
+
+        matplotlib.use('svg')
+        # steps-post: keep lines at level until next data point
+        ax = df.plot(drawstyle='steps-post')
+        ax.set_ylabel('samples')
+
+        # mangle the legend
+        handles, labels = ax.get_legend_handles_labels()
+        # auto-set labels are the flag codes, as str
+        # mapping them to last count + flag label
+        label_map = {
+            flag.value: f'{flag.label} ({df[flag].dropna().iloc[-1]:.0f})'
+            for flag in SampleTracking.Flag
+        }
+        ax.legend(
+            handles,
+            [label_map[i] for i in labels],
+            bbox_to_anchor=(1, 1),
+        )
+
+        with io.BytesIO() as buf:
+            # don't use paths for text
+            pyplot.rcParams['svg.fonttype'] = 'none'
+            ax.figure.savefig(buf, format='svg', bbox_inches='tight')
+            # skip header tags (xml version and doctype)
+            buf.seek(buf.getvalue().index(b'<svg '))
+            return mark_safe(buf.read().decode())
+
+    def get_context_data(self, **ctx):
+        return super().get_context_data(plot=self.get_plot(), **ctx)

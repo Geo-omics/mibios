@@ -16,15 +16,9 @@ SEARCH_FIELDS = {
             'primers',
             'sequencing_target',
             'sequencing_platform',
-            # 'note' ?
         ],
         'sample': [
             'sample_name',
-            'sample_type',
-            'sra_accession',
-            'amplicon_target',
-            'fwd_primer',
-            'rev_primer',
             'project_id',
             'biosample',
             'geo_loc_name',
@@ -45,6 +39,15 @@ SEARCH_FIELDS = {
             'doi',
         ],
     },
+    'omics': {
+        'seqsample': [
+            'amplicon_target_label',
+            'fwd_primer',
+            'rev_primer',
+            'sample_type',
+            'sra_accession',
+        ],
+    },
     'ncbi_taxonomy': {
         'taxnode': ['taxname__name'],
     },
@@ -53,6 +56,26 @@ SEARCH_FIELDS = {
         'functionname': ['entry'],
     },
 }
+
+
+ACCESSION_SEARCH_FIELDS = {
+    'glamr': {
+        'reference': 'reference_id',
+        'dataset': 'dataset_id',
+        'sample': 'sample_id',
+    },
+    'omics': {
+        'seqsample': 'sample_id',
+        'asv': 'accession',
+    },
+    'umrad': {
+        'uniref50': 'accession',
+        'uniref90': 'accession',
+        'uniref100': 'accession',
+        'funcrefdbentry': 'accession',
+    },
+}
+""" Fields that participate in accession search """
 
 
 ADVANCED_SEARCH_MODELS = [

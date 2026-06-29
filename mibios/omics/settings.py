@@ -2,6 +2,7 @@
 settings for the mibios.omics app
 """
 from os import environ
+from pathlib import Path
 
 from mibios.ops.settings import *  # noqa:F403
 
@@ -51,7 +52,11 @@ DATABASES = get_db_settings()
 # leave it at False for public-facing deployments
 INTERNAL_DEPLOYMENT = False
 
-OMICS_DATA_ROOT = Path()  # noqa:F405
+OMICS_PIPELINE_ROOT = Path('/nosuchdirectory')
+OMICS_PIPELINE_DATA = OMICS_PIPELINE_ROOT / 'data'
+GLOBUS_STORAGE_ROOT = Path('/nosuchdirectory')
+""" path to root of publicly accessible directory tree on staging server, leave
+at None on other deployments """
 
 KRONA_CACHE_DIR = './krona-cache'
 
@@ -61,9 +66,23 @@ GLOBUS_DIRECT_URL_BASE = None
 GLOBUS_FILE_APP_URL_BASE = None
 """ root Globus url for file app, publicly shared directory """
 
-PUBLIC_DATA_ROOT = None
-""" path to root of publicly accessible directory tree on staging server, leave
-at None on other deployments """
+LOCAL_STORAGE_ROOT = None
+""" path to local filestorage for webapp use """
 
 OMICS_CHECKOUT_FILE = None
 """ path to the file checkout listing """
+
+STORAGES = {
+    'staticfiles': {
+        'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+    },
+    'omics_pipeline': {
+        'BACKEND': 'mibios.omics.storage.OmicsPipelineStorage',
+    },
+    'local_public': {
+        'BACKEND': 'mibios.omics.storage.LocalPublicStorage',
+    },
+    'globus_public': {
+        'BACKEND': 'mibios.omics.storage.GlobusPublicStorage',
+    },
+}
