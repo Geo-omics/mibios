@@ -61,12 +61,23 @@ log = getLogger(__name__)
 
 
 class BaseMixin(VersionInfoMixin):
+    is_open = False
+
     def dispatch(self, request, *args, cache=True, **kwargs):
         disp = super().dispatch
         if request.user.is_authenticated:
             disp = cache_control(private=True)(disp)
+        else:
+            if self.is_open:
+                pass
+            elif not hasattr(request, 'session') or request.session.get('admitted'):
+                pass
+            else:
+                return Bouncer.as_view()(request, *args, cache=False, **kwargs)
+
         if cache:
             disp = cache_page(300)(disp)
+
         return disp(request, *args, **kwargs)
 
     def get_context_data(self, **ctx):
@@ -77,6 +88,14 @@ class BaseMixin(VersionInfoMixin):
         except Exception:
             ctx['version_info']['table'] = 'none'
         return ctx
+
+
+class OpenBaseMixin(BaseMixin):
+    is_open = True
+
+    def get(self, request, *args, **kwargs):
+        request.session['admitted'] = True
+        return super().get(request, *args, **kwargs)
 
 
 class ExportMixin(ExportBaseMixin):
@@ -1479,7 +1498,7 @@ class ObjRelTableView(ObjectRelatedMixin, TableView):
         return view_fn(request, *args, **kwargs)
 
 
-class AboutView(BaseMixin, DetailView):
+class AboutView(OpenBaseMixin, DetailView):
     template_name = 'glamr/about.html'
     model = models.AboutInfo
 
@@ -1546,7 +1565,7 @@ class AboutView(BaseMixin, DetailView):
         return data
 
 
-class AboutHistoryView(BaseMixin, SingleTableView):
+class AboutHistoryView(OpenBaseMixin, SingleTableView):
     template_name = 'glamr/about_history.html'
     model = models.AboutInfo
     table_class = tables.AboutHistoryTable
@@ -1719,7 +1738,7 @@ class AbundanceGeneView(ModelTableMixin, BaseMixin, SingleTableView):
             return super().get_values()
 
 
-class AvailableDataView(BaseMixin, TemplateView):
+class AvailableDataView(OpenBaseMixin, TemplateView):
     template_name = 'glamr/available_data.html'
 
     def get_context_data(self, **ctx):
@@ -1731,7 +1750,20 @@ class AvailableDataView(BaseMixin, TemplateView):
         return ctx
 
 
-class ContactView(BaseMixin, TemplateView):
+class Bouncer(OpenBaseMixin, TemplateView):
+    template_name = 'glamr/bouncer.html'
+
+    def get(self, request, *args, **kwargs):
+        request.session['admitted'] = True
+        return super().get(request, *args, **kwargs)
+
+    def get_context_data(self, **ctx):
+        ctx = super().get_context_data(**ctx)
+        ctx['url_path'] = self.request.path
+        return ctx
+
+
+class ContactView(OpenBaseMixin, TemplateView):
     template_name = 'glamr/contact.html'
 
 
@@ -2231,7 +2263,7 @@ class FileDownloadView(BaseMixin, View):
         raise Http404('direct download not supported')
 
 
-class FrontPageView(SearchFormMixin, MapMixin, BaseMixin, SingleTableView):
+class FrontPageView(SearchFormMixin, MapMixin, OpenBaseMixin, SingleTableView):
     model = models.Dataset
     search_model = SearchFormMixin.ANY_MODEL
     template_name = 'glamr/frontpage.html'
@@ -2599,7 +2631,7 @@ class TaxonView(RecordView):
         return qs
 
 
-class SearchView(BaseMixin, SearchFormMixin, TemplateView):
+class SearchView(OpenBaseMixin, SearchFormMixin, TemplateView):
     """ display the advanced search page """
     template_name = 'glamr/search_init.html'
 
@@ -2640,7 +2672,7 @@ class SearchView(BaseMixin, SearchFormMixin, TemplateView):
         return ctx
 
 
-class SearchModelView(EditFilterMixin, BaseMixin, TemplateView):
+class SearchModelView(EditFilterMixin, OpenBaseMixin, TemplateView):
     """ offer model-based searching """
     template_name = 'glamr/search_model.html'
     model = None
@@ -2699,7 +2731,7 @@ class SearchResultMixin(MapMixin):
         return Sample.objects.filter(pk__in=sample_pks)
 
 
-class SearchResultListView(SearchResultMixin, SearchMixin, BaseMixin,
+class SearchResultListView(SearchResultMixin, SearchMixin, OpenBaseMixin,
                            ListView):
     template_name = 'glamr/result_list.html'
 
@@ -2812,7 +2844,7 @@ def test_server_error(request):
         raise Http404('settings.ENABLE_TEST_VIEWS is set to False')
 
 
-class TestViewMixin(RequiredSettingsMixin, BaseMixin):
+class TestViewMixin(RequiredSettingsMixin, OpenBaseMixin):
     """
     Mixin for test views - use with View or TemplateView
     """
