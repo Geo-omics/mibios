@@ -15,10 +15,12 @@ from django.db.backends.signals import connection_created
 from django.db.utils import OperationalError
 from django.dispatch import receiver
 from django.http.request import QueryDict
+from django.utils.module_loading import import_string
 from django.utils.safestring import mark_safe
 
 from mibios.umrad.models import Model
 from . import HORIZONTAL_ELLIPSIS
+from .search_fields import ACCESSION_SEARCH_FIELDS
 from .utils import get_record_url, verbose_field_name
 
 log = getLogger(__name__)
@@ -180,18 +182,7 @@ class SearchHitObj:
             raise ValueError('content_type_id mismatch')
 
         if hasattr(hit, 'snippet'):
-            # ts_highlight() individually marks consequtive words
-            # of a matching phrase, let's highlight the whole
-            # phrase
-            # TODO: improve this for when snippet has symbols, e.g.
-            # "LE18-22.4"
-            snippet = hit.snippet.replace('</mark> <mark>', ' ')
-            # add ... if snippet is inside the text
-            plain = snippet.replace('<mark>', '').replace('</mark>', '')  # noqa:E501
-            if not hit.text.startswith(plain):
-                snippet = f'{HORIZONTAL_ELLIPSIS} {snippet}'
-            if not hit.text.endswith(plain):
-                snippet = f'{snippet} {HORIZONTAL_ELLIPSIS}'
+            snippet = self.get_fixed_snippet(hit)
         else:
             # highlighting was OFF
             snippet = hit.text
@@ -207,6 +198,24 @@ class SearchHitObj:
         obj = copy(self)
         obj.subhits = obj.subhits[:]
         return obj
+
+    @classmethod
+    def get_fixed_snippet(cls, hit):
+        """
+        Repair certain deficiencies of Postgresql's ts_headline()
+        """
+        value = hit.snippet
+        # ts_headline() individually marks subsequent words of a matching
+        # phrase, let's highlight the whole phrase
+        # TODO: The below covers e.g. queries for "lake erie" and "LE18-22.4"
+        # -- keep looking for other pathological cases.
+        value = value.replace('</mark> <mark>', ' ').replace('</mark><mark>', '')
+
+        # add ... if snippet is inside the text
+        plain = value.replace('<mark>', '').replace('</mark>', '')  # noqa:E501
+        prefix = '' if hit.text.startswith(plain) else f'{HORIZONTAL_ELLIPSIS} '
+        suffix = '' if hit.text.endswith(plain) else f' {HORIZONTAL_ELLIPSIS}'
+        return prefix + value + suffix
 
 
 class SearchResult(dict):
@@ -275,6 +284,32 @@ class SearchResult(dict):
         )
 
     @classmethod
+    def from_accession_search(cls, hits, soft_limit=None):
+        """
+        Return an instance made from results of AccessionSearch
+
+        hits: list of 2-tuples, at most one per model: (objects, field)
+        """
+        if not hits:
+            return cls.empty()
+
+        data = {}
+        at_hard_limit = {}
+        totals = {}
+        for obj, field in hits:
+            model = type(obj)
+            if model in data:
+                raise RuntimeError('expecting at most one hit per model')
+            hit_obj = SearchHitObj(obj.pk, None, model)
+            # simulate hit_obj.add():
+            hit_obj.subhits = \
+                [SearchHitObj.Subhit(field.name, getattr(obj, field.name))]
+            data[model] = [hit_obj]
+            totals[model] = 1
+            at_hard_limit[model] = False
+        return cls(data, totals, None, soft_limit, at_hard_limit)
+
+    @classmethod
     def empty(cls):
         """ An empty-handed search """
         return cls({}, {}, -1, -1, {})
@@ -308,10 +343,8 @@ class SearchResult(dict):
         return ret
 
     DETAIL_FIELDS = {
-        'dataset': ('primary_ref', 'scheme', 'water_bodies',
-                    'material_type',),
-        'sample': ('dataset', 'geo_loc_name', 'sample_type',
-                   'collection_timestamp', 'project_id'),
+        'dataset': ('primary_ref', 'scheme', 'water_bodies', 'material_type',),
+        'sample': ('dataset', 'geo_loc_name', 'collection_timestamp', 'project_id'),
     }
     """ extra details for some models to show when displaying results """
 
@@ -412,7 +445,7 @@ class SearchResult(dict):
         ret = []
         # order by self
         for model in self:
-            if self.at_hard_limit[model]:
+            if self.hard_limit and self.at_hard_limit[model]:
                 # the hard limit should be a nice round number and it is large
                 # enough that we don't care if it's not exact
                 count = self.hard_limit
@@ -428,7 +461,7 @@ class SearchResult(dict):
         This is to populate the template.  No numbers higher than the hard
         limit will be returned.
         """
-        if any(self.at_hard_limit.values()):
+        if self.hard_limit and any(self.at_hard_limit.values()):
             return self.hard_limit
         else:
             return sum(self.total_counts.values())
@@ -438,14 +471,72 @@ class SearchResult(dict):
         Tell if search reached the hard limit
 
         If no model is provided, then this will return True if the hard limit
-        was reached for any model.  For populating the template.
+        was reached for any model.  For populating the template context.
         """
         if model:
             return self.at_hard_limit[model]
-        else:
+        elif self.hard_limit:
             # global search: either total sum or individual
             return (
                 any(self.at_hard_limit.values())
                 or
                 self.get_total_hit_count() >= self.hard_limit
             )
+        else:
+            return False
+
+
+class AccessionSearcher:
+    """
+    Container to do the accession search
+
+    Usage:
+        AccessionSearcher.search("UPI000AF481DB")
+
+    Don't instantiate this, just call the classmethod search()
+    """
+    _fields = None
+
+    @classmethod
+    def get_fields(cls):
+        if cls._fields is None:
+            fields = []
+            for app_name, data in ACCESSION_SEARCH_FIELDS.items():
+                for model_name, field_name in data.items():
+                    model = apps.get_model(app_name, model_name)
+                    fields.append((model, model._meta.get_field(field_name)))
+            cls._fields = fields
+        return cls._fields
+
+    @classmethod
+    def search(cls, query, models=None, user=None, soft_limit=None, **kwargs):
+        """
+        Search for given accession
+
+        Usually called by SearchMixin.search().
+
+        query str:
+            accession to search for
+        models list:
+            limit search to these models, given as list of model names.
+        user:
+            only return results for which user has permission
+        kwargs:
+            Ignored, typically used for full-text search
+        """
+        exclude_private_data = \
+            import_string('mibios.glamr.queryset.exclude_private_data')
+        hits = []
+        for model, field in cls.get_fields():
+            if models and model._meta.model_name not in models:
+                continue
+            f = {field.name: query}
+            qs = model.objects.filter(**f)
+            qs = exclude_private_data(qs, user)[:1]
+            print(qs.query.explain(using='default'))
+            try:
+                obj = qs.get()
+            except model.DoesNotExist:
+                continue
+            hits.append((obj, field))
+        return SearchResult.from_accession_search(hits, soft_limit=soft_limit)

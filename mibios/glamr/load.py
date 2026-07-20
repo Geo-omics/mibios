@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from itertools import chain
 from logging import getLogger
 import re
@@ -7,22 +8,19 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.contrib.postgres.search import SearchQuery
-from django.core.exceptions import FieldDoesNotExist
+from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.db import connections, transaction, NotSupportedError
-from django.db.models.signals import post_save
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 from django.utils.html import escape as escape_html
 from django.utils.module_loading import import_string
 
-from mibios.omics.models import AbstractSample
-from mibios.omics.managers import SampleLoader as OmicsSampleLoader
+from mibios.omics.models import SeqSample
 from mibios.umrad.manager import (
     InputFileError, Loader, MetaDataLoader, Manager,
 )
 from mibios.umrad.model_utils import delete_all_objects_quickly
 from mibios.umrad.utils import CSV_Spec, atomic_dry, SkipRow, SpecError
-from mibios.omics.models import SampleTracking
 from mibios.omics.utils import get_sample_blocklist
 
 from .search_fields import search_fields
@@ -32,7 +30,7 @@ log = getLogger(__name__)
 
 
 class BoolColMixin:
-    def parse_bool(self, value, obj):
+    def parse_bool(self, value, **ctx):
         """ Pre-processor to parse booleans """
         # Only parse str values.  The pandas reader may give us booleans
         # already for some reason (for the modified_or_experimental but not the
@@ -105,14 +103,14 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
         return settings.GLAMR_META_ROOT\
             / 'Great_Lakes_Omics_Datasets.xlsx - studies_datasets.tsv'
 
-    def ensure_id(self, value, obj):
+    def ensure_id(self, value, **ctx):
         """ Pre-processor to skip rows without dataset id """
         if not value:
             raise SkipRow('no dataset id')
 
         return value
 
-    def check_status(self, value, obj):
+    def check_status(self, value, obj, **ctx):
         match value:
             case 'Completed' | 'In Progress' | 'Issues':
                 return self.spec.IGNORE_COLUMN
@@ -120,14 +118,14 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
                 self.skipped.append(obj)
                 raise SkipRow(f'study status: {obj.dataset_id} not ready yet')
 
-    def check_is_glamr(self, value, obj):
-        if self.parse_bool(value, obj):
+    def check_is_glamr(self, value, obj, **ctx):
+        if self.parse_bool(value):
             return self.spec.IGNORE_COLUMN
         else:
             self.skipped.append(obj)
             raise SkipRow(f'{obj.dataset_id} is not a GLAMR dataset')
 
-    def sub_user_groups(self, value, obj):
+    def sub_user_groups(self, value, **ctx):
         """
         Parse special values in the 'private' column
 
@@ -176,7 +174,7 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
                 + [(i, ) for i in group_names]
             )
 
-    def split_by_comma(self, value, obj):
+    def split_by_comma(self, value, **ctx):
         return [(i, ) for i in self.split_m2m_value(value, sep=',')]
 
     spec = CSV_Spec(
@@ -225,6 +223,10 @@ class DatasetLoader(BoolColMixin, MetaDataLoader):
             for i in qs:
                 print('    ', i.dataset_id)
 
+    def get_omics_blocklist(self):
+        """ blocklist not implemented, stub in support of get_ready() """
+        return self.none()
+
 
 class ReferenceLoader(MetaDataLoader):
     empty_values = ['NA', 'Not Listed']
@@ -233,14 +235,14 @@ class ReferenceLoader(MetaDataLoader):
         return settings.GLAMR_META_ROOT\
             / 'Great_Lakes_Omics_Datasets.xlsx - papers.tsv'
 
-    def fix_doi(self, value, obj):
+    def fix_doi(self, value, **ctx):
         """ Pre-processor to fix issue with some DOIs """
         if value is not None:
             # fix, don't require umich weblogin to follow these links
             value = value.replace('doi-org.proxy.lib.umich.edu', 'doi.org')
         return value
 
-    def check_empty(self, value, obj):
+    def check_empty(self, value, **ctx):
         """ Pre-processor to determine if row needs to be skipped """
         if not value:
             raise SkipRow('field is empty')
@@ -292,6 +294,12 @@ class SampleInputSpec(CSV_Spec):
                 row = line.rstrip('\n').split('\t')
                 col_name = row[col_name_col]
                 field_name = row[field_name_col]
+                try:
+                    SeqSample._meta.get_field(field_name)
+                except FieldDoesNotExist:
+                    pass
+                else:
+                    continue
                 if not field_name:
                     if col_name in base_spec:
                         raise RuntimeError('field name missing in meta data')
@@ -308,7 +316,16 @@ class SampleInputSpec(CSV_Spec):
                     spec_item = base_spec.pop(field_name)
                 else:
                     # take from meta data
-                    spec_item = (col_name, field_name)
+                    field = loader.model._meta.get_field(field_name)
+                    field_type = field.get_internal_type()
+                    if field_type == 'BooleanField':
+                        funcs = ['parse_bool']
+                    elif field_type == 'DecimalField':
+                        funcs = ['parse_decimal']
+                    else:
+                        funcs = []
+
+                    spec_item = (col_name, field_name, *funcs)
 
                 specs.append(spec_item)
 
@@ -318,11 +335,11 @@ class SampleInputSpec(CSV_Spec):
         # Check that the spec account for all field we think should get loaded
         # from the file:
         fields_accounted_for = set((i[1] for i in specs))
-        required = [  # fields from AbstractSample that we want to check for
-            'sample_id', 'sample_name', 'sample_type', 'has_paired_data',
-            'sra_accession', 'amplicon_target', 'fwd_primer', 'rev_primer',
+        fields_accounted_for.add('access')  # set/updated in load()
+        required = [  # fields from Sample that we want to check for
+            'sample_id',
         ]
-        for i in AbstractSample._meta.get_fields():
+        for i in loader.model._meta.get_fields():
             if i.name not in required:
                 fields_accounted_for.add(i.name)
         for i in loader.model._meta.get_fields():
@@ -332,7 +349,7 @@ class SampleInputSpec(CSV_Spec):
         super().setup(loader, column_specs=specs, **kwargs)
 
 
-class SampleLoader(BoolColMixin, OmicsSampleLoader):
+class SampleLoader(BoolColMixin, MetaDataLoader):
     """ loader for Great_Lakes_Omics_Datasets.xlsx """
     empty_values = ['NA', 'Not Listed', 'NF', '#N/A', 'ND', 'not applicable',
                     'N/A']
@@ -346,24 +363,31 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
         """
         Reference = import_string('mibios.glamr.models.Reference')
         Dataset = import_string('mibios.glamr.models.Dataset')
+        SeqSample = apps.get_model('omics', 'SeqSample')
         with transaction.atomic():
             Reference.loader.load()
             Dataset.loader.load()
-            self.load_meta()
-            self.update_from_pipeline_registry(quiet=True, skip_on_error=True)
+            self.load()
+            SeqSample.loader.load()
+            SeqSample.loader.update_from_pipeline_registry(
+                quiet=True,
+                skip_on_error=True,
+            )
+            stats = Dataset.objects.start_tracking()
+            print(f'Start tracking datasets: {stats}')
             if dry_run:
                 transaction.set_rollback(True)
 
     def get_file(self):
         return settings.GLAMR_META_ROOT / 'Great_Lakes_Omics_Datasets.xlsx - samples.tsv'  # noqa:E501
 
-    def fix_sample_id(self, value, obj):
+    def fix_sample_id(self, value, **ctx):
         """ Remove leading "SAMPLE_" from accession value """
         return value.removeprefix('Sample_')
 
-    sample_id_pat = re.compile(r'^samp_[0-9]+$')
+    sample_id_pat = re.compile(r'^bios_[0-9]+$')
 
-    def check_sample_id(self, value, obj):
+    def check_sample_id(self, value, **ctx):
         """
         allow skipping row based on blank or blocked sample_id
 
@@ -401,7 +425,7 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
     # re for yyyy or yyyy-mm (year or year/month only) timestamp formats
     partial_date_pat = re.compile(r'^([0-9]{4})(?:-([0-9]{2})?)$')
 
-    def process_timestamp(self, value, obj):
+    def process_timestamp(self, value, obj, **ctx):
         """
         Pre-processor for the collection timestamp
 
@@ -417,6 +441,7 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
 
         # step 0. temp fix for some input
         value = value.removesuffix('TNA')
+        value = value.removesuffix('TNOTIME')
 
         orig_value = value
         del value
@@ -473,7 +498,7 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
         obj.collection_ts_partial = collection_ts_partial
         return value
 
-    def parse_human_int(self, value, obj):
+    def parse_human_int(self, value, **ctx):
         """
         Pre-processor to allow use of commas to separate thousands
         """
@@ -484,24 +509,44 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
         else:
             return value
 
+    def parse_decimal(self, value, field, **ctx):
+        """
+        Pre-process decimals
+
+        Check for abnormaly many post-decimal-point places and round.  Nothing
+        else is done if the result still has too many overall digits.
+        """
+        if not value:
+            return value
+
+        try:
+            num = field.to_python(value)
+        except ValidationError:
+            # regular validation deals with this
+            return value
+
+        sign, digits, exp = num.as_tuple()
+        if -exp > field.decimal_places:
+            return num.quantize(Decimal((0, (1,), -field.decimal_places)))
+        return value
+
+    def normalize_space(self, value, **ctx):
+        """ replace non-breaking space """
+        if value:
+            value = re.sub(r'/xa0', ' ', value)
+        return value
+
     spec = SampleInputSpec(
         ('SampleID', 'sample_id', check_sample_id),  # A
         # id_fixed B  --> ignore
         # sample_input_complete C  --> ignore
-        ('SampleName', 'sample_name'),  # D
+        # ('SampleName', 'sample_name'),  # D
         ('StudyID', 'dataset.dataset_id'),  # E
         ('ProjectID', 'project_id'),  # F
         ('Biosample', 'biosample'),  # G
-        ('Accession_Number', 'sra_accession'),  # H
-        ('GOLD_analysis_projectID', 'gold_analysis_id'),  # I
-        ('GOLD_sequencing_projectID', 'gold_seq_id'),  # J
+        ('geo_loc_name', 'geo_loc_name', normalize_space),  # J
         ('JGI_study', 'jgi_study'),  # K
         ('JGI_biosample', 'jgi_biosample'),  # L
-        ('sample_type', 'sample_type'),  # M
-        ('has_paired_data', 'has_paired_data', 'parse_bool'),  # N
-        ('amplicon_target', 'amplicon_target'),  # O
-        ('F_primer', 'fwd_primer'),  # P
-        ('R_primer', 'rev_primer'),  # Q
         # columns after Q, mostly defined by units sheet
         ('collection_date', 'collection_timestamp', process_timestamp),  # V
         (CSV_Spec.CALC_VALUE, 'collection_ts_partial', None),
@@ -513,36 +558,19 @@ class SampleLoader(BoolColMixin, OmicsSampleLoader):
         ('samp_collect_device', 'sampling_device'),  # BX
         ('modified_or_experimental', 'modified_or_experimental', 'parse_bool'),
         ('is_isolate', 'is_isolate', 'parse_bool'),  # BT
-        ('is_blank_neg_control', 'is_neg_control', 'parse_bool'),  # BU
-        ('is_mock_community_or_pos_control', 'is_pos_control', 'parse_bool'),
         ('Notes', 'notes'),  # CQ
     )
 
     @atomic_dry
-    def load_meta(self, **kwargs):
+    def load(self, **kwargs):
         """ samples meta data """
-        self._saved_samples = []
-        post_save.connect(self.on_save, sender=self.model)
         self.blocklist = {
             key: [i for i in field_list if i != 'omics']
             for key, field_list in get_sample_blocklist().items()
         }
-        self.load(**kwargs)
+        super().load(**kwargs)
         if connections['default'].vendor == 'postgresql':
             self.model.objects.update_access()
-        flag = SampleTracking.Flag.METADATA
-        for i in self._saved_samples:
-            tr, new = SampleTracking.objects.get_or_create(sample=i, flag=flag)
-            if not new:
-                tr.save()  # update timestamp
-
-    def on_save(self, instance=None, **kwargs):
-        """
-        callback for sample post_save
-
-        Remember samples for tracking
-        """
-        self._saved_samples.append(instance)
 
 
 class SearchableManager(Loader):
@@ -560,8 +588,6 @@ class SearchableManager(Loader):
         """
         if model._meta.model_name == 'compoundname':
             abund_lookup = 'compoundrecord__abundance'
-        elif model._meta.model_name == 'functionname':
-            abund_lookup = 'funcrefdbentry__abundance'
         else:
             try:
                 model._meta.get_field('abundance')

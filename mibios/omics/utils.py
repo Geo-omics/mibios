@@ -1,8 +1,11 @@
+from collections import defaultdict
 from contextlib import redirect_stdout
 from datetime import datetime
 from functools import wraps
 from operator import methodcaller
+from pathlib import Path
 import shlex
+import subprocess
 import sys
 
 from django.apps import apps as django_apps
@@ -55,26 +58,15 @@ def get_fasta_sequence(file, offset, length, skip_header=True):
         offset: first byte of header
         length: length of data in bytes
 
-    Returns the fasta record or sequence as bytes string.  The sequence part
-    will be returned in a single line even if it was broken up into multiple
-    line originally.
+    Returns the fasta record or sequence as bytes.
     """
     file.seek(offset)
     if skip_header:
-        header = file.readline()
-        if header[0] != ord(b'>'):
-            raise RuntimeError('expected fasta header start ">" missing')
-        length -= len(header)
-        if length < 0:
-            raise ValueError('header is longer than length')
-    else:
-        # not bothering with any checks here
-        pass
-
-    data = file.read(length).splitlines()
-    if not skip_header:
-        data.insert(1, b'\n')
-    data = b''.join(data)
+        length -= len(file.readline())
+    data = file.read(length)
+    if data[-1] != ord(b'\n'):
+        # TODO: do we need test for newlines?
+        raise ValueError('fasta record does not end in newline: {data[-10:]}')
     return data
 
 
@@ -320,23 +312,110 @@ def get_sample_blocklist(file=None):
 
     The blocklist has this format:
 
-    Lines first list the sample record ID / first field in the sample sheet.
-    This ID string must be quoted if it contains white space.  Optional the ID
-    is followed by the work "omics" or any number of sample field names.  Empty
-    lines and comment lines starting with # are ignored.
+    Lines first list the sample record ID / first field in the google
+    sequencing sheet.  This ID string must be quoted if it contains white
+    space.  Optionally the ID is followed by the word "omics" or any number of
+    SeqSample field names.  Empty lines and comment lines starting with # are
+    ignored.
     """
     if file is None:
         file = settings.SAMPLE_BLOCKLIST
         if not file:
             return {}
 
-    blocklist = {}
+    blocklist = defaultdict(list)
     with open(file) as ifile:
         for line in ifile:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-
-            record_id, *fields = shlex.split(line)
-            blocklist[record_id] = fields
+            tokens = shlex.split(line, comments=True)
+            if tokens:
+                record_id, *fields = tokens
+                blocklist[record_id] += fields
     return blocklist
+
+
+_mp_has_microsecs = {}
+""" cache used by check_modtime_microseconds) """
+
+
+def check_modtime_microseconds(path):
+    """
+    Check if the underlying filesystem reports file modify times with
+    microsecond precision.
+
+    path:
+        Resolved path to a file
+
+    Returns True if we think there are microseconds and False if not.
+
+    On Linux there is no reliable way to get this information.  This function
+    tries to be super robust and will hide certain OS-level errors by printing
+    a warning and then returning True.  The idea is that erroneously telling
+    that there would be microseconds will cause fewer silent errors.
+    """
+    global _mp_has_microsecs
+    path = Path(path)
+
+    for mount_point, has_microsecs in _mp_has_microsecs.items():
+        if path.is_relative_to(mount_point):
+            return has_microsecs
+
+    has_microsecs = _check_modtime_microseconds(path)
+    cmd = ['stat', '--format=%m', str(path)]
+    try:
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, check=True)
+    except (OSError, subprocess.CalledProcessError) as e:
+        print(f'[WARNING] failed to get mountpoint with stat for {path}: {e}')
+        return has_microsecs
+
+    mountpoint = p.stdout.decode().strip()
+
+    # update the cache, then sort alphabetically reverse so that longer paths
+    # come before shorter ones
+    _mp_has_microsecs[mountpoint] = has_microsecs
+    _mp_has_microsecs = {
+        k: v for k, v
+        in reversed(sorted(_mp_has_microsecs.items()))
+    }
+    # print only one such warning per mount point as to not spam the terminal
+    print(f'[WARNING] Filesystem mounted at {mountpoint} does not support '
+          f'sub-second modtimes, file is {path}.  Further warnings for this '
+          f'mountpoint will be supressed.')
+    return has_microsecs
+
+
+def _check_modtime_microseconds(path):
+    """ helper for check_modtime_microseconds, does the actual work """
+    try:
+        mtime = datetime.fromtimestamp(path.stat().st_mtime)
+    except OSError as e:
+        print(f'[WARNING] stat on {path} failed: {e}')
+        return True
+    if mtime.microsecond:
+        return True
+
+    # microseconds are zero
+    cmd = ['/usr/bin/stat', '--file-system', '--format=%T', str(path)]
+    try:
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, check=True)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f'[WARNING] checking modtime precision failed for {path}: {e}')
+        return True
+
+    fstype = p.stdout.strip()
+    if fstype == b'fuse':
+        # e.g. filesystem under sshfs (that is sftp)
+        return False
+    else:
+        # rather unlikely?
+        print(f'[WARNING] no sub-seconds modtimes on {fstype} filesystem?')
+        return True
+
+
+class NoJobParameters(Exception):
+    """
+    May be raised trying to instantiate certain omics.tracking.BaseJob objects
+
+    This is in omics.utils to avoid circular imports.
+    pass
+    """
+    pass

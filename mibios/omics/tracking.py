@@ -1,75 +1,117 @@
+from collections import Counter
 from enum import Enum
-from functools import cached_property
+from graphlib import TopologicalSorter
 from importlib import import_module
 import inspect
 import sys
 
+from django.core.exceptions import ValidationError
 from django.db.transaction import atomic
 
-from .models import SampleTracking
+from mibios.umrad.utils import atomic_dry
+from . import get_dataset_model
+from .models import File, SeqSample
+from .utils import NoJobParameters
 
 
 Status = Enum('Status', ['READY', 'DONE', 'WAITING', 'MISSING'])
 
 
-class Job:
+class BaseJob:
+    model = None
     enabled = True
     flag = None
     after = None
     before = None
-    sample_types = None
     required_files = None
     run = None
+    undo = None
 
-    def __init__(self, sample, tracking=None):
+    def __init__(self, subject, tracking=None):
         """
-        don't use this constructor directly, use for_sample() instead.
+        don't use this constructor directly, use e.g. for_subject() instead.
         """
-        if not self.is_compatible(sample):
-            raise ValueError(
-                f'{sample}: {type(self)} is not for sample type '
-                f'{sample.sample_type}'
-            )
-        self.sample = sample
+        if self.model is not None and not isinstance(subject, self.model):
+            raise TypeError(f'subject must be instance of {self.model} not '
+                            f'{type(subject)}')
+
+        if not self.is_compatible(subject):
+            raise ValueError(f'{type(self)}: job can\'t handle {subject}')
 
         if tracking is None:
-            if hasattr(sample, '_prefetched_objects_cache'):
-                for i in sample._prefetched_objects_cache.get('tracking', []):
+            if hasattr(subject, '_prefetched_objects_cache'):
+                for i in subject._prefetched_objects_cache.get('tracking', []):
                     if i.flag == self.flag.value:
                         tracking = i
                         break
         else:
             if self.flag.value != tracking.flag:
                 raise ValueError('flag mismatch')
-        self.tracking = tracking
 
+        self.subject = subject
+        self.tracking = tracking
+        self.before = []
+        self.after = []
         self._status = None
 
+        self.params = self.get_params()
+        if not self.params:
+            raise NoJobParameters()
+
+        # Add file parameters
+        self.files = []
+        for kwargs in self.params:
+            files = []
+            for i in self.required_files or []:
+                f = self.subject.get_omics_file(i, **kwargs)
+                if not f.file_pipeline:
+                    raise RuntimeError(
+                        f'failed to get path to {i}-type file with {kwargs}'
+                    )
+                files.append(f)
+            # For historical reasons, a single file uses the 'file' key, when a
+            # job has multiple files, keys are derived from the filetype's
+            # name.  The job's run function's signature has to match these.
+            if len(files) == 1:
+                kwargs['file'] = files[0].file_pipeline.path
+            elif len(files) > 1:
+                kwargs['file'] = None
+                kwargs.update({
+                    i.filetype_name.lower(): i.file_pipeline.path for i in files
+                })
+            self.files += files
+
     _jobs = None
-    """ object holder for for_sample(); to be initialized to {} in registry """
+    """ class-level object holder for for_subject(); initialized to {} in registry """
+
+    @classmethod
+    def clear_cache(cls):
+        cls._jobs = {}
 
     def __str__(self):
         if self.is_done():
             status = Status.DONE.name
         elif self.is_ready():
             status = Status.READY.name
-        elif Status.WAITING in self.status:
+        elif Status.WAITING in self.status():
             status = Status.WAITING.name
-        elif Status.MISSING in self.status:
+        elif Status.MISSING in self.status():
             status = Status.MISSING.name
         else:
             status = self.status()
 
-        return f'{self.sample.sample_id}/{self.__class__.__name__} [{status}]'
+        return f'{self.subject.accession}/{self.__class__.__name__} [{status}]'
 
     @atomic
     def __call__(self):
         """
         Run the job
 
-        This Calls the callable stored under the run class attribute with the
-        sample as positional argument and tracks the success in the sample
-        tracking table.
+        This calls the callable stored under the run attribute with the subject
+        as positional argument and tracks the success in the tracking table.
+
+        As part of running the job, this also tracks the files used and add a
+        tracking entry.
 
         This will not check certain pre-conditions, e.g. one should call e.g.
         is_ready() beforehand.
@@ -79,80 +121,178 @@ class Job:
         if not self.enabled:
             raise RuntimeError('job is disabled')
 
-        kw = {}
+        self.pre_check_files()
 
-        for i in self.files:
-            # may raise ValidationError
-            i.full_clean()
-            i.verify_with_pipeline()
+        retvals = []
+        for kwargs in self.params:
+            retv = self.run(self.subject, **kwargs)
+            retvals.append(retv)
 
-        if len(self.files) == 1:
-            kw['file'] = self.files[0].path
-        elif len(self.files) > 1:
-            # SampleLoadMixin etc only expect (and currently only have need
-            # for one file per job) one file with the file kw args
-            raise RuntimeError('implementation supports only single file')
-
-        retval = type(self).run(self.sample, **kw)
-
-        for i in self.files:
-            # may raise ValidationError
-            # TODO: test that this will actually catch file changes
-            i.full_clean()
-            i.save()
+        self.post_check_files()
 
         if self.tracking is None:
-            self.tracking = SampleTracking(
+            self.tracking = self.subject.tracking.model(
                 flag=self.flag,
-                sample=self.sample,
+                subject=self.subject,
             )
         self.tracking.full_clean()
         self.tracking.save()
 
         # clear cached tracking data, then update status
         try:
-            del self.sample._prefetched_objects_cache['tracking']
+            del self.subject._prefetched_objects_cache['tracking']
         except (AttributeError, KeyError):
             pass
         self.status(use_cache=False)
 
-        return retval
+        if len(retvals) == 1:
+            return retvals[0]
+        else:
+            return retvals
+
+    def get_params(self):
+        """
+        Generate parameters for the several jobs if needed.
+
+        Returns a list of dicts.  Inheriting classes should overwrite this if
+        needed.  The default implementation returns a single empty dict,
+        meaning the job runs once without special parameters.  If multiple
+        dictionaries are returned then the callable stored under self.run will
+        be called with each set of parameters passed as keyword arguments.
+        Further, the files passed to each call of self.run get parameterized.
+
+        If an empty list is returned, the job is deemed not to be ready and
+        will be disappeared, useful to implement some autodetection scheme to
+        generate jobs based to available data..
+        """
+        return [{}]
+
+    @atomic_dry
+    def run_undo(self, force=False):
+        """
+        Undo the effect of run()
+
+        force [bool]:
+            Skip job status check.  This option may lead to inconsistencies:
+            jobs may be DONE before before jobs they depend on are marked DONE.
+
+        This will also delete the tracking instance from the DB.  To undo a
+        job, all jobs depending on this one, must be undone first.
+        """
+        if self.undo is None:
+            raise NotImplementedError(
+                f'{self}: The Job.undo attribute must be set to a callable '
+                f'that takes the subject as argument.'
+            )
+
+        if not force:
+            # guard rails
+            if not self.is_done(use_cache=False):
+                raise RuntimeError('to undo, job must be done first')
+            for i in self.before:
+                if i.is_done(use_cache=False):
+                    raise RuntimeError(
+                        f'a job that depends on this is already done: {i}'
+                    )
+
+        delcounts = Counter()
+        for kwargs in self.params:
+            retv = self.undo(self.subject, **kwargs)
+            if retv is not None:
+                delcounts.update(retv)
+
+        if self.tracking is not None and self.tracking.id is not None:
+            _, counts = self.tracking.delete()
+            delcounts.update(counts)
+        self.tracking = None
+        self._status = None
+
+        file_pks = [i.pk for i in self.files]
+        _, counts = File.objects.filter(pk__in=file_pks).delete()
+        delcounts.update(counts)
+
+        return delcounts
 
     @classmethod
-    def for_sample(cls, sample, tracking=None):
+    def for_subject(cls, subject, tracking=None):
         """
-        Get the job instance for given sample
+        Get the job instance for given subject (a.k.a. object).
 
         Use this in place of the regular constructor to ensure that jobs are
-        singleton per sample.
+        singleton per subject.
         """
-        if sample not in cls._jobs:
-            obj = cls(sample, tracking=tracking)
-            # store obj now to avoid infinite recursion trying to instatiate
+        if subject not in cls._jobs:
+            obj = cls(subject, tracking=tracking)
+            # store obj now to avoid infinite recursion trying to instantiate
             # before and after jobs.
-            cls._jobs[sample] = obj
+            cls._jobs[subject] = obj
             # FIXME: job declarations should eventually have some
             # conditionals, e.g. do next job only for some sampletype
-            obj.after = [i.for_sample(sample) for i in obj.after
-                         if i.is_compatible(sample)]
-            obj.before = [i.for_sample(sample) for i in obj.before
-                          if i.is_compatible(sample)]
-        return cls._jobs[sample]
+            obj.after = []
+            for jobcls in cls.after:
+                if jobcls.is_compatible(subject):
+                    try:
+                        obj.after.append(jobcls.for_subject(subject))
+                    except NoJobParameters:
+                        pass
+            obj.before = []
+            for jobcls in cls.before:
+                if jobcls.is_compatible(subject):
+                    try:
+                        obj.before.append(jobcls.for_subject(subject))
+                    except NoJobParameters:
+                        pass
+        return cls._jobs[subject]
 
     @classmethod
-    def is_compatible(cls, sample):
-        """ tell if job is compatible with sample """
-        if cls.sample_types:
-            return sample.sample_type in cls.sample_types
-        else:
+    def is_compatible(cls, subject):
+        """ tell if job is compatible with subject """
+        if cls.model is None:
             return True
+        else:
+            return isinstance(subject, cls.model)
 
-    @cached_property
-    def files(self):
-        if self.required_files is None:
-            return []
+    def pre_check_files(self):
+        """
+        Check files before running the job
+        """
+        errors = {}
+        for i in self.files:
+            try:
+                i.check_stat_field('file_pipeline')
+            except ValidationError as e:
+                errors = e.update_error_dict(errors)
+            try:
+                i.verify_with_pipeline()
+            except ValidationError as e:
+                errors = e.update_error_dict(errors)
+        if errors:
+            raise ValidationError(errors)
 
-        return [self.sample.get_omics_file(i) for i in self.required_files]
+    def post_check_files(self):
+        """
+        Check files after running job
+
+        1. Checks that files didn't changes while processing
+        2. saves file records to database
+        """
+        errors = {}
+        for i in self.files:
+            try:
+                # TODO: test that this will actually catch file changes
+                i.check_stat_field('file_pipeline')
+            except ValidationError as e:
+                errors = e.update_error_dict(errors)
+            try:
+                i.full_clean()
+            except ValidationError as e:
+                errors = e.update_error_dict(errors)
+
+        if errors:
+            raise ValidationError(errors)
+        else:
+            for i in self.files:
+                i.save()
 
     def status(self, use_cache=True):
         """
@@ -169,25 +309,31 @@ class Job:
         if self._status is None or not use_cache:
             state = {}
             if self.tracking is None:
-                # Get the tracking instance, optimize for case of self.sample
+                # Get the tracking instance, optimize for case of self.subject
                 # being member in queryset called via
                 # prefetch_related('tracking'), so no extra DB query for small
-                # cost of iterating over the samples' tracking instances.
+                # cost of iterating over the subjects' tracking instances.
                 # TODO: verify that this is not just duplicating the similar
                 # work (and DB query) in __init__()
-                for i in self.sample.tracking.all():
+                for i in self.subject.tracking.all():
                     if i.flag == self.flag.value:
                         self.tracking = i
                         break
 
-            if self.tracking:
+            if self.tracking and self.tracking.id is not None:
                 state[Status.DONE] = self.tracking
 
             waiting = [i for i in self.after if not i.is_done()]
             if waiting:
                 state[Status.WAITING] = waiting
 
-            if missing := [i for i in self.files if not i.path.exists()]:
+            missing = [
+                i for i in self.files
+                # FIXME? this does not detect broken symlinks
+                if not i.file_pipeline.name
+                or not i.file_pipeline.storage.exists(i.file_pipeline.name)
+            ]
+            if missing:
                 state[Status.MISSING] = missing
 
             if not state:
@@ -202,10 +348,92 @@ class Job:
     def is_done(self, use_cache=True):
         return Status.DONE in self.status(use_cache=use_cache)
 
+    def fake_run(self):
+        """
+        Like __call__() but skips running the job's run function.
+
+        Use with care!
+        """
+        real_run = self.run
+        self.run = lambda *args, **kw: None
+        try:
+            self()
+        finally:
+            self.run = real_run
+
+    def fake_undo(self):
+        """
+        Like run_undo() but skips actually running the job's undo function.
+
+        This will even run if the job's undo attribute is not set.  Use with
+        care!
+        """
+        real_undo = self.undo
+        self.undo = lambda *args, **kw: None
+        try:
+            return self.run_undo()
+        finally:
+            self.undo = real_undo
+
+
+class DatasetJob(BaseJob):
+    model = get_dataset_model()
+    sample_types = None
+
+    def __init__(self, subject, tracking=None):
+        if not isinstance(subject, self.model):
+            raise ValueError(f'subject must be instance of {self.model}: {subject}')
+        super().__init__(subject, tracking)
+
+    @classmethod
+    def for_subject(cls, subject, tracking=None):
+        """
+        Get the job instance for given subject (a.k.a. object).
+
+        Use this in place of the regular constructor to ensure that jobs are
+        singleton per subject.
+
+        The given subject may also be a compatible SeqSample, but then will be
+        substituted by the sample's dataset.
+        """
+        if isinstance(subject, SeqSample):
+            if cls.is_compatible(subject):
+                subject = subject.parent.dataset
+            else:
+                raise ValueError('incompatible SeqSample instance')
+
+        return super().for_subject(subject, tracking=tracking)
+
+    @classmethod
+    def is_compatible(cls, subject):
+        if isinstance(subject, SeqSample) and cls.sample_types is not None:
+            return subject.sample_type in cls.sample_types
+        else:
+            return isinstance(subject, get_dataset_model())
+
+
+class SeqSampleJob(BaseJob):
+    model = SeqSample
+    sample_types = None
+
+    @classmethod
+    def is_compatible(cls, subject):
+        """ tell if job is compatible with subject """
+        if not isinstance(subject, SeqSample):
+            return False
+        elif cls.sample_types:
+            return subject.sample_type in cls.sample_types
+        else:
+            return True
+
 
 class Registry:
     def __init__(self):
         self.jobs = {}
+
+    def clear_cache(self):
+        for cls in self.jobs.values():
+            cls.clear_cache()
 
     def register_from_module(self, module):
         if isinstance(module, str):
@@ -222,12 +450,12 @@ class Registry:
             sys.modules[module],
             lambda x: inspect.isclass(x)
             and x.__module__ == module_name
-            and issubclass(x, Job)
-            and x is not Job
+            and issubclass(x, BaseJob)
+            and x is not BaseJob
             and x.enabled  # FIXME: maybe disable later
         ))
 
-        jobs = self.jobs
+        jobs = self.jobs.copy()
         for name in new_jobs:
             if name in jobs:
                 raise RuntimeError(
@@ -235,7 +463,7 @@ class Registry:
                 )
         jobs.update(new_jobs)
 
-        # replace names with classed
+        # replace names with classes
         for name, cls in jobs.items():
             if cls._jobs is None:
                 cls._jobs = {}  # separate dict per class
@@ -265,7 +493,13 @@ class Registry:
                 if cls not in i.after:
                     i.after.append(cls)
 
-        self.jobs = jobs
+        # sort by dependency
+        sorter = TopologicalSorter()
+        names = {job: name for name, job in jobs.items()}
+        for name, job in jobs.items():
+            sorter.add(name, *(names[dep] for dep in job.after))
+
+        self.jobs = {name: jobs[name] for name in sorter.static_order()}
 
 
 registry = Registry()

@@ -13,13 +13,13 @@ from django.contrib.postgres.indexes import GinIndex, GistIndex
 from django.contrib.postgres.search import SearchVectorField
 from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.core.validators import URLValidator
-from django.db import models
+from django.db import connection, models
 from django.db.models import Index
 from django.urls import reverse
 from django.utils.dateparse import parse_datetime, parse_date, parse_time
 
 from mibios import __version__ as mibios_version
-from mibios.omics.models import AbstractDataset, AbstractSample
+from mibios.omics.models import AbstractDataset, IDMixin
 from mibios.umrad.fields import AccessionField
 from mibios.umrad.manager import Manager
 from mibios.umrad.models import Model
@@ -33,88 +33,10 @@ from .load import (
     DatasetLoader, ReferenceLoader, SampleLoader,
     SearchableManager, UniqueWordManager,
 )
-from .managers import dbstatManager
+from .managers import dbstatManager, DatasetManager
 from .queryset import (
     DatasetQuerySet, SampleQuerySet, SearchableQuerySet, UniqueWordQuerySet,
 )
-
-
-class IDMixin:
-    """ model mixin to support the standard GLAMR ID pattern """
-
-    ID_PREFIX = None
-    """ The implementing model must set this. """
-
-    def get_record_id_no(self):
-        """
-        Strip ID prefix and return the record's ID number (as int)
-
-        Raises ValueError if the ID does not conform to convention.  We want to
-        be rather strict when parsing the ID as elsewhere we do the reverse,
-        re-creating the ID from the number. This may not result in the original
-        value.  E.g. int() is lossy as in int(' 123 ') == 123 is True.
-
-        Implementing model must have a {model_name}_id field/attribute to hold
-        the record ID.
-        """
-        id_attr = self._meta.model_name + '_id'
-        value = getattr(self, id_attr).removeprefix(self.ID_PREFIX)
-        if not value.isdecimal():
-            raise ValueError('value without prefix must be decimal')
-        return int(value)
-
-    @classmethod
-    def _get_url_template(cls):
-        """
-        Helper to get record URL
-
-        This runs reverse() with a placeholder.  Nature and number of args to
-        pass to reverse depends on the url pattern.
-        """
-        try:
-            return cls._url_template
-        except AttributeError:
-            # model name must also be URL name
-            # arg number and order must correspond to url conf
-            cls._url_template = reverse(
-                cls._meta.model_name,
-                args=['_KEY_'],
-            )
-            return cls._url_template
-
-    @classmethod
-    def get_record_url(cls, key, ktype=None):
-        """
-        Get the URL for detail view of the record.
-
-        key:
-            Something to identify the objects.  Can be the objects itself, or
-            its PK or natural key.
-        ktype:
-            Key type, allowed values match what's in the url pattern
-        """
-        if ktype is None:
-            ktype = 'natkey'
-        elif ktype not in ['pk', 'natkey']:
-            raise ValueError(f'illegal key type: {ktype=}')
-
-        if isinstance(key, cls):
-            # object given
-            if ktype == 'natkey':
-                try:
-                    key = key.get_record_id_no()
-                except ValueError:
-                    # unusual sample_id, degrade to pk: url style
-                    ktype = 'pk'
-
-            if ktype == 'pk':
-                key = key.pk
-
-        key = f'{"" if ktype == "natkey" else ktype + ":"}{key}'
-        return cls._get_url_template().replace('_KEY_', key)
-
-    def get_absolute_url(self):
-        return self.get_record_url(self)
 
 
 class AboutInfo(Model):
@@ -373,8 +295,8 @@ class Dataset(IDMixin, AbstractDataset):
 
     accession_fields = ('dataset_id', )
 
-    objects = Manager.from_queryset(DatasetQuerySet)()
-    loader = DatasetLoader()
+    objects = DatasetManager.from_queryset(DatasetQuerySet)()
+    loader = DatasetLoader.from_queryset(DatasetQuerySet)()
 
     class Meta:
         default_manager_name = 'objects'
@@ -389,7 +311,8 @@ class Dataset(IDMixin, AbstractDataset):
     EXTERNAL_ACCN_FIELDS = \
         ['bioproject', 'jgi_project', 'gold_id', 'mgrast_study']
 
-    ID_PREFIX = 'set_'
+    id_prefix = 'set_'
+    id_attr = 'dataset_id'
 
     @classmethod
     def get_internal_fields(cls):
@@ -411,13 +334,29 @@ class Dataset(IDMixin, AbstractDataset):
             # remove last word and add [...]
             scheme = ' '.join(scheme.split(' ')[:-1]) + '[\u2026]'
 
+        annotations = []
+
         s = ' - '.join(filter(None, [scheme, ref])) or self.short_name \
             or super().__str__()
 
         if settings.INTERNAL_DEPLOYMENT:
-            s = f'{s} ({self.dataset_id})'
+            annotations.append(self.dataset_id)
+
+        if not self.is_public():
+            annotations.append('non-public')
+
+        if annotations:
+            s = f'{s} ({", ".join(annotations)})'
 
         return s
+
+    def _do_insert(self, manager, using, fields, returning_fields, raw):
+        if connection.vendor != 'postgresql':
+            # saving access fails on sqlite
+            # TODO: replace this with DB-defined defaults in Django 5.0
+            fields = [i for i in fields if not i.name == 'access']
+        ret = super()._do_insert(manager, using, fields, returning_fields, raw)
+        return ret
 
     def display_simple(self):
         """
@@ -471,6 +410,15 @@ class Dataset(IDMixin, AbstractDataset):
     def get_samples_url(self):
         return reverse('dataset_sample_list', args=[self.get_set_no()])
 
+    def is_public(self):
+        """ Tell if instance is public """
+        try:
+            return 0 in self.access
+        except TypeError:
+            # self.access is None or str / sqlite3
+            # may incur DB query
+            return not self.restricted_to.exists()
+
 
 class Reference(IDMixin, Model):
     """
@@ -504,7 +452,8 @@ class Reference(IDMixin, Model):
 
     default_internal_fields = ('id', 'reference_id', 'short_reference',
                                'last_author')
-    ID_PREFIX = 'paper_'
+    id_prefix = 'paper_'
+    id_attr = 'reference_id'
 
     def __str__(self):
         maxlen = 60
@@ -519,7 +468,7 @@ class Reference(IDMixin, Model):
         return value
 
 
-class Sample(IDMixin, AbstractSample):
+class Sample(IDMixin, Model):
     DATE_ONLY = 'date_only'
     YEAR_ONLY = 'year_only'
     MONTH_ONLY = 'month_only'
@@ -531,10 +480,19 @@ class Sample(IDMixin, AbstractSample):
         (FULL_TIMESTAMP, FULL_TIMESTAMP),
     )
 
+    sample_id = models.CharField(
+        max_length=32,
+        unique=True,
+        help_text='internal sample accession',
+    )
+    sample_name = models.TextField(
+        max_length=32,
+        **ch_opt,
+        help_text='sample ID or name as given by original data source',
+    )
+    dataset = models.ForeignKey(Dataset, **fk_req)
     project_id = models.TextField(max_length=32, **ch_opt)
     biosample = models.TextField(max_length=32, **ch_opt)
-    gold_analysis_id = models.TextField(max_length=32, **ch_opt)
-    gold_seq_id = models.TextField(max_length=32, **ch_opt)
     jgi_study = models.TextField(max_length=32, **ch_opt)
     jgi_biosample = models.TextField(max_length=32, **ch_opt)
     geo_loc_name = models.TextField(max_length=64, **ch_opt)
@@ -648,10 +606,12 @@ class Sample(IDMixin, AbstractSample):
     objects = Manager.from_queryset(SampleQuerySet)()
     loader = SampleLoader.from_queryset(SampleQuerySet)()
 
-    ID_PREFIX = 'samp_'
+    id_prefix = 'bios_'
+    id_attr = 'sample_id'
 
     class Meta:
         default_manager_name = 'objects'
+        verbose_name = 'BioSample'
         indexes = [
             GinIndex(
                 fields=['access'],
@@ -661,15 +621,38 @@ class Sample(IDMixin, AbstractSample):
         ]
 
     def __str__(self):
-        value = self.sample_name or self.biosample or ''
-        if value:
-            if self.sample_id and settings.INTERNAL_DEPLOYMENT:
-                value = f'{value} ({self.sample_id})'
-        return value or self.sample_id or super().__str__()
+        value = self.sample_name or self.biosample or self.sample_id
+        annotations = []
+        if settings.INTERNAL_DEPLOYMENT:
+            annotations.append(self.sample_id)
+
+        if not self.is_public():
+            annotations.append('non-public')
+
+        if annotations:
+            value = f'{value} ({", ".join(annotations)})'
+        return value
+
+    def _do_insert(self, manager, using, fields, returning_fields, raw):
+        if connection.vendor != 'postgresql':
+            # saving access fails on sqlite
+            # TODO: replace this with DB-defined defaults in Django 5.0
+            fields = [i for i in fields if not i.name == 'access']
+        ret = super()._do_insert(manager, using, fields, returning_fields, raw)
+        return ret
 
     @cached_property
     def private(self):
         return self.dataset.private
+
+    def is_public(self):
+        """ Tell if instance is public """
+        try:
+            return 0 in self.access
+        except TypeError:
+            # self.access is None or str / sqlite3
+            # may incur DB query
+            return not self.database.restricted_to.exists()
 
     @classmethod
     def get_internal_fields(cls):

@@ -1,4 +1,5 @@
 from collections import Counter
+from itertools import groupby
 from logging import getLogger
 
 from django.apps import apps
@@ -7,39 +8,23 @@ from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.search import \
     SearchQuery, SearchRank, TrigramDistance
 from django.db import connections
-from django.db.models import Count, F, Func, Q, TextField, Value, Window
+from django.db.models import (
+    Count, F, Func, OuterRef, Q, Subquery, TextField, Value, Window
+)
 from django.db.models.functions import FirstValue, Length, RowNumber
-from django.utils.module_loading import import_string
+from django.db.transaction import atomic
 
 import pandas
 
-from mibios.omics.queryset import SampleQuerySet as OmicsSampleQuerySet
+from mibios.omics.queryset import AccessMixin, BaseDatasetQuerySet
 from mibios.umrad.manager import QuerySet
+from mibios.umrad.utils import atomic_dry
 from . import GREAT_LAKES
 from .search_utils import SearchResult
 from .utils import split_query
 
 
 log = getLogger(__name__)
-
-
-def _get_groupids(credentials):
-    """
-    Helper to turn a User into sorted group ids
-    """
-    if credentials is None:
-        return (0,)
-
-    User = import_string('django.contrib.auth.models.User')
-    AnonymousUser = import_string('django.contrib.auth.models.AnonymousUser')
-    if isinstance(credentials, (AnonymousUser, User)):
-        groupids = set(credentials.groups.values_list('pk', flat=True))
-    else:
-        # assume list of Group PKs
-        groupids = set(credentials)
-    # ensure we got a 0 and it's sorted
-    groupids.add(0)
-    return tuple(sorted(groupids))
 
 
 def exclude_private_data(queryset, credentials=None):
@@ -50,6 +35,7 @@ def exclude_private_data(queryset, credentials=None):
         # e.g. Dataset or Sample models
         return qs.exclude_private(credentials)
 
+    SeqSample = apps.get_model('omics', 'SeqSample')
     Sample = apps.get_model('glamr', 'Sample')
     Dataset = apps.get_model('glamr', 'Dataset')
 
@@ -57,70 +43,26 @@ def exclude_private_data(queryset, credentials=None):
         if not field.many_to_one:
             continue
 
-        if field.related_model in (Sample, Dataset):
+        if field.related_model in (SeqSample, Sample, Dataset):
             break
     else:
         # has no FK to Sample or Dataset
         return qs
 
     if connections[queryset.db].vendor == 'postgresql':
-        f = {f'{field.name}__access__overlap': _get_groupids(credentials)}
+        f = {f'{field.name}__access__overlap':
+             AccessMixin._get_groupids(credentials)}
     else:
-        # fallback for sqlite
-        f = {
-            f'{field.name}__pk__in':
-            field.related_model.objects.get_allowed_pks(credentials)
-        }
+        # fallback for sqlite is a noop
+        f = {}
     return qs.filter(**f)
 
 
-class DatasetQuerySet(QuerySet):
-
-    _allowed_pks = {}
-    """ class-level cache, PKs that a user is allowed """
-
-    @classmethod
-    def _get_allowed_pks(cls, model, credentials):
-        groupids = _get_groupids(credentials)
-        if groupids not in cls._allowed_pks:
-            q = Q(restricted_to=None)  # no restrictions
-            if len(groupids) > 1:
-                # there's something else besides zero
-                q = q | Q(restricted_to__pk__in=[i for i in groupids if i])
-
-            qs = model.objects.filter(q).values_list('pk', flat=True)
-            cls._allowed_pks[groupids] = tuple(qs)
-        return cls._allowed_pks[groupids]
-
-    @classmethod
-    def clear_allowed_pks(cls, **kwargs):
-        """
-        Clear the allowed PKs cache
-
-        Should be called whenever the Dataset.restricted_to relation changes
-        """
-        cls._allowed_pks = {}
-
-    def get_allowed_pks(self, credentials):
-        """
-        Get allowed PKs -- to contol access with sqlite
-        """
-        # this is a wrapper just to inject the model into the class method
-        return self._get_allowed_pks(self.model, credentials)
-
-    def exclude_private(self, credentials=None):
-        """
-        Exclude private datasets for which user is not member of allowed group.
-        """
-        if connections[self.db].vendor == 'postgresql':
-            return self.filter(access__overlap=_get_groupids(credentials))
-        else:
-            # fallback for sqlite
-            return self.filter(pk__in=self.get_allowed_pks(credentials))
+class DatasetQuerySet(BaseDatasetQuerySet):
 
     def summary(
             self,
-            column_field='sample_type',
+            column_field='seqsample__sample_type',
             row_field='geo_loc_name',
             as_dataframe=True,
             otherize=True,
@@ -182,6 +124,7 @@ class DatasetQuerySet(QuerySet):
                      'primary_ref__title', 'primary_ref__short_reference')
         return qs
 
+    @atomic
     def update_access(self):
         """
         Synchronize content of the access column
@@ -189,64 +132,58 @@ class DatasetQuerySet(QuerySet):
         This method will only work on postgres, not sqlite.
 
         Generally, all changes to the access field should go through this
-        method.
+        method.  update_access() methods for Sample and SeqSample delegate to
+        here as it makes sense to keep the whole relation in sync.
         """
-        qs = self.all().prefetch_related('restricted_to')
+        Dataset = self.model
+        Sample = apps.get_model('glamr', 'Sample')
+        SeqSample = apps.get_model('omics', 'SeqSample')
+
+        qs = self.prefetch_related('restricted_to')
+        qs = qs.prefetch_related('sample_set', 'sample_set__seqsample_set')
+
+        dset_objs = []
         for obj in qs:
-            groups = list(obj.restricted_to.all())
-            if groups:
-                obj.access = sorted([i.pk for i in groups])
-            else:
-                # is public
-                obj.access = [0]
-        return self.model.objects.bulk_update(qs, ['access'])
+            group_ids = sorted(i.pk for i in obj.restricted_to.all())
+            if not group_ids:
+                # is public access, 0 is not used as PK in Group table.
+                group_ids = [0]
+
+            if obj.access != group_ids:
+                obj.access = group_ids
+                dset_objs.append(obj)
+
+        self.model.objects.bulk_update(dset_objs, ['access'])
+
+        # Something like update(access=F('dataset__access') is not implemented
+        # by Django, but using this subquery is a super clever way to do the
+        # same thing:
+        subq = Subquery(
+            Dataset.objects
+                   .filter(pk=OuterRef('dataset__pk'))
+                   .values('access')[:1]
+        )
+        count = Sample.objects \
+            .filter(dataset__in=self) \
+            .exclude(access=subq) \
+            .update(access=subq)
+        print(f'Sample.access updated for {count} records')
+
+        subq = Subquery(
+            Sample.objects
+                  .filter(pk=OuterRef('parent__pk'))
+                  .values('access')[:1]
+        )
+        count = SeqSample.objects \
+            .filter(parent__dataset__in=self) \
+            .exclude(access=subq) \
+            .update(access=subq)
+        print(f'SeqSample.access updated for {count} records')
+
+        return len(dset_objs)  # what bulk_update would return
 
 
-class SampleQuerySet(OmicsSampleQuerySet):
-
-    _allowed_pks = {}
-
-    @classmethod
-    def _get_allowed_pks(cls, model, credentials):
-        groupids = _get_groupids(credentials)
-        if groupids not in cls._allowed_pks:
-            Dataset = model._meta.get_field('dataset').related_model
-            qs = model.objects.filter(
-                dataset__in=Dataset.objects.exclude_private(groupids)
-            )
-            qs = qs.values_list('pk', flat=True)
-            cls._allowed_pks[groupids] = tuple(qs)
-        return cls._allowed_pks[groupids]
-
-    def get_allowed_pks(self, credentials):
-        """
-        Get allowed PKs -- to contol access with sqlite
-        """
-        # this is a wrapper just to inject the model into the class method
-        return self._get_allowed_pks(self.model, credentials)
-
-    @classmethod
-    def clear_allowed_pks(cls, **kwargs):
-        """
-        Clear the allowed PKs cache
-
-        Should be called whenever the Dataset.restricted_to relation changes
-        """
-        cls._allowed_pks = {}
-
-    def exclude_private(self, credentials=None):
-        """
-        Exclude samples of private datasets unless user is member of allowed
-        group.
-
-        credentials:
-            This can be auth.User instance or list of Group PKs or None.
-        """
-        if connections[self.db].vendor == 'postgresql':
-            return self.filter(access__overlap=_get_groupids(credentials))
-        else:
-            # fallback for sqlite
-            return self.filter(pk__in=self.get_allowed_pks(credentials))
+class SampleQuerySet(AccessMixin, QuerySet):
 
     def basic_counts(self, *fields, exclude_blank_fields=[]):
         """
@@ -266,19 +203,18 @@ class SampleQuerySet(OmicsSampleQuerySet):
 
     def summary(
         self,
-        column_field='sample_type',
+        column_field='seqsample__sample_type',
         row_field='geo_loc_name',
         blank_sample_type=False,
         otherize=True,
     ):
         """ Get count summary (for frontpage view) """
+        exclude_blank_fields = []
         if not blank_sample_type:
-            if 'sample_type' in [column_field, row_field]:
+            if 'seqsample__sample_type' in [column_field, row_field]:
                 # with default paramters: don't display stats for samples with
                 # missing sample type
-                exclude_blank_fields = ['sample_type']
-        else:
-            exclude_blank_fields = []
+                exclude_blank_fields = ['seqsample__sample_type']
 
         qs = self.basic_counts(row_field, column_field,
                                exclude_blank_fields=exclude_blank_fields)
@@ -314,6 +250,7 @@ class SampleQuerySet(OmicsSampleQuerySet):
     def str_only(self):
         return self.only('sample_name', 'sample_id')
 
+    @atomic
     def update_access(self):
         """
         Synchronize content of the access column
@@ -321,18 +258,153 @@ class SampleQuerySet(OmicsSampleQuerySet):
         This method will only work on postgres, not sqlite.
 
         Generally, all changes to the access field should go through this
-        method.
+        method.  This will also update access on all SeqSamples.
         """
-        qs = self.all().select_related('dataset')
-        qs = qs.prefetch_related('dataset__restricted_to')
-        for obj in qs:
-            groups = list(obj.dataset.restricted_to.all())
-            if groups:
-                obj.access = sorted([i.pk for i in groups])
+        Dataset = self.model._meta.get_field('dataset').related_model
+        Dataset.objects.filter(sample__in=self).update_access()
+
+    def deduplicate_denovo(self):
+        """ find duplicate records """
+        keys = ('id', 'sample_id')
+        ignore = ('access', )
+        qs = self.values()
+
+        for row in qs:
+            for i in ignore:
+                del row[i]
+
+        data = {}
+        for row in qs:
+            row0 = {k: v for k, v in row.items() if k not in keys}
+            row0 = tuple(row0.items())
+            if row0 not in data:
+                data[row0] = []
+            data[row0].append({k: v for k, v in row.items() if k in keys})
+
+        stats = Counter()
+        for num, (row, uniques) in enumerate(data.items(), start=1):
+            if len(uniques) == 1:
+                stats[1] += 1
+                continue
+            print(f'{num:>3}: {uniques}')
+            stats[len(uniques)] += 1
+        print(f'Stats: group sizes: {stats}')
+
+    def dedup_biosample_group(self):
+        """
+        Helper to collect data to deduplicate NCBI Biosamples
+
+        Only consider the biosample field.  Non-empty jgi_biosample values are
+        already unique, so they are ignored.
+        """
+        uniq_keys = ('id', 'sample_id')  # fields that are unique regardless
+        ignore = ('access', )  # has non-hashable value, get out of the way
+
+        # 1. get objects
+        qs = self.exclude(biosample='').prefetch_related('seqsample_set')
+        qs = qs.order_by('pk')
+        # 2. separately get values
+        # 3. attach values in deterministic hashable format
+        for obj, row_values in zip(qs, qs.values(), strict=True):
+            for i in uniq_keys + ignore:
+                del row_values[i]
+            obj.row_values = tuple(sorted(row_values.items()))
+
+        # 4. sort and group objects by biosample
+        data = sorted(qs, key=lambda x: x.biosample)
+
+        return groupby(data, key=lambda x: x.biosample)
+
+    def dedup_biosample(self):
+        """
+        Get Sample objects that can be readily deduplicated
+
+        Returns a dict, mapping Sample objects "from -> to" to be interpreted
+        as work order: The SeqSample objects of the "from" biosample will be
+        moved to the the "to" biosample.  The "from" biosample can then be
+        deleted (deduplicated.)  Biosamples mapping to None will be kept.  All
+        other biosamples will also be kept.
+        """
+        data = {}
+        for biosample, grp in self.dedup_biosample_group():
+            grp = list(grp)
+            if len(grp) == 1:
+                continue
+
+            vals = set(i.row_values for i in grp)
+            if len(vals) > 1:
+                continue
+
+            data[grp[0]] = None  # to be kept
+            for obj in grp[1:]:
+                # SeqSamples to be re-assigned to group leader
+                data[obj] = grp[0]
+
+        return data
+
+    @atomic_dry
+    def dedup_biosample_migrate(self):
+        """
+        Implements the biosample deduplication
+
+        This will only deduplicate those biosamples that are clearly identical.
+        This can be run on subsets of the data and repeatedly as needed until
+        all biosamples are deduplicated.
+        """
+        for obj_from, obj_to in self.dedup_biosample().items():
+            if obj_to is None:
+                continue
+            obj_to.seqsample_set.add(*obj_from.seqsample_set.all())
+            obj_from.delete()
+
+    def dedup_biosample_print(self, outfile=None):
+        """
+        Helper tool to see if samples with sample NCBI Biosample are the same
+
+        Only consider the biosample field.  Non-empty jgi_biosample values are
+        already unique, so they are ignored.
+        """
+        if outfile:
+            outf = open(outfile, 'w')
+        else:
+            outf = None
+
+        singles = 0
+        good = 0
+        bad = 0
+        for biosample, grp in self.dedup_biosample_group():
+            grp = list(grp)
+            if len(grp) == 1:
+                singles += 1
+                continue
+            vals = set(i.row_values for i in grp)
+            if len(vals) == 1:
+                # Case A: a good group, print some SeqSample values
+                good += 1
+                print('    ', biosample, file=outf)
+                for i in grp:
+                    for sqs in i.seqsample_set.all():
+                        prim = "//".join(
+                            p for p in (sqs.fwd_primer, sqs.rev_primer) if p
+                        )
+                        print(f'      {i.sample_id} {sqs.sample_type} {prim}',
+                              file=outf)
             else:
-                # is public, 0 is not used as PK in Group table.
-                obj.access = [0]
-        return self.model.objects.bulk_update(qs, ['access'])
+                # Case B: bad group, print values that differ within group
+                bad += 1
+                print(f'[EE] {biosample}', file=outf)
+                diffs0 = []
+                for items in zip(*(i.row_values for i in grp), strict=True):
+                    if len(set(items)) > 1:
+                        diffs0.append(items)
+
+                diffs = zip(*diffs0, strict=True)  # transpose diff
+                for obj, diff_vals in zip(grp, diffs):
+                    print(f'[EE]   {obj.sample_id}:',
+                          *(f'{k}={v}' for k, v in diff_vals), file=outf)
+
+            print(file=outf)
+        print(f'Stats: {singles=} {good=} {bad=}', file=outf)
 
 
 class ts_headline(Func):
@@ -458,7 +530,7 @@ class SearchableQuerySet(QuerySet):
             qs = qs.annotate(snippet=ts_headline(
                 F('text'),
                 tsquery,
-                Value('StartSel=<mark>, StopSel=</mark>'),
+                Value('StartSel=<mark>, StopSel=</mark>, MaxFragments=1, ShortWord=0'),
             ))
 
         qs = qs.order_by('content_type_id')
@@ -482,7 +554,11 @@ class SearchableQuerySet(QuerySet):
             if isinstance(getattr(i, 'rhs', None), SearchQuery)
         ]
         if len(tsqueries) == 1:
-            rank = SearchRank(F('searchvector'), tsqueries[0])
+            rank = SearchRank(
+                F('searchvector'),
+                tsqueries[0],
+                normalization=Value(1),  # log of document length
+            )
             qs = self.annotate(rank=rank)
             return qs.order_by(*qs.query.order_by, '-rank')
         else:

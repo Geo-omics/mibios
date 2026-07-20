@@ -1,22 +1,21 @@
 {% extends "glamr/base.html" %}
 {% load glamr_extras %}
 {% block content %}
-<nav aria-label="breadcrumb">
-  <ol class="breadcrumb">
-      <li class="breadcrumb-item"><a href="{% url 'frontpage' %}">Home</a></li>
-      {%block extra_breadcrumbs%}{%endblock%}
-      <li class="breadcrumb-item active" aria-current="page">{{ object|meta:"verbose_name"|capfirst}} (detail)</li>
-  </ol>
-</nav>
 
 {% block detail_header %}
 <h3>{{ object_model_verbose_name|capfirstsmart }}: {{ object }}</h3>
+{% for link_grp in header_link_groups %}
+    {% for url, txt in link_grp %}
+        {% if forloop.first%}[{%endif%}{%if url %}<a href="{{url}}">{{txt}}</a>{%else%}{{txt}}{%endif%}{%if forloop.last%}]{%else%} | {%endif%}
+    {% endfor %}
+{% endfor %}
 {% endblock %}
 
 {% block map%}{%include 'glamr/map.html'%}{%endblock%}
 
-{% if has_abundance %}[<a href="{%url 'record_abundance' model=object_model_name pk=object.pk%}">abundance</a>]{%endif%}
+{% if supports_abundance %}[<a href="{%url 'record_abundance' model=object_model_name pk=object.pk%}">abundance</a>]{%endif%}
 
+{% block details %}
 <div class="card mb-2 mt-2">
         <div style="display: flex; flex-direction: row" class="card-header">
     <h6 class="card-title m-1">Details</h6>
@@ -34,7 +33,9 @@
         </tbody></table>
         </div>
 </div>
+{% endblock %}
 
+{% block relations %}
 {% for name, model_name, qs, field in relations %}
 <div class="card mb-2">
     <div style="display: flex; flex-direction: row" class="card-header">
@@ -52,5 +53,6 @@
         </div>
 </div>
 {% endfor %}
+{% endblock %}
 
 {% endblock %}

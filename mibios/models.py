@@ -1402,27 +1402,27 @@ class Model(models.Model):
             is_deleted=is_deleted,
         )
 
-    @transaction.atomic
     def save(self, *args, **kwargs):
-        is_created = self.id is None
-        super().save(*args, **kwargs)
-
         if self.history is None:
+            super().save(*args, **kwargs)
             return
 
-        if not hasattr(self, 'change'):
-            self.add_change_record(is_created=is_created)
-        if self.change.record_natural is None:
-            # natural may still be None if record is new and change was created
-            # manually and the model uses the fallback to pk for natural
-            # property but now after save() we have a valid pk
-            self.change.record_natural = self.natural
+        with transaction.atomic():
+            super().save(*args, **kwargs)
 
-        # set record (again) as super().save() resets this to None for unknown
-        # reasons:
-        self.change.record = self
-        if self.change.has_changed():
-            self.change.save()
+            if not hasattr(self, 'change'):
+                self.add_change_record(is_created=self.id is None)
+            if self.change.record_natural is None:
+                # natural may still be None if record is new and change was created
+                # manually and the model uses the fallback to pk for natural
+                # property but now after save() we have a valid pk
+                self.change.record_natural = self.natural
+
+            # set record (again) as super().save() resets this to None for unknown
+            # reasons:
+            self.change.record = self
+            if self.change.has_changed():
+                self.change.save()
 
     def delete(self, *args, **kwargs):
         if self.history is None:

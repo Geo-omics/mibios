@@ -402,6 +402,9 @@ class InputFileSpec:
         """
         Setup method to be called once before loading data
 
+        file:
+            Expected to be pathlib.Path, str, or None.
+
         Intended to be called automatically by the loader.  Should be
         idempotent when called repeatedly.
         """
@@ -614,6 +617,26 @@ class InputFileSpec:
     def row2dict(self, row_data):
         """ turn result of row_data() into a dict with field names as keys """
         return {field.name: val for field, _, val in row_data}
+
+
+class ModelSpec(InputFileSpec):
+    """
+    Adapter to load prepared data
+
+    To be used with a loader that provides a get_spec_column() method.
+    """
+    def __init__(self, rows):
+        super().__init__(self)
+        self._rows = rows
+
+    def setup(self, loader):
+        """
+        Setup automatically all field declared in model.
+        """
+        super().setup(loader, column_specs=loader.get_spec_columns())
+
+    def iterrows(self):
+        return iter(self._rows)
 
 
 class CSVRowGenerator:
@@ -1041,7 +1064,7 @@ class DefaultDict(dict):
     data then one can get an instance with a different default key, e.g.:
 
     DEFAULT_KEY = object()
-    d = SafeDict.with_default_key(DEFAULT_KEY)(...)
+    d = DefaultDict.with_default_key(DEFAULT_KEY)(...)
 
     If a default key-value pair is set then the default value is returned for
     any unknown key.  If no default key-value is set (or if a previous one was

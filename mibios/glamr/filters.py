@@ -257,7 +257,7 @@ class FilterSet(OrigFilterSet):
 
 class DatasetFilter(FilterSet):
     water_bodies = ChoiceFiFi(sep=',')
-    sample__sample_type = SampleTypeFiFi(label='Sample type')
+    sample__seqsample__sample_type = SampleTypeFiFi(label='Sample type')
     sample_year = YearChoiceFiFi(
         method='add_year',
         label='Sample year',
@@ -273,7 +273,7 @@ class DatasetFilter(FilterSet):
         model = Dataset
         fields = [
             'water_bodies',
-            'sample__sample_type',
+            'sample__seqsample__sample_type',
             'sample_year',
             'sample__collection_timestamp',
         ]
@@ -340,7 +340,6 @@ class SampleFilter(FilterSet):
         model = Sample
         fields = [
             'geo_loc_name', 'year', 'collection_timestamp',
-            'sample_type', 'amplicon_target', 'fwd_primer', 'rev_primer',
             'microcystis_count',
         ]
 
@@ -368,11 +367,11 @@ class SampleFilter(FilterSet):
 
 
 class UniRef90Filter(FilterSet):
-    uniref90 = CharFilter(label='UniRef90 ID')
+    uniref90__accession = CharFilter(label='UniRef90 ID')
 
     class Meta:
         model = UniRef100
-        fields = ['uniref90']
+        fields = ['uniref90__accession']
 
 
 class UniRef100Filter(FilterSet):

@@ -228,6 +228,29 @@ class Uniprot(Model):
         return f'https://www.uniprot.org/uniprot/{self.accession}'
 
 
+class UniRef50(Model):
+    accession = models.TextField(max_length=50, unique=True)
+
+
+class UniRef90(Model):
+    accession = models.TextField(max_length=50, unique=True)
+    uniref50 = models.ForeignKey(UniRef50, **fk_opt)
+
+    # objects = Manager()
+    loader = manager.UniRef90Loader()
+
+    class Meta:
+        verbose_name = 'UniRef90'
+        verbose_name_plural = verbose_name
+
+    def __str__(self):
+        return self.accession
+
+    def get_external_url(self):
+        # TODO: check URL pattern
+        return f'https://www.uniprot.org/uniref/UniRef90_{self.accession}'
+
+
 class UniRef100(Model):
     """
     Model for UniRef100 clusters
@@ -238,7 +261,7 @@ class UniRef100(Model):
     #  1 UR100
     accession = AccessionField()
     #  2 UR90
-    uniref90 = AccessionField(unique=False, verbose_name='UniRef90')
+    uniref90 = models.ForeignKey(UniRef90, **fk_opt)
     #  3 Name
     function_names = models.ManyToManyField(FunctionName)
     #  4 Length
@@ -269,10 +292,6 @@ class UniRef100(Model):
         verbose_name = 'UniRef100'
         verbose_name_plural = verbose_name
 
-        indexes = [
-            models.Index(fields=['uniref90']),
-        ]
-
     def __str__(self):
         return self.accession
 
@@ -295,5 +314,6 @@ def load_umrad():
     """ load all of UMRAD from scratch, assuming an empty DB """
     CompoundRecord.loader.load(skip_on_error=True)
     ReactionRecord.loader.load(skip_on_error=True)
+    UniRef90.loader.load(skip_on_error=False)
     UniRef100.loader.load(skip_on_error=True)
     FuncRefDBEntry.name_loader.load()

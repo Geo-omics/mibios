@@ -99,3 +99,66 @@ def estimate_row_totals(model):
 
     stat_model = apps.get_model('glamr', stat_model_name)
     return int(stat_model.objects.get(name=model._meta.db_table).num_rows)
+
+
+def get_subclasses(cls, _collected=None):
+    """
+    Get given class' subclasses, recursively
+    """
+    subs = {}
+    for i in cls.__subclasses__():
+        if _collected is not None and i in _collected:
+            continue
+        subs[i] = None
+        subs.update(get_subclasses(i, _collected=subs))
+    if _collected is None:
+        # return from original call
+        return list(subs)
+    else:
+        # return from recursive call
+        return subs
+
+
+def check_pg_sequences():
+    """
+    Utility to check that sequences have sensible state
+
+    This is postgresql specific.  Use the sqlsequencereset management command
+    for resetting a sequence.
+    """
+    models = sorted(apps.get_models(), key=lambda x: x._meta.model_name)
+    with connection.cursor() as cur:
+        for i in models:
+            name = i._meta.model_name
+            if i._meta.auto_field is None:
+                print(f'[No auto_field]  {name}')
+                continue
+
+            # assumes sequence with usual name exists
+            seq = f'{i._meta.db_table}_id_seq'
+
+            cur.execute(f'SELECT last_value, is_called from {seq}')
+            res = cur.fetchall()
+
+            try:
+                res, = res
+                last_value, is_called = res
+            except ValueError as e:
+                raise RuntimeError(f'unexpected result from db query ({name}): {e}')
+
+            if not is_called:
+                if last_value != 1:
+                    raise RuntimeError('expecting a one but {last_value=}')
+                last_value = 0
+            if last_obj := i.objects.order_by('-pk').first():
+                max_pk = last_obj.pk
+            else:
+                print(f'[         0 OK]  {name} {last_value}')
+                continue
+
+            if max_pk == last_value:
+                print(f'[           OK]  {name} ({max_pk})')
+            elif max_pk < last_value:
+                print(f'[         < OK]  {name}: {max_pk=} < {last_value=}')
+            else:
+                print(f'[ERROR        ]  {name}: {max_pk=} > {last_value=}')
