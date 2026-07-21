@@ -67,10 +67,12 @@ class BaseMixin(VersionInfoMixin):
         disp = super().dispatch
         if request.user.is_authenticated:
             disp = cache_control(private=True)(disp)
+        elif not hasattr(request, 'session'):
+            # no session middleware
+            pass
         else:
-            if self.is_open:
-                pass
-            elif not hasattr(request, 'session') or request.session.get('admitted'):
+            request.session['numrequests'] = request.session.get('numrequests', 0) + 1
+            if self.is_open or request.session.get('admitted'):
                 pass
             else:
                 return Bouncer.as_view()(request, *args, cache=False, **kwargs)
@@ -94,7 +96,9 @@ class OpenBaseMixin(BaseMixin):
     is_open = True
 
     def get(self, request, *args, **kwargs):
-        request.session['admitted'] = True
+        if 'admitted' not in request.session:
+            request.session['admitted'] = True
+            request.session['entrypath'] = request.path
         return super().get(request, *args, **kwargs)
 
 
