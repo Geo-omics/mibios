@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import Enum
 from functools import cache, cached_property
 from itertools import groupby
@@ -67,11 +68,8 @@ class BaseMixin(VersionInfoMixin):
         disp = super().dispatch
         if request.user.is_authenticated:
             disp = cache_control(private=True)(disp)
-        elif not hasattr(request, 'session'):
-            # no session middleware
-            pass
-        else:
-            request.session['numrequests'] = request.session.get('numrequests', 0) + 1
+        elif hasattr(request, 'session'):
+            self.process_session()
             if self.is_open or request.session.get('admitted'):
                 pass
             else:
@@ -81,6 +79,21 @@ class BaseMixin(VersionInfoMixin):
             disp = cache_page(300)(disp)
 
         return disp(request, *args, **kwargs)
+
+    def process_session(self):
+        session = self.request.session
+        if numreqs := session.get('numrequests', 0):
+            if not session.get('time_to_second'):
+                # second request
+                if first := session.get('first_time'):
+                    first = datetime.fromisoformat(first)
+                    diff = datetime.now().astimezone() - first
+                    session['time_to_second'] = diff.total_seconds()
+        else:
+            # first time request
+            session['first_time'] = datetime.now().astimezone().isoformat()
+
+        session['numrequests'] = numreqs + 1
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
@@ -1757,9 +1770,14 @@ class AvailableDataView(OpenBaseMixin, TemplateView):
 class Bouncer(OpenBaseMixin, TemplateView):
     template_name = 'glamr/bouncer.html'
 
+    def process_session(self):
+        self.request.session['admitted'] = True
+        self.request.session['bounced'] = True
+
     def get(self, request, *args, **kwargs):
-        request.session['admitted'] = True
-        return super().get(request, *args, **kwargs)
+        resp = super().get(request, *args, **kwargs)
+        resp.status_code = 200
+        return resp
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
