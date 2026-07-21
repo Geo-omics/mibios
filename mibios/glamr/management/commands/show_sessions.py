@@ -104,9 +104,11 @@ class Command(BaseCommand):
         self.print(f'expired: {num_expired}')
         self.print(f'bounced off: {num_bounced_off}')
         if num_requests:
-            self.print(f'requests per session: {quantiles(num_requests)}')
+            self.print(f'requests per session: {quantiles(num_requests)} '
+                       f'(total:{len(num_requests)})')
         if second_times:
-            self.print(f'seconds until second request: {quantiles(second_times)}')
+            self.print(f'seconds until second request: {quantiles(second_times)} '
+                       f'(total:{len(second_times)})')
         if paths:
             self.print('Most common entry paths:')
             for path, count in paths.most_common()[:10]:

@@ -81,8 +81,12 @@ class BaseMixin(VersionInfoMixin):
         return disp(request, *args, **kwargs)
 
     def process_session(self):
+        """
+        Manage anonymous sessions
+        """
         session = self.request.session
         if numreqs := session.get('numrequests', 0):
+            # old session
             if not session.get('time_to_second'):
                 # second request
                 if first := session.get('first_time'):
@@ -92,8 +96,18 @@ class BaseMixin(VersionInfoMixin):
         else:
             # first time request
             session['first_time'] = datetime.now().astimezone().isoformat()
+            session.set_expiry(600)
 
         session['numrequests'] = numreqs + 1
+
+        if session.get('challenge'):
+            # expecting challenge response
+            path_good = session.get('challenge_path') == self.request.path
+            query_good = session.get('challenge_query') == self.request.META['QUERY_STRING']  # noqa:E501
+            if path_good and query_good:
+                session['admitted'] = True
+                session.set_expiry(3600 * 24 * 7)
+                del session['challenge']
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
@@ -108,11 +122,12 @@ class BaseMixin(VersionInfoMixin):
 class OpenBaseMixin(BaseMixin):
     is_open = True
 
-    def get(self, request, *args, **kwargs):
-        if 'admitted' not in request.session:
-            request.session['admitted'] = True
-            request.session['entrypath'] = request.path
-        return super().get(request, *args, **kwargs)
+    def process_session(self):
+        super().process_session()
+        if 'admitted' not in self.request.session:
+            self.request.session['admitted'] = True
+            self.request.session['entrypath'] = self.request.path
+            self.request.session.set_expiry(3600 * 24 * 7)
 
 
 class ExportMixin(ExportBaseMixin):
@@ -1771,17 +1786,26 @@ class Bouncer(OpenBaseMixin, TemplateView):
     template_name = 'glamr/bouncer.html'
 
     def process_session(self):
-        self.request.session['admitted'] = True
-        self.request.session['bounced'] = True
+        if not self.request.session.get('challenge'):
+            self.request.session['challenge'] = True
+            self.request.session['challenge_path'] = self.request.path
+            self.request.session['challenge_query'] = self.request.META['QUERY_STRING']
 
     def get(self, request, *args, **kwargs):
         resp = super().get(request, *args, **kwargs)
-        resp.status_code = 200
+        resp.status_code = 429
         return resp
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
-        ctx['url_path'] = self.request.path
+        path = self.request.session.get('challenge_path')
+        query = self.request.session.get('challenge_query')
+        if path and query is not None:
+            if query:
+                query = '?' + query
+            ctx['url'] = f'{path}{query}'
+        else:
+            ctx['url'] = '/'  # robust fallback
         return ctx
 
 
