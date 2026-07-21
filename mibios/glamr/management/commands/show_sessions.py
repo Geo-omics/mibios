@@ -56,8 +56,8 @@ class Command(BaseCommand):
             data = obj.get_decoded()
             data['key'] = obj.session_key
             data['expire_date'] = obj.expire_date
-            if first := data.get('first'):
-                first = datetime.fromisoformat()
+            if first := data.get('first_time'):
+                first = datetime.fromisoformat(first)
                 if start and first < start:
                     continue
                 if end and first < end:
