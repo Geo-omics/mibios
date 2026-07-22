@@ -79,10 +79,10 @@ class Command(BaseCommand):
         now = datetime.now().astimezone()
 
         num_expired = 0
-        num_bounced_off = 0
-        num_via_bouncer = 0
         num_via_entry = 0
         num_requests = []
+        num_challenge = 0
+        num_succeeded = 0
         paths = Counter()
         second_times = []
         for data in sessions:
@@ -92,17 +92,19 @@ class Command(BaseCommand):
                 num_requests.append(data['numrequests'])
             if 'time_to_second' in data:
                 second_times.append(data['time_to_second'])
-            if data.get('bounced'):
-                if data.get('num_requests') == 1:
-                    num_bounced_off += 1
+            if data.get('challenge_path'):
+                if data.get('challenge'):
+                    num_challenge += 1
                 else:
-                    num_via_bouncer += 1
+                    num_succeeded += 1
+
             if path := data.get('entrypath'):
                 num_via_entry += 1
                 paths[path] += 1
 
         self.print(f'expired: {num_expired}')
-        self.print(f'bounced off: {num_bounced_off}')
+        self.print(f'non-responsive challenges: {num_challenge}')
+        self.print(f'successful challenges: {num_succeeded}')
         if num_requests:
             self.print(f'requests per session: {quantiles(num_requests)} '
                        f'(total:{len(num_requests)})')
