@@ -2908,4 +2908,18 @@ class HttpTestView(StaffLoginRequiredMixin, TestViewMixin, TemplateView):
             in sorted(self.request.META.items())
             if k.startswith('HTTP_')
         })
+        req_attrs = ['path_info', 'path', 'COOKIES', 'user', '_current_scheme_host']
+        ctx['request_attrs'] = {
+            k: getattr(self.request, k, '<missing>')
+            for k in req_attrs
+        }
+        meta_keys = [
+            'PATH_INFO', 'QUERY_STRING', 'REMOTE_ADDR', 'REMOTE_HOST',
+            'REQUEST_METHOD', 'SCRIPT_NAME', 'SERVER_NAME', 'SERVER_PORT',
+            'SERVER_PROTOCOL', 'SERVER_SOFTWARE', 'TZ',
+        ]
+        ctx['request_meta'] = {
+            k: self.request.META.get(k, '<missing>')
+            for k in meta_keys
+        }
         return ctx

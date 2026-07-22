@@ -6,4 +6,12 @@
 <table class="table">
 {% for k, v in info.items %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}
 </table>
+<h3>request attributes</h3>
+<table class="table">
+{% for k, v in request_attrs.items %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}
+</table>
+<h3>request META</h3>
+<table class="table">
+{% for k, v in request_meta.items %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}
+</table>
 {% endblock %}
