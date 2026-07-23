@@ -8,6 +8,141 @@
 <a href="{% record_url object %}">{{ object }}</a>
 </h3>
 {% include "glamr/download_links.html" %}
+
+{% if show_abundance_chart %}
+<div class="card my-4">
+  <div class="card-body">
+    <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+      <span class="fw-semibold">Group by:</span>
+      <div class="btn-group btn-group-sm" role="group" aria-label="Chart grouping">
+        <input type="radio" class="btn-check" name="chart-group" id="group-all" value="" autocomplete="off" checked>
+        <label class="btn btn-outline-primary" for="group-all">All</label>
+        <input type="radio" class="btn-check" name="chart-group" id="group-lake" value="lake" autocomplete="off">
+        <label class="btn btn-outline-primary" for="group-lake">Lake</label>
+        <input type="radio" class="btn-check" name="chart-group" id="group-type" value="type" autocomplete="off">
+        <label class="btn btn-outline-primary" for="group-type">Sample type</label>
+        <input type="radio" class="btn-check" name="chart-group" id="group-both" value="both" autocomplete="off">
+        <label class="btn btn-outline-primary" for="group-both">Lake &amp; type</label>
+      </div>
+      <small id="chart-status" class="text-muted"></small>
+    </div>
+    <div style="position:relative;height:380px;">
+      <canvas id="abundance-chart" data-url="{{ chart_data_url }}"></canvas>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% render_table table %}
 {% endblock %}
 
+{% block bottom_of_body %}
+{{ block.super }}
+{% if show_abundance_chart %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  var canvasEl = document.getElementById('abundance-chart');
+  var statusEl = document.getElementById('chart-status');
+  var CHART_DATA_URL = canvasEl.dataset.url;
+
+  var COLORS = [
+    '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+    '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+    '#aec7e8', '#ffbb78',
+  ];
+
+  var chart = null;
+
+  function buildDatasets(series) {
+    return series.map(function (s, i) {
+      return {
+        label: s.label,
+        data: s.data,
+        borderColor: COLORS[i % COLORS.length],
+        backgroundColor: COLORS[i % COLORS.length] + '33',
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        tension: 0.1,
+        showLine: true,
+      };
+    });
+  }
+
+  function renderChart(series) {
+    var datasets = buildDatasets(series);
+    if (chart) {
+      chart.data.datasets = datasets;
+      chart.update();
+      return;
+    }
+    chart = new Chart(canvasEl, {
+      type: 'scatter',
+      data: { datasets: datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            type: 'time',
+            time: {
+              tooltipFormat: 'yyyy-MM-dd',
+              displayFormats: { month: 'MMM yyyy', year: 'yyyy' },
+            },
+            title: { display: true, text: 'Collection date' },
+          },
+          y: {
+            title: { display: true, text: 'Abundance (TPM)' },
+            beginAtZero: true,
+          },
+        },
+        plugins: {
+          tooltip: {
+            callbacks: {
+              afterBody: function (items) {
+                var pt = items[0] && items[0].raw;
+                return pt && pt.sample ? ['Sample: ' + pt.sample] : [];
+              },
+            },
+          },
+          legend: { position: 'bottom' },
+        },
+      },
+    });
+  }
+
+  function loadChart(groupBy) {
+    statusEl.textContent = 'Loading…';
+    var url = new URL(CHART_DATA_URL, window.location.href);
+    if (groupBy) {
+      url.searchParams.set('group_by', groupBy);
+    }
+    fetch(url, { credentials: 'same-origin' })
+      .then(function (resp) {
+        if (!resp.ok) { throw new Error(resp.statusText); }
+        return resp.json();
+      })
+      .then(function (json) {
+        if (!json.series.length) {
+          statusEl.textContent = 'No samples with collection dates.';
+          return;
+        }
+        renderChart(json.series);
+        statusEl.textContent = '';
+      })
+      .catch(function (e) {
+        statusEl.textContent = 'Chart error: ' + e.message;
+      });
+  }
+
+  document.querySelectorAll('input[name="chart-group"]').forEach(function (el) {
+    el.addEventListener('change', function () { loadChart(el.value); });
+  });
+
+  loadChart('');
+})();
+</script>
+{% endif %}
+{% endblock %}
