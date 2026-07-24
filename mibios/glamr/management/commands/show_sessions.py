@@ -83,13 +83,17 @@ class Command(BaseCommand):
         num_requests = []
         num_challenge = 0
         num_succeeded = 0
+        num_single = 0
         paths = Counter()
         second_times = []
         for data in sessions:
             if data['expire_date'] <= now:
                 num_expired += 1
             if 'numrequests' in data:
-                num_requests.append(data['numrequests'])
+                if data['numrequests'] == 1:
+                    num_single += 1
+                else:
+                    num_requests.append(data['numrequests'])
             if 'time_to_second' in data:
                 second_times.append(data['time_to_second'])
             if data.get('challenge_path'):
@@ -105,8 +109,9 @@ class Command(BaseCommand):
         self.print(f'expired: {num_expired}')
         self.print(f'non-responsive challenges: {num_challenge}')
         self.print(f'successful challenges: {num_succeeded}')
+        self.print(f'single requests: {num_single}')
         if num_requests:
-            self.print(f'requests per session: {quantiles(num_requests)} '
+            self.print(f'multi-requests per session: {quantiles(num_requests)} '
                        f'(total:{len(num_requests)})')
         if second_times:
             self.print(f'seconds until second request: {quantiles(second_times)} '
