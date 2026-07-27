@@ -2398,7 +2398,7 @@ class FrontPageView(SearchFormMixin, MapMixin, OpenBaseMixin, SingleTableView):
         dataset_count = len(ctx['table'].data)
         head = [('', f'All datasets ({dataset_count})')]
         for i in df.columns:
-            conf.filter['sample__sample_type'] = i
+            conf.filter['sample__seqsample__sample_type'] = i
             head.append((conf.url_query(), i))
         dataset_summary_data = [head]
         for lake, lake_counts in df.to_dict(orient='index').items():
@@ -2421,7 +2421,7 @@ class FrontPageView(SearchFormMixin, MapMixin, OpenBaseMixin, SingleTableView):
         conf = DataConfig(Sample)
         head = [('', f'All samples ({df.sum().sum()})')]
         for i in df.columns:
-            conf.filter['sample_type'] = i
+            conf.filter['seqsample__sample_type'] = i
             head.append((conf.url_query(), i))
         sample_summary_data = [head]
         for lake, lake_counts in df.to_dict(orient='index').items():
