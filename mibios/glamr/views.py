@@ -1615,10 +1615,14 @@ class AbundanceView(MapMixin, BreadCrumbMixin, ModelTableMixin, BaseMixin,
         TaxonAbundance: {
             'table_class': tables.TaxonAbundanceTable,
             'sample_filter_key': 'seqsample__taxonabundance__taxon',
+            'chart_object_fk': 'taxon',
+            'chart_abund_measure': 'tpm',
         },
         ReadAbundance: {
             'table_class': tables.ReadAbundanceTable,
             'sample_filter_key': 'seqsample__functional_abundance__ref',
+            'chart_object_fk': 'ref',
+            'chart_abund_measure': 'tpm',
         },
         FuncAbundance: {
             'table_class': tables.FunctionAbundanceTable,
@@ -1631,6 +1635,8 @@ class AbundanceView(MapMixin, BreadCrumbMixin, ModelTableMixin, BaseMixin,
         FunctionNameAbundance: {
             'table_class': tables.FunctionNameAbundanceTable,
             'sample_filter_key': 'seqsample__function_name_abundance__name',
+            'chart_object_fk': 'name',
+            'chart_abund_measure': 'sum_tpm',
         },
     }
 
@@ -1700,6 +1706,15 @@ class AbundanceView(MapMixin, BreadCrumbMixin, ModelTableMixin, BaseMixin,
         ctx['model_name_verbose'] = self.model._meta.verbose_name
         ctx['object'] = self.object
         ctx['object_model_name'] = self.object_model._meta.model_name
+        if hasattr(self, 'chart_object_fk'):
+            ctx['show_abundance_chart'] = True
+            ctx['chart_data_url'] = reverse(
+                'abundance_chart_data',
+                kwargs={
+                    'model': self.object_model._meta.model_name,
+                    'pk': self.object.pk,
+                },
+            )
         return ctx
 
     def get_sample_queryset(self):
@@ -1768,6 +1783,65 @@ class AbundanceGeneView(ModelTableMixin, BaseMixin, SingleTableView):
             return self.get_queryset().to_fasta()
         else:
             return super().get_values()
+
+
+class AbundanceChartDataView(AbundanceView):
+    """JSON time-series abundance data for the abundance chart"""
+    def setup(self, request, *args, **kwargs):
+        super().setup(request, *args, **kwargs)
+        if not hasattr(self, 'chart_object_fk'):
+            raise Http404(f'chart not supported for model: {self.object_model}')
+
+    def get(self, request, *args, **kwargs):
+
+        series = {}
+        for rec in self.get_queryset():
+            match request.GET.get('group_by', ''):
+                case 'lake':
+                    group = rec['sample__parent__geo_loc_name'] or 'Unknown'
+                case 'type':
+                    group = rec['sample__sample_type'] or 'Unknown'
+                case 'both':
+                    lake = rec['sample__parent__geo_loc_name'] or 'Unknown'
+                    stype = rec['sample__sample_type'] or 'Unknown'
+                    group = f'{lake} / {stype}'
+                case _:
+                    group = 'All samples'
+
+            if group not in series:
+                series[group] = []
+
+            ts = rec['sample__parent__collection_timestamp']
+
+            series[group].append({
+                'x': ts.strftime('%Y-%m-%d'),
+                'y': rec[self.chart_abund_measure],
+                'sample': rec['sample__parent__sample_id'],
+            })
+
+        data = [
+            {'label': label, 'data': pts}
+            for label, pts in sorted(series.items())
+        ]
+        return JsonResponse({'series': data})
+
+    def get_queryset(self):
+        qs = (
+            self.model.objects
+            .filter(**{self.chart_object_fk: self.object})
+            .exclude(sample__parent__collection_timestamp__isnull=True)
+            .exclude(**{f'{self.chart_abund_measure}__isnull': True})
+        )
+        qs = exclude_private_data(qs, self.request.user)
+        qs = qs.order_by('sample__parent__collection_timestamp')
+
+        return qs.values(
+            self.chart_abund_measure,
+            'sample__parent__sample_id',
+            'sample__parent__collection_timestamp',
+            'sample__parent__geo_loc_name',
+            'sample__sample_type',
+        )
 
 
 class AvailableDataView(OpenBaseMixin, TemplateView):
