@@ -533,7 +533,7 @@ class SampleLoader(BoolColMixin, MetaDataLoader):
     def normalize_space(self, value, **ctx):
         """ replace non-breaking space """
         if value:
-            value = re.sub(r'/xa0', ' ', value)
+            value = value.replace(chr(160), ' ')
         return value
 
     spec = SampleInputSpec(
