@@ -654,7 +654,7 @@ class SampleTable(Table):
         linkify=linkify_record,
         empty_values=[],
     )
-    sample_type = Column(empty_values=[])
+    sample_type = Column(empty_values=[], orderable=False)
     geo_loc_name = Column(
         empty_values=[],
         verbose_name='Location / site',
