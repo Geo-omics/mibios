@@ -11,7 +11,7 @@ from django_filters import BooleanFilter, CharFilter, ChoiceFilter, \
 from django_filters.widgets import RangeWidget
 
 from mibios.glamr.models import Dataset, Reference, Sample
-from mibios.omics.models import ReadAbundance
+from mibios.omics.models import ReadAbundance, SeqSample
 from mibios.umrad.models import UniRef100
 
 from django.contrib.postgres.search import SearchQuery
@@ -380,6 +380,20 @@ class UniRef100Filter(FilterSet):
     class Meta:
         model = UniRef100
         fields = ['accession']
+
+
+class SeqSampleFilter(FilterSet):
+    sample_type = ChoiceFiFi()
+    amplicon_target_label = ChoiceFiFi(label='amplicon target (text)')
+    fwd_primer = ChoiceFiFi()
+    rev_primer = ChoiceFiFi()
+
+    is_primary = True
+
+    class Meta:
+        model = SeqSample
+        fields = ['sample_type', 'amplicon_target', 'amplicon_target_label',
+                  'fwd_primer', 'rev_primer']
 
 
 class FilterRegistry:

@@ -285,7 +285,10 @@ class SeqSample(IDMixin, Model):
     )
 
     sample_type = models.CharField(max_length=32, choices=Type.choices, **opt)
-    amplicon_target = models.ForeignKey(AmpliconTarget, **fk_opt)
+    amplicon_target = models.ForeignKey(
+        AmpliconTarget, **fk_opt,
+        verbose_name='Amplicon target (ASV type)',
+    )
     sra_accession = models.TextField(max_length=16, **ch_opt,
                                      verbose_name='SRA accession')
     gold_analysis_id = models.TextField(max_length=32, **ch_opt)
