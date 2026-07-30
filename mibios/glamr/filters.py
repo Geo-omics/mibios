@@ -296,7 +296,7 @@ class ReadAbundanceFilter(FilterSet):
         """
         Filter by accession and if that fails by function name full-text search
         """
-        urqs = UniRef100.objects.filter(Q(accession=value) | Q(uniref90=value))
+        urqs = UniRef100.objects.filter(Q(accession=value) | Q(uniref90__accession=value))
         if urqs.exists():
             # This exist() is much faster than testing via filter on join;
             # Further, doing the accession filter together with the full-text
