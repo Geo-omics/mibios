@@ -2071,6 +2071,187 @@ class UniRef100Loader(IdMappingMixin, BulkLoader):
         ('biocyc', None),
     )
 
+    def read_lengths_file(self, path, accns_only=None, limit=None):
+        """
+        Generator parsing rows from the length file
+
+        Helper for load_lengths()
+        """
+        with open(path) as ifile:
+            pp = ProgressPrinter('lengths processed', length=limit)
+            for lnum, line in enumerate(pp(ifile), start=1):
+                if limit and limit < lnum:
+                    pp.finish()
+                    break
+
+                accn, length = line.rstrip('\n').split('\t')
+
+                accn = accn.removeprefix('UniRef100_')
+                if accns_only and accn not in accns_only:
+                    continue
+
+                try:
+                    length = int(length)
+                except ValueError as e:
+                    raise RuntimeError(f'failed parsing length: {e} at line {lnum}')
+
+                yield accn, length
+
+    @atomic_dry
+    def load_lengths(self, length_file, missing_only=False, batch_size=5000,
+                     limit=None, explain=False):
+        """
+        Overwrite lengths with data from mmseqs2 reference.
+
+        Some records have their lengths missing because they were side-loaded
+        from omics pipeline data.  Some of our lengths differ from what the
+        metagenomic pipline uses.
+
+        length_file:
+            A file prepared with the uniref100_lengths management command.
+
+        missing_only [bool]:
+            If True, then keep existing data and only fill-in missing lengths.
+            This option should speed up things if there are only few
+            length-less records.
+
+        batch_size:
+            How many rows to update in one DB query.  It's not clear that this
+            has much of an effect.
+
+        limit [int]:
+            For testing, only read this many lines of input.
+
+        explain [bool]:
+            If True, then do EXPLAIN on the update query for the first batch
+            and return.  For testing.
+
+        This uses raw sql that will only work with postgres.
+        """
+        if missing_only:
+            print('Retrieving records w/missing length...', end=' ', flush=True)
+            accns = set(self.filter(lengths=None).values_list('accession', flat=True))
+            print(f'{len(accns)} [OK]')
+        else:
+            accns = None
+
+        def get_sql_txt(param_length):
+            if param_length % 2 != 0:
+                raise ValueError('parameter length must be divisible by two')
+            list_template = ','.join(repeat('(%s,%s)', param_length // 2))
+            sql = (
+                f'UPDATE {self.model._meta.db_table} SET length = values.length '
+                f'FROM ( values {list_template} ) AS values(accn, length) '
+                f'WHERE accession = values.accn'
+            )
+            return sql
+
+        with connection.cursor() as cursor:
+            sql = None
+            param_batch_size = batch_size * 2
+            rowcount_file = 0
+            rowcount = 0
+            times = []
+            rows = self.read_lengths_file(length_file, accns_only=accns, limit=limit)
+            while True:
+                params = [i for pair in islice(rows, batch_size) for i in pair]
+                if not params:
+                    break
+                if sql is None or len(params) < param_batch_size:
+                    # first or last batch, make sql statement
+                    sql = get_sql_txt(len(params))
+                    if explain:
+                        sql = 'EXPLAIN ' + sql
+                t0 = monotonic()
+                cursor.execute(sql, params)
+                times.append(monotonic() - t0)
+                rowcount_file += len(params) // 2
+                if explain:
+                    for row in cursor.fetchall():
+                        print(row[0])
+                    break
+                rowcount += cursor.rowcount
+
+        print(f'timeing stats: {[round(i, 2) for i in quantiles(times)]}')
+        print(f'UniRef100 records updated: {rowcount} [OK]')
+        if missing := (rowcount_file - rowcount):
+            print(f'[WARNING] {missing} UniRef100s from input file are missing'
+                  f' from DB')
+
+    def check_lengths(self, length_file, verbose=False, batch_size=None):
+        """
+        Load lengths against length file made with uniref100_lengths command.
+
+        batch_size:
+            How many DB records to check at once.  Default of 30x10^6 keeps
+            memory usage below 15GB or so.  The lengths file will be read once
+            per batch.
+        """
+        if not batch_size:
+            batch_size = 30_000_000
+
+        qs = self.exclude(length=None).order_by('pk').values_list('accession', 'length')
+        low_pk = 0
+        num = 1
+        total_good = 0
+        total_bad = 0
+        total_nodata = 0
+        diffs = []
+        while True:
+            good = 0
+            bad = 0
+            print(f'Batch {num}: loading...', end=' ', flush=True)
+            lengths = dict(qs.filter(pk__gt=low_pk)[:batch_size])
+            if not lengths:
+                print('[ALL DONE]')
+                break
+
+            last_accn = next(reversed(lengths.keys()))
+            low_pk = self.get(accession=last_accn).pk
+
+            print(f'{len(lengths)}, checking...', end=' ', flush=True)
+            with open(length_file) as ifile:
+                for lnum, line in enumerate(ifile, start=1):
+                    accn, length = line.rstrip('\n').split('\t')
+                    try:
+                        length = int(length)
+                    except ValueError as e:
+                        raise RuntimeError(f'failed parsing length: {e} at line {lnum}')
+
+                    accn = accn.removeprefix('UniRef100_')
+                    if db_len := lengths.pop(accn, None):
+                        if diff := (db_len - length):
+                            bad += 1
+                            diffs.append(diff)
+                            if verbose:
+                                print(f'[BAD] {accn}: {db_len} (DB) != {length} (file)')
+                        else:
+                            good += 1
+                    if not lengths:
+                        break  # early finish
+
+            print(f'good: {good}', end='')
+            if bad:
+                print(f'  bad: {bad}', end='')
+            if lengths:
+                total_nodata += len(lengths)
+                print(f'  missing: {len(lengths)}', end='')
+            print()
+
+            total_good += good
+            total_bad += bad
+            num += 1
+
+        print(f'total good: {total_good}')
+        print(f'total bad: {total_bad}')
+        print(f'missing from file: {total_nodata}')
+        if diffs:
+            print(f'diff stats: {quantiles(diffs)}')
+        if neg_diffs := [i for i in diffs if i < 0]:
+            print(f'neg diff stats: {quantiles(neg_diffs)}')
+        if pos_diffs := [i for i in diffs if 0 < i]:
+            print(f'pos diff stats: {quantiles(pos_diffs)}')
+
 
 class BaseManager(MibiosBaseManager):
     """ Manager class for UMRAD data models """
