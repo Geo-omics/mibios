@@ -705,32 +705,33 @@ class SampleTable(Table):
         return record.format_collection_timestamp()
 
 
-class SeqSampleTable(Table):
-    """
-    table of SeqSamples belonging to one bio sample
-
-    for display on bio sample detail page
-    """
-    sample_type = Column(orderable=False)
-    accession = Column(orderable=False, empty_values=[''])
-    amplicon_target = Column(orderable=False)
-    primers = Column(orderable=False, empty_values=[])
-    links = Column(
-        verbose_name='Data analysis',
-        orderable=False,
-        empty_values=[]
+class AssayTable(Table):
+    sample_name = Column(
+        verbose_name='Assay name/ID',
+        linkify=linkify_record,
+        empty_values=[],
     )
+    sample_type = Column()
+    accession = Column(
+        order_by=('sra_accession', 'gold_analysis_id', 'gold_seq_id'),
+        empty_values=[''],
+    )
+    amplicon_target = Column()
+    primers = Column(order_by=('fwd_primer', 'rev_primer'), empty_values=[])
 
     html_fields = (
-        'accession', 'sample_type', 'amplicon_target', 'primers',
+        'sample_name', 'accession', 'sample_type', 'amplicon_target', 'primers',
     )
 
     class Meta:
         model = omics_models.SeqSample
         sequence = [
-            'sample_type', 'sra_accession', 'amplicon_target', 'primers',
+            'sample_name', 'sample_type', 'sra_accession', 'amplicon_target', 'primers',
         ]
-        empty_text = 'no sample sequencing data available'
+        empty_text = 'no sequencing data or other assays available'
+
+    def render_sample_name(self, record):
+        return str(record)
 
     def render_accession(self, record):
         accn = ' '.join((
@@ -748,9 +749,28 @@ class SeqSampleTable(Table):
             if i
         ))
 
+
+class BiosampleAssayTable(AssayTable):
+    """
+    Table of assays (of any type) belonging to one biosample
+
+    For display on bio sample detail page.
+    """
+    links = Column(
+        verbose_name='Data analysis',
+        orderable=False,
+        empty_values=[]
+    )
+
+    class Meta(AssayTable.Meta):
+        orderable = False
+
     def render_links(self, record):
+        if record.analysis_urls is None:
+            return ''
+
         urls = []
-        for txt, url in record.urls.items():
+        for url, txt in record.analysis_urls:
             urls.append(format_html(
                 '<a href="{url}">{txt}</a>',
                 url=url, txt=txt,

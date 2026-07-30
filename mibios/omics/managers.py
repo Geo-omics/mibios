@@ -1564,7 +1564,7 @@ class TaxonAbundanceManager(Manager):
 
     def make_all_krona_charts(self, keep_existing=True):
         """
-        Create krona charts in chache directory
+        Create krona charts in krona cache directory
 
         Makes charts for all samples for which there is some tax abundance.
         The default is to keep existing charts.  To re-create charts set

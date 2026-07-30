@@ -43,7 +43,7 @@ from mibios.views import (
 )
 from mibios.omics.models import (
     CompoundAbundance, Contig, FuncAbundance, FunctionNameAbundance, IDMixin,
-    ReadAbundance, SampleTracking, SeqSample, TaxonAbundance,
+    ReadAbundance, SeqSample, TaxonAbundance,
 )
 from mibios.ncbi_taxonomy.models import TaxNode
 from mibios.umrad.models import FunctionName, FuncRefDBEntry, UniRef100
@@ -786,6 +786,7 @@ class ModelTableMixin(GenericModelMixin, ExportMixin):
         models.Reference: tables.ReferenceTable,
         TaxNode: tables.TaxNodeTable,
         File: tables.FileTable,
+        SeqSample: tables.AssayTable,
     }
 
     EXTRA_EXPORT_OPTIONS = {
@@ -2670,72 +2671,22 @@ class SampleView(MapMixin, RecordView):
         value = self.object.format_collection_timestamp()
         return (name, info, [(value, None)], None)
 
-    def get_seqsample_data(self):
-        """ get URLs and context data to display seqsample info """
-        data = []
-        for seqsamp in self.object.seqsample_set.all():
-            flags = {i.flag for i in seqsamp.tracking.all()}
-            urls = {}
-
-            if SampleTracking.Flag.TAXABUND in flags:
-                urls['krona chart'] = reverse(
-                    'krona', kwargs=dict(samp_no=seqsamp.get_record_id_no())
-                )
-                urls['abundance/taxa'] = reverse(
-                    'relations',
-                    kwargs=dict(
-                        obj_model='seqsample',
-                        pk=seqsamp.pk,
-                        field='taxonabundance',
-                    ),
-                )
-
-            if seqsamp.sample_type == SeqSample.Type.METAGENOME:
-                if SampleTracking.Flag.UR1ABUND in flags:
-                    urls['abundance/functions'] = reverse(
-                        'relations',
-                        kwargs=dict(
-                            obj_model='seqsample',
-                            pk=seqsamp.pk,
-                            field='functional_abundance',
-                        ),
-                    )
-                if SampleTracking.Flag.BINNING in flags:
-                    urls['MAGs'] = reverse(
-                        'relations',
-                        kwargs=dict(
-                            obj_model='seqsample',
-                            pk=seqsamp.pk,
-                            field='bin',
-                        ),
-                    )
-            elif seqsamp.sample_type == SeqSample.Type.AMPLICON:
-                if seqsamp.asvabundance_set.exists():  # TODO repl w/flag test
-                    urls['ASV abundance'] = reverse(
-                        'relations',
-                        kwargs=dict(
-                            obj_model='seqsample',
-                            pk=seqsamp.pk,
-                            field='asvabundance',
-                        ),
-                    )
-
-            if seqsamp.file_set.exists():
-                urlkw = dict(
-                    obj_model='seqsample',
-                    pk=seqsamp.pk,
-                    field='file',
-                )
-                urls['file downloads'] = reverse('relations', kwargs=urlkw)
-            seqsamp.urls = urls
-            data.append(seqsamp)
-        return data
-
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         # ctx['header_link_groups'] = self.get_header_links()
-        ctx['seqsample_table'] = \
-            tables.SeqSampleTable(self.get_seqsample_data())
+        assays = self.object.seqsample_set.all()
+        for i in assays:
+            i.set_analysis_urls(
+                lambda field: reverse(
+                    'relations',
+                    kwargs=dict(
+                        obj_model='seqsample',
+                        pk=i.pk,
+                        field=field,
+                    )
+                )
+            )
+        ctx['seqsample_table'] = tables.BiosampleAssayTable(assays)
         return ctx
 
 

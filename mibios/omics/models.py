@@ -325,6 +325,7 @@ class SeqSample(IDMixin, Model):
     loader = managers.SeqSampleLoader.from_queryset(SeqSampleQuerySet)()
 
     class Meta:
+        verbose_name = 'assay'
         indexes = [
             GinIndex(
                 fields=['access'],
@@ -337,7 +338,17 @@ class SeqSample(IDMixin, Model):
     id_attr = 'sample_id'
 
     def __str__(self):
-        return self.sample_id
+        value = self.sample_name or self.sample_id
+        annotations = []
+        if settings.INTERNAL_DEPLOYMENT:
+            annotations.append(self.sample_id)
+
+        if not self.is_public():
+            annotations.append('non-public')
+
+        if annotations:
+            value = f'{value} ({", ".join(annotations)})'
+        return value
 
     def _do_insert(self, manager, using, fields, returning_fields, raw):
         if connection.vendor != 'postgresql':
@@ -539,8 +550,50 @@ class SeqSample(IDMixin, Model):
         return self.__class__.loader.filter(pk=self.pk).get_ready()
 
     def load_omics_data(self):
-        """ Convenience methodto load the sample's omics data """
+        """ Convenience method to load the sample's omics data """
         return self.__class__.loader.load_omics_data(samples=[self])
+
+    @property
+    def analysis_urls(self):
+        """
+        List of pairs of str: (url, label) of URLs pointing to analysis results.
+
+        First call set_analysis_urls() to populate this.
+        """
+        return getattr(self, '_analysis_urls', None)
+
+    def set_analysis_urls(self, field2url):
+        """
+        Populate the analysis_urls attribute.
+
+        field2url:
+            Callable that takes name of related field and returns a URL that
+            lists abundance data (or similar analysis results)
+        """
+        flags = {i.flag for i in self.tracking.all()}
+        urls = []
+
+        match self.sample_type:
+            case SeqSample.Type.METAGENOME:
+                if SampleTracking.Flag.TAXABUND in flags:
+                    urls.append((
+                        reverse('krona', args=(self.get_record_id_no(),)),
+                        'krona chart'
+                    ))
+                    urls.append((field2url('taxonabundance'), 'abundance/taxa'))
+                if SampleTracking.Flag.UR1ABUND in flags:
+                    urls.append((field2url('functional_abundance'),
+                                 'abundance/functions'))
+                if SampleTracking.Flag.BINNING in flags:
+                    urls.append((field2url('bin'), 'MAGs'))
+            case SeqSample.Type.AMPLICON:
+                if self.asvabundance_set.exists():  # TODO repl w/flag test
+                    urls.append((field2url('asvabundance'), 'ASV abundance'))
+            case _: pass
+
+        if self.file_set.exists():
+            urls.append((field2url('file'), 'file downloads'))
+        self._analysis_urls = urls
 
 
 class AbstractDataset(Model):

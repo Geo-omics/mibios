@@ -12,4 +12,5 @@ urlpatterns = [
     path('download-files/', views.FileListingView.as_view(), name='file_listing'),  # noqa:E501
     path('contig/<int:pk>/sequence/', views.ContigSequenceView.as_view(), name='contig_seq'),  # noqa:E501
     path('import-timeline/', views.ImportTimelineView.as_view(), name='import_timeline'),  # noqa:E501
+    path('krona/<int:samp_no>/', views.krona, name='krona'),
 ]

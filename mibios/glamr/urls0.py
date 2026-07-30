@@ -19,7 +19,6 @@ from django.views.generic import RedirectView
 
 from mibios import urls as mibios_urls
 from mibios.omics import urls as omics_urls
-from mibios.omics.views import krona
 
 from . import accounts, views
 from .admin import admin_site
@@ -54,7 +53,6 @@ urlpatterns = [
     re_path(rf'dataset/{kpat}/$', views.DatasetView.as_view(), name='dataset'),  # noqa: E501
     re_path(rf'reference/{kpat}/$', views.ReferenceView.as_view(), name='reference'),  # noqa: E501
     re_path(rf'sample/{kpat}/$', views.SampleView.as_view(), name='sample'),  # noqa: E501
-    path('sample/<int:samp_no>/krona/', krona, name='krona'),
     path('function/<str:name>/', views.FunctionView.as_view(), name='function'),  # noqa: E501
     path('data/', views.AvailableDataView.as_view(), name='available_data'),
     path('data/<str:model>/', views.TableView.disp_view, name='generic_table'),  # noqa: E501
