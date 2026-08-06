@@ -1,9 +1,11 @@
+from collections import Counter
 from enum import Enum
 from datetime import datetime
 from functools import partial, wraps
 from inspect import signature
 from io import UnsupportedOperation
 from itertools import chain, zip_longest
+import math
 from operator import length_hint
 import os
 from pathlib import Path
@@ -1167,3 +1169,67 @@ class FKMap(dict):
             raise e
 
         return self[field.name].get(value, None)
+
+
+class Bloom:
+    """ A bloom filter """
+
+    def __init__(self, size, numkeys=10):
+        """
+        Initialize the bloom filter.
+
+        size:
+            Size of the filter in bytes. The width of the bitfield will be
+            eight times that.
+
+        numkeys:
+            Number of hash functions that will be used.
+        """
+        self.numkeys = numkeys
+        self.length = size * 8
+        self.field = bytearray(size)
+
+    @classmethod
+    def with_requirements(cls, expected_n, error_rate):
+        """
+        Get bloom filter with optimal parameters based on acceptable error rate
+        and expected number of elements
+        """
+        # cf. en.wikipedia.org/wiki/Bloom_filter#Optimal_number_of_hash_functions
+        length = - expected_n * math.log(error_rate) / math.log(2)**2
+        numkeys = length * math.log(2) / expected_n
+        return cls(round(length / 8), round(numkeys))
+
+    def get_hashes(self, value):
+        for i in range(self.numkeys):
+            # 1. hash() to return signed 64 bit int, so 63 bits with abs(),
+            # assuming that self.length is smaller
+            # 2. adding suffices to make the hashes independent from each
+            # other, so if those suffices are common in the data we'll have
+            # more partial collisions than otherwise
+            k = abs(hash(value + '@' * i)) % self.length
+            yield k // 8, 2**(k % 8)
+
+    def add(self, value):
+        for pos, bit in self.get_hashes(value):
+            self.field[pos] |= bit
+
+    def __contains__(self, value):
+        for pos, bit in self.get_hashes(value):
+            if not self.field[pos] & bit:
+                return False
+        return True
+
+    def get_fill_rate(self):
+        """
+        Get portion of bits set to one.
+        """
+        byte_counts = Counter(self.field)
+        ones = 0
+        for i in range(256):
+            count = byte_counts.get(i, 0)
+            # How many bits are one in this kind of byte?
+            num_bits = sum((2**exp & i == 2**exp) for exp in range(8))
+            ones += count * num_bits
+
+        return ones / (len(self.field) * 8)
