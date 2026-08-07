@@ -2,11 +2,12 @@ from collections import defaultdict
 from decimal import Decimal
 from functools import partial
 from inspect import trace
-from itertools import islice, tee
+from itertools import islice, repeat, tee
 from logging import getLogger
 from operator import attrgetter, length_hint
+from statistics import quantiles
 import subprocess
-from time import sleep
+from time import monotonic, sleep
 
 from django.conf import settings
 from django.core.exceptions import FieldDoesNotExist, ValidationError
@@ -1668,6 +1669,262 @@ class UniRef90Loader(IdMappingMixin, BulkLoader):
 
         # save final batch
         save_batch(accns)
+
+    @atomic_dry
+    def load_clustering(self, file=None, update=True, bulk=True, validate=False,
+                        skip_on_error=False, batch_size=25000, limit=None,
+                        explain=False, alt='c'):
+        """
+        Populate the uniref50 field from idmapping.dat file.
+
+        This uses postgres specific raw SQL (UPDATE FROM VALUES)
+
+        limit:
+            Number of lines to read from the input file.  For testing only.
+            The idmapping file has maybe one clustering assignment per 20 or 30
+            lines.
+        batch_size:
+            How many rows to update in a single SQL UPDATE FROM statement.
+            Anything between 2000 and 100000 seems to be good enough,
+            translating to about about 25000 to 33000 roiws per second.  There
+            seems to be a regression for larger statments.  Note that the
+            responsible code works with the number of sql parameters and each
+            row uses two paramters.
+        explain:
+            If True, then print the SQL query EXPLAIN for the first batch and
+            exit.  For testing only.
+        alt [str]:
+            Switch between two UPDATE FROM statement variants.  If
+            False, the (a) variant is used, which passes the accessions to the
+            DB and runs a JOIN to lookup the UniRef50 PKs.  If True, then use
+            variant (b) which retrieves all the UniRef50/90 accessions/PKs and
+            does the lookup in python and passes the PKs to the DB.
+        """
+
+        if file is None:
+            file = self.get_idmapping_file()
+
+        if not bulk or validate or skip_on_error:
+            raise NotImplementedError()
+
+        ur90to50 = {}
+        rows0 = self.readline_idmapping(file, limit=limit)
+        [rows] = tee(rows0, 1)  # make look-ahead work
+
+        err1 = err2 = 0
+        lnum = 0
+        for unipro, dbname0, _ in rows:
+            lnum += 1
+            # Uniprot's idmapping.dat file: We're looking for sets of three
+            # consecutive rows that map a uniprot id to UniRef100/90/50
+            # respectively.  In such a triplet, the '100 always comes first
+            # followed by the '90 and then '50 line.  Note that some UniRef100s
+            # are not part of a '90 cluster.
+            # TODO: also assign UniRef100s to 90 clusters? (some got to be missing)
+            if dbname0 == 'UniRef100':
+                (unipro1, dbname1, accn1), (unipro2, dbname2, accn2) = self.peek2(rows)
+                if unipro1 != unipro or unipro2 != unipro:
+                    err1 += 1
+                    continue
+                if dbname1 != 'UniRef90':
+                    # record not clustered into UniRef90 (nor 50 presumably)
+                    continue
+                if dbname2 != 'UniRef50':
+                    err2 += 3
+                    continue
+                accn1 = accn1.removeprefix('UniRef90_')
+                accn2 = accn2.removeprefix('UniRef50_')
+
+                if accn50 := ur90to50.get(accn1, None):
+                    # test against data from earlier row
+                    if accn2 != accn50:
+                        raise RuntimeError(
+                            f'Inconsistent clustering: {lnum=} {accn50=} != {accn2=}'
+                        )
+                else:
+                    ur90to50[accn1] = accn2
+
+                # consume the peeked rows
+                next(rows)
+                next(rows)
+                lnum += 2
+
+        if err1 or err2:
+            # if this happens, maybe our assumptions as to the idmapping.dat
+            # file format are wrong
+            print(f'[WARNING] {err1=} {err2=}')
+
+        print(f'Found {len(ur90to50)} 90-to-50 assignments.')
+
+        print('Preparing sql params...', end=' ', flush=True)
+        match alt:
+            case 'a': get_sql, params = self.get_sql_params_a(ur90to50)
+            case 'b': get_sql, params = self.get_sql_params_b(ur90to50)
+            case 'c': get_sql, params = self.get_sql_params_c(ur90to50)
+            case _: raise ValueError('invalid alternative implementation')
+        del ur90to50
+        print(f'Compiled sql parameters: {len(params)} params [OK]')
+
+        if not update:
+            print('Deleting existing clustering...', end=' ', flush=True)
+            count = self.exclude(uniref50=None).update(uniref50=None)
+            print(f'{count} [OK]')
+
+        sql = None
+        with connection.cursor() as cursor:
+            param_batch_size = batch_size * 2
+            rowcount = 0
+            timing = []
+            pp = ProgressPrinter('rows updated', length=len(params) // 2)
+            start = 0
+            while batch_params := params[start:start + param_batch_size]:
+                if sql is None or len(batch_params) < param_batch_size:
+                    sql = get_sql(len(batch_params), explain)
+                t0 = monotonic()
+                cursor.execute(sql, batch_params)
+                if len(batch_params) == param_batch_size:
+                    timing.append(monotonic() - t0)
+                if explain:
+                    for row in cursor.fetchall():
+                        print(row[0])
+                    return
+                rowcount += cursor.rowcount
+                pp.inc(cursor.rowcount)
+                start += param_batch_size
+
+            pp.finish()
+            if timing:
+                print(f'Batch timing quartiles: '
+                      f'{[round(i, 2) for i in quantiles(timing)]} '
+                      f' <> {len(timing) * 0.5 * param_batch_size / sum(timing):.2f} '
+                      f'rows per sec')
+
+            if diff := (len(params) // 2 - rowcount):
+                print(f'Cluster assignments without corresponding UniRef90 or '
+                      f'UniRef50 DB records: {diff}')
+
+    def get_sql_params_a(self, ur90to50):
+        """
+        Helper for loading uniref50 cluster data
+
+        Returns a function which takes the number of parameters (for each
+        batch) to make the SQL statement and the list of all parameters.
+
+        This is variant "a": Both UniRef90 and UniRef50 accessions are passed
+        without processing to the database and uses a join with the UniRef50
+        table.
+
+        A batch_size of 4000 seems optimal.
+        """
+        UniRef50 = self.model._meta.get_field('uniref50').related_model
+
+        def get_sql_txt(param_length, explain):
+            if param_length % 2 != 0:
+                raise ValueError('parameter length must be divisible by two')
+            ur50_table = UniRef50._meta.db_table
+            ur90_table = self.model._meta.db_table
+            list_template = ','.join(repeat('(%s,%s)', param_length // 2))
+            sql = 'EXPLAIN ' if explain else ''
+            sql += (
+                f'UPDATE {ur90_table} SET uniref50_id = {ur50_table}.id '
+                f'FROM ( values {list_template} ) AS mapping(a90, a50) '
+                f'JOIN {ur50_table} ON mapping.a50 = {ur50_table}.accession '
+                f'WHERE {ur90_table}.accession = mapping.a90 '
+            )
+            return sql
+
+        # just flatten the pairs of accessions
+        params = [i for pair in ur90to50.items() for i in pair]
+
+        return get_sql_txt, params
+
+    def get_sql_params_b(self, ur90to50):
+        """
+        Helper for loading uniref50 cluster data
+
+        Returns a function which takes the number of parameters (for each
+        batch) to make the SQL statement and the list of all parameters.
+
+        This is variant "b": Retrieves both UniRef90 and UniRef50 accessions
+        (but does not hold them all in memory) and passes PKs to the DB.  So
+        does the most up-front processing but data passed to DB is minimal.
+        """
+        UniRef50 = self.model._meta.get_field('uniref50').related_model
+
+        print(f'Retrieving {UniRef50._meta.verbose_name}...', end=' ', flush=True)
+        ur50pks = dict(UniRef50.objects.values_list('accession', 'pk')
+                       .iterator(chunk_size=1000000))
+        print(f'{len(ur50pks)}')
+
+        qs = self.values_list('accession', 'pk')
+        pp = ProgressPrinter('items compiled')
+        params = []
+        for a90, pk90 in pp(qs.iterator(chunk_size=1000000)):
+            if pk50 := ur50pks.get(ur90to50.get(a90)):
+                params.append(pk90)
+                params.append(pk50)
+
+        if missing := (len(ur90to50) - len(params) // 2):
+            print(f'missing: {missing}', end=' ', flush=True)
+
+        def get_sql_txt(param_length, explain):
+            if param_length % 2 != 0:
+                raise ValueError('parameter length must be divisible by two')
+            ur90_table = self.model._meta.db_table
+            list_template = ','.join(repeat('(%s,%s)', param_length // 2))
+            sql = 'EXPLAIN ' if explain else ''
+            sql += (
+                f'UPDATE {ur90_table} SET uniref50_id = mapping.pk50 '
+                f'FROM ( values {list_template} ) AS mapping(pk90, pk50) '
+                f'WHERE id = mapping.pk90 '
+            )
+            return sql
+
+        return get_sql_txt, params
+
+    def get_sql_params_c(self, ur90to50):
+        """
+        Helper for loading uniref50 cluster data
+
+        Returns a function which takes the number of parameters (for each
+        batch) to make the SQL statement and the list of all parameters.
+
+        This is variant "c": UniRef50 accessions are retrieved and substituted
+        by PKS.  UniRef90 accessions and UniRef50 PKs are passed to the DB.
+        The DB looks up the UniRef90 PKs.  This is intermediate between
+        variants "a" and "b".
+        """
+        UniRef50 = self.model._meta.get_field('uniref50').related_model
+
+        print(f'Retrieving {UniRef50._meta.verbose_name}...', end=' ', flush=True)
+        ur50pks = dict(UniRef50.objects.values_list('accession', 'pk')
+                       .iterator(chunk_size=1000000))
+        print(f'{len(ur50pks)}')
+
+        pp = ProgressPrinter('UniRef50 PK substituted')
+        params = []
+        for a90, a50 in pp(ur90to50.items()):
+            if pk50 := ur50pks.get(a50):
+                params.append(a90)
+                params.append(pk50)
+
+        if missing := (len(ur90to50) - len(params) // 2):
+            print(f'missing: {missing}', end=' ', flush=True)
+
+        def get_sql_txt(param_length, explain):
+            if param_length % 2 != 0:
+                raise ValueError('parameter length must be divisible by two')
+            ur90_table = self.model._meta.db_table
+            list_template = ','.join(repeat('(%s,%s)', param_length // 2))
+            sql = 'EXPLAIN ' if explain else ''
+            sql += (
+                f'UPDATE {ur90_table} SET uniref50_id = mapping.pk50 '
+                f'FROM ( values {list_template} ) AS mapping(a90, pk50) '
+                f'WHERE accession = mapping.a90 '
+            )
+            return sql
+
+        return get_sql_txt, params
 
 
 class UniRef100Loader(IdMappingMixin, BulkLoader):
