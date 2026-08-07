@@ -1532,20 +1532,44 @@ class IdMappingMixin:
         return next(forkedit), next(forkedit)
 
     @atomic_dry
-    def load_from_idmapping(self, file=None, limit=None):
+    def load_from_idmapping(self, file=None, update=False, limit=None):
+        """
+        Load records from accessions found in teh idmapping.dat file.
+
+        update [bool]:
+            If False, the default, then accessions for which a record is
+            already stored will raise an exception.  If True then such
+            duplicate input data is ignored.
+
+        limit [int]:
+            Only process up to limit lines of the input file.
+        """
         if file is None:
             file = self.get_idmapping_file()
+
+        if update:
+            qs = self.values_list('accession', flat=True)
+            pp = ProgressPrinter('existing records retrieved')
+            existing = set(pp(qs.iterator(chunk_size=1_000_000)))
 
         accns = set()
         dbname = self.model._meta.verbose_name
         prefix = dbname + '_'
+        num_existing = 0
         for _, db, accn in self.readline_idmapping(file, limit=limit):
             if db == dbname:
-                accns.add(accn.removeprefix(prefix))
+                accn = accn.removeprefix(prefix)
+                if update and accn in existing:
+                    num_existing += 1
+                    continue
+                accns.add(accn)
 
-        print(f'Found {len(accns)} {dbname} accessions')
+        print(f'Found {len(accns)}{" new" if update else ""} {dbname} accessions')
+        if update and num_existing:
+            print(f'There were {num_existing} accessions that are already stored.')
         pp = ProgressPrinter(f'{dbname} objects compiled')
         objs = [self.model(accession=i) for i in pp(accns)]
+        del accns
         self.bulk_create(objs)
 
 
