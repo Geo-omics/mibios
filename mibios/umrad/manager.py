@@ -2,9 +2,10 @@ from collections import defaultdict
 from decimal import Decimal
 from functools import partial
 from inspect import trace
-from itertools import islice
+from itertools import islice, tee
 from logging import getLogger
 from operator import attrgetter, length_hint
+import subprocess
 from time import sleep
 
 from django.conf import settings
@@ -1467,7 +1468,92 @@ class ReactionRecordLoader(BulkLoader):
     )
 
 
-class UniRef90Loader(BulkLoader):
+class IdMappingMixin:
+    def get_idmapping_file(self):
+        """ the idmapping file """
+        return settings.UMRAD_ROOT / 'idmapping.dat.gz'
+
+    @classmethod
+    def readline_idmapping(cls, path, limit=None):
+        """
+        Generator to inflate and parse Uniprot's idmapping.dat.gz file
+
+        Yields triplets (Uniprot id, database name, other id)
+        """
+        print(f'Processing {path} ...')
+        p = subprocess.Popen(
+            ['unpigz', '-c', str(path)],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        pp = ProgressPrinter('lines read')
+        for lnum, line in enumerate(p.stdout, start=1):
+            try:
+                # split into: uniprotid | dbname | accession
+                yield line.rstrip('\n').split('\t')
+            except ValueError:
+                raise ValueError(
+                    'failed parsing idmapping file {ifile.name} at line {lnum}: {e}'
+                )
+
+            pp.inc()
+            if limit and lnum >= limit:
+                pp.finish()
+                p.terminate()
+                break
+
+        try:
+            p.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            print(f'[DEBUG] {lnum=}')
+            print(f'[ERROR] Failed to properly clean up: {p=}')
+            print('killing it...', end=' ', flush=True)
+            p.kill()
+            try:
+                p.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                raise RuntimeError('taking too long')
+            else:
+                print('[OK]')
+
+        if p.returncode > 0:
+            raise RuntimeError(f'subprocess exit status {p.returncode}')
+
+    @staticmethod
+    def peek2(teedit):
+        """
+        Peek two items ahead
+
+        teedit: An iterator returned by tee().
+
+        C.f. itertools.tee() "lookahead" documentation.
+        """
+        [forkedit] = tee(teedit, 1)
+        return next(forkedit), next(forkedit)
+
+    @atomic_dry
+    def load_from_idmapping(self, file=None, limit=None):
+        if file is None:
+            file = self.get_idmapping_file()
+
+        accns = set()
+        dbname = self.model._meta.verbose_name
+        prefix = dbname + '_'
+        for _, db, accn in self.readline_idmapping(file, limit=limit):
+            if db == dbname:
+                accns.add(accn.removeprefix(prefix))
+
+        print(f'Found {len(accns)} {dbname} accessions')
+        pp = ProgressPrinter(f'{dbname} objects compiled')
+        objs = [self.model(accession=i) for i in pp(accns)]
+        self.bulk_create(objs)
+
+
+class UniRef50Loader(IdMappingMixin, BulkLoader):
+    pass
+
+
+class UniRef90Loader(IdMappingMixin, BulkLoader):
     def get_file(self):
         """ get path to UNIREF100_INFO file made by Create_Alignment_DB.pl """
         return settings.UMRAD_ROOT / 'UNIREF100_INFO.txt'
@@ -1560,7 +1646,7 @@ class UniRef90Loader(BulkLoader):
         save_batch(accns)
 
 
-class UniRef100Loader(BulkLoader):
+class UniRef100Loader(IdMappingMixin, BulkLoader):
     """ loader for OUT_UNIREF.txt """
 
     empty_values = ['N/A']

@@ -231,6 +231,18 @@ class Uniprot(Model):
 class UniRef50(Model):
     accession = models.TextField(max_length=50, unique=True)
 
+    loader = manager.UniRef50Loader()
+
+    class Meta:
+        verbose_name = 'UniRef50'
+        verbose_name_plural = verbose_name
+
+    def __str__(self):
+        return self.accession
+
+    def get_external_url(self):
+        return f'https://www.uniprot.org/uniref/UniRef50_{self.accession}'
+
 
 class UniRef90(Model):
     accession = models.TextField(max_length=50, unique=True)
@@ -247,7 +259,6 @@ class UniRef90(Model):
         return self.accession
 
     def get_external_url(self):
-        # TODO: check URL pattern
         return f'https://www.uniprot.org/uniref/UniRef90_{self.accession}'
 
 
