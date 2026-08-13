@@ -10,6 +10,7 @@ from logging import getLogger
 import os
 from pathlib import Path
 import shutil
+from statistics import quantiles
 import subprocess
 import sys
 import tempfile
@@ -19,8 +20,8 @@ from django.apps import apps
 from django.conf import settings
 from django.core.files.storage import storages
 from django.db import connection
-from django.db.models import F, Q, Sum, Window
-from django.db.models.functions import FirstValue
+from django.db.models import Count, F, FloatField, OuterRef, Q, Subquery, Sum, Window
+from django.db.models.functions import Cast, FirstValue
 from django.db.models.signals import post_save
 from django.db.transaction import atomic
 from django.utils.module_loading import import_string
@@ -32,7 +33,7 @@ from mibios.ncbi_taxonomy.models import (
 from mibios.umrad.models import FuncRefDBEntry, FunctionName, UniRef100
 from mibios.umrad.manager import BulkLoader, Manager, MetaDataLoader
 from mibios.umrad.utils import (
-    CSV_Spec, atomic_dry, InputFileError, SkipRow, ModelSpec,
+    CSV_Spec, atomic_dry, InputFileError, SkipRow, ModelSpec
 )
 
 from .utils import call_each, get_fasta_sequence, get_sample_blocklist
@@ -1073,6 +1074,7 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
         ('tpm', 'tpm'),
         ('rpkm', 'rpkm'),
     )
+    """ DEPRECATED """
 
     def get_file(self, sample):
         """ get the *_tophit_report file """
@@ -1093,6 +1095,8 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
     def load_tpm_sample(self, sample, *args, file=None, spec=None, **kwargs):
         """
         Load tpm, rpkm values from tophit_TPM files.  Run after load_samples()
+
+        DEPRECATED -- supplanted by populate_rpkm_tpm_sample*()
         """
         if spec is None:
             self.spec = self.tpm_spec
@@ -1112,10 +1116,132 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
         super().load_sample(sample, *args, file=file, update=True, **kwargs)
 
     @atomic_dry
-    def unload_tpm_sample(self, sample):
+    def unload_rpkm_tpm_sample(self, sample):
         num = self.filter(sample=sample).update(tpm=None, rpkm=None)
         print(f'{sample.sample_id}: tpm+rpkm erased for {num} '
               f'{self.model._meta.model_name}')
+
+    @atomic_dry
+    def populate_rpkm_tpm_sample(self, assay, explain=False, limit=None):
+        """
+        Populate the rpkm and tpm fields for given metagenomic assay
+
+        Values are calculated from read_count and UniRef100 lengths.
+        """
+        if assay.sample_type != 'metagenome':
+            raise ValueError('must be a metagenomic assay')
+
+        UniRef100 = self.model._meta.get_field('ref').related_model
+
+        qs = self.filter(sample=assay)  # .filter(Q(rpkm=None) | Q(tpm=None))
+        print('Getting stats...', end=' ', flush=True)
+        qs_stats = qs.aggregate(Count('id'), Sum('read_count'))
+        print(f'{qs_stats} [OK]')
+        total = qs_stats['read_count__sum']
+        if not total:
+            if self.filter(sample=assay).exists():
+                raise RuntimeError(f'really need {total=} to be a positive int')
+            else:
+                raise ValueError(f'{assay} needs {self.model._meta.model_name}!')
+
+        # Subquery in lieu of impossible F('ref__length')
+        ref_length = Subquery(
+            UniRef100.objects.filter(pk=OuterRef('ref_id')).values('length')[:1]
+        )
+        # NOTE: This queryset is used twice below, meaning the subquery as well
+        # as the reads_per_length annotation will be calculated twice.
+        qs = qs.annotate(
+            ref_length=ref_length,
+            reads_per_length=(
+                Cast(F('read_count'), output_field=FloatField())
+                / Cast(F('ref_length'), output_field=FloatField())
+            ),
+        )
+        if explain:
+            print(qs.explain())
+            return
+
+        print('Calculating tpm_denom...', end=' ', flush=True)
+        # Correctness here depends on every UniRef100 having a length
+        tpm_denom = qs.aggregate(Sum('reads_per_length'))['reads_per_length__sum']
+        print(f'{tpm_denom} [OK]')
+
+        print('Updating...', end=' ', flush=True)
+        if limit:
+            qs = qs.filter(pk__lt=limit)
+        rowcount = qs.update(
+            rpkm=F('reads_per_length') * (10**9 / total),
+            tpm=F('reads_per_length') * (10**6 / tpm_denom),
+        )
+        if rowcount == qs_stats['id__count']:
+            print(f'{rowcount} [OK]')
+        else:
+            raise RuntimeError(
+                f'{rowcount} updated (but expected {qs_stats["id__count"]}'
+            )
+
+    @atomic_dry
+    def populate_rpkm_tpm_sample_2(self, assay, batch_size=100000, explain=False,
+                                   limit=None, check_only=False):
+        """
+        Populate the rpkm and tpm fields for given metagenomic assay
+
+        Alternative implementation, doing the calculations in python, using
+        more of the ORM for the update.
+        """
+        if assay.sample_type != 'metagenome':
+            raise ValueError('must be a metagenomic assay')
+
+        qs = self.filter(sample=assay)
+        qs = qs.select_related('ref')
+        if check_only:
+            qs = qs.only('read_count', 'rpkm', 'tpm', 'ref__length')
+        else:
+            qs = qs.only('read_count', 'ref__length')
+        print('Retrieving objects...', end=' ', flush=True)
+        objs = list(qs)
+        print(f'{len(objs)} [OK]')
+        print('Getting stats...', end=' ', flush=True)
+        total = sum(i.read_count for i in objs)
+        print(f'{total} [OK]')
+        rpkm_factor = 1_000_000_000 / total
+
+        print('Calculating relative read counts...', end=' ', flush=True)
+        per_lengths = [i.read_count / i.ref.length for i in objs]
+        print('[OK]')
+
+        if check_only:
+            print('Saving original rpkm/tpm numbers...', end=' ', flush=True)
+            originals = [(i.rpkm, i.tpm) for i in objs]
+            print('[OK]')
+
+        print('Calculating "tpm_factor" ...', end=' ', flush=True)
+        tpm_factor = 10**6 / sum(per_lengths)
+        print('[OK]')
+        print('Calculating rpkm and tpm...', end=' ', flush=True)
+        for rel_count, obj in zip(per_lengths, objs):
+            obj.rpkm = rel_count * rpkm_factor
+            obj.tpm = rel_count * tpm_factor
+        print('[OK]')
+
+        if check_only:
+            print('Calculating diff statistics...')
+            rpkm_diffs = [
+                obj.rpkm - orig_rpkm for obj, (orig_rpkm, _) in zip(objs, originals)
+            ]
+            tpm_diffs = [
+                obj.tpm - orig_tpm for obj, (orig_tpm, _) in zip(objs, originals)
+            ]
+            print(f'  rpkm diff range: {min(rpkm_diffs)} .. {max(rpkm_diffs)}')
+            print('  rpkm diffs:', [round(i, 2) for i in quantiles(rpkm_diffs, n=10)])
+            print(f'  tpm diff range: {min(tpm_diffs)} .. {max(tpm_diffs)}')
+            print('  tpm diffs:', [round(i, 2) for i in quantiles(tpm_diffs, n=10)])
+            return
+
+        rowcount = self.fast_bulk_update(objs, ('rpkm', 'tpm'), batch_size=batch_size)
+
+        if rowcount != len(objs):
+            raise RuntimeError(f'{rowcount} updated (but expected {len(objs)}')
 
 
 class SeqSampleLoader(MetaDataLoader):

@@ -52,7 +52,7 @@ class LoadUR1TPM(SeqSampleJob):
     sample_types = [SeqSample.Type.METAGENOME]
     required_files = [File.Type.FUNC_ABUND_TPM]
     run = ReadAbundance.loader.load_tpm_sample
-    undo = ReadAbundance.loader.unload_tpm_sample
+    undo = ReadAbundance.loader.unload_rpkm_tpm_sample
 
 
 class LoadTaxAbund(SeqSampleJob):
