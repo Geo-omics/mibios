@@ -128,8 +128,7 @@ class BulkCreateWrapperMixin:
             """
             if not progress:
                 # behave like original method
-                wrappee_bu(objs, fields, batch_size=batch_size)
-                return
+                return wrappee_bu(objs, fields, batch_size=batch_size)
 
             if batch_size is None:
                 # sqlite has a variable-per-query limit of 999; it's not clear
@@ -151,21 +150,24 @@ class BulkCreateWrapperMixin:
                 length=length_hint(objs) or None,
             )
 
+            sum_updated = 0
             while True:
                 batch = list(islice(objs, batch_size))
                 if not batch:
                     break
                 try:
-                    wrappee_bu(batch, fields)
+                    num_updated = wrappee_bu(batch, fields)
                 except Exception as e:
                     print(f'ERROR updating {model_name or "?"}: batch 1st: '
                           f'{vars(batch[0])=}')
                     print(f'{len(batch)=} {batch[:10]=}')
                     print(f'{batch[-10:]=}')
                     raise RuntimeError('error updating batch') from e
+                sum_updated += num_updated
                 pp.inc(len(batch))
 
             pp.finish()
+            return sum_updated
 
         return bulk_update
 
@@ -224,7 +226,7 @@ class QuerySet(BulkCreateWrapperMixin, MibiosQuerySet):
         Value-added bulk_update with batching and progress metering
         """
         wrapped_bu = self.bulk_update_wrapper(super().bulk_update)
-        wrapped_bu(
+        return wrapped_bu(
             objs,
             fields,
             batch_size=batch_size,
@@ -1151,6 +1153,8 @@ class BaseLoader(MibiosBaseManager):
             objs: an iterable of objects to be updated
             field_names: a list of str, names of the fields to be updated
 
+        Returns number of rows that got updated.
+
         This implements a four step process that should work with sqlite3 and
         postgresql:
 
@@ -1210,8 +1214,15 @@ class BaseLoader(MibiosBaseManager):
         with transaction.atomic(), connection.cursor() as cur:
             cur.execute(create_sql, [])
             cur.execute(insert_sql, insert_params)
+            insert_count = cur.rowcount
             cur.execute(update_sql, [])
+            update_count = cur.rowcount
             cur.execute(f'DROP TABLE {TEMP_TABLE}', [])
+
+        if not len(objs) == insert_count == update_count:
+            print(f'[WARNING] some rows skipped? expected {len(objs)} but '
+                  f'{insert_count=} and {update_count=}')
+        return update_count
 
     def quick_erase(self):
         quickdel = import_string(
