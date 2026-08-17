@@ -22,7 +22,7 @@ GLAMR_MODELS = (
     'dataset_restricted_to', 'dataset_references',
 )
 
-OMICS_MODELS_SMALL = ('SeqSample', 'File', 'SampleTracking')
+OMICS_MODELS_SMALL = ('AmpliconTarget', 'SeqSample', 'File', 'SampleTracking')
 
 OMICS_SAMPLE_REL_MODELS = (
     'ReadAbundance', 'TaxonAbundance', 'Contig',
