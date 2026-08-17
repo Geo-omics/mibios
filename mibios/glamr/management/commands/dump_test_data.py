@@ -9,7 +9,9 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
 from mibios.omics.models import SeqSample
-from mibios.umrad.models import FunctionName, FuncRefDBEntry, UniRef90, UniRef100
+from mibios.umrad.models import (
+    FunctionName, FuncRefDBEntry, UniRef50, UniRef90, UniRef100
+)
 
 
 AUTH_MODELS = (
@@ -110,6 +112,7 @@ class Command(BaseCommand):
         ur100_qs = UniRef100.objects\
             .filter(abundance__sample__in=self.samples)\
             .distinct()
+
         self.dump(queryset=ur100_qs)
 
         # omics models related to our samples
@@ -142,7 +145,11 @@ class Command(BaseCommand):
         Through = UniRef100._meta.get_field('function_refs').remote_field.through
         self.dump(queryset=Through.objects.filter(uniref100__in=ur100_qs))
 
-        self.dump(queryset=UniRef90.objects.filter(uniref100__in=ur100_qs).distinct())
+        ur90_qs = UniRef90.objects.filter(uniref100__in=ur100_qs).distinct()
+        self.dump(queryset=ur90_qs)
+
+        ur50_qs = UniRef50.objects.filter(uniref90__in=ur90_qs).distinct()
+        self.dump(queryset=ur50_qs)
 
     def dump(self, *, queryset=None, model=None):
         """
