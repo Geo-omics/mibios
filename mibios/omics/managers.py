@@ -1092,30 +1092,6 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
         super().load_sample(sample, *args, **kwargs)
 
     @atomic_dry
-    def load_tpm_sample(self, sample, *args, file=None, spec=None, **kwargs):
-        """
-        Load tpm, rpkm values from tophit_TPM files.  Run after load_samples()
-
-        DEPRECATED -- supplanted by populate_rpkm_tpm_sample*()
-        """
-        if spec is None:
-            self.spec = self.tpm_spec
-        else:
-            self.spec = spec
-
-        self.spec.pre_load_hook = \
-            partial(self.uniref100_helper, field_name='ref')
-        if file is None:
-            file = Path(
-                sample.get_omics_file('FUNC_ABUND_TPM').file_pipeline.path
-            )
-        update = kwargs.pop('update', True)
-        if not update:
-            raise ValueError('update kwarg must not be False, loader method '
-                             'must run in update mode')
-        super().load_sample(sample, *args, file=file, update=True, **kwargs)
-
-    @atomic_dry
     def unload_rpkm_tpm_sample(self, sample):
         num = self.filter(sample=sample).update(tpm=None, rpkm=None)
         print(f'{sample.sample_id}: tpm+rpkm erased for {num} '
@@ -1126,7 +1102,7 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
         """
         Populate the rpkm and tpm fields for given metagenomic assay
 
-        Values are calculated from read_count and UniRef100 lengths.
+        Values are calculated (w/fp math) from read_count and UniRef100 lengths.
         """
         if assay.sample_type != 'metagenome':
             raise ValueError('must be a metagenomic assay')
@@ -1186,8 +1162,8 @@ class ReadAbundanceLoader(UniRefMixin, SampleLoadMixin, BulkLoader):
         """
         Populate the rpkm and tpm fields for given metagenomic assay
 
-        Alternative implementation, doing the calculations in python, using
-        more of the ORM for the update.
+        Alternative implementation, doing the calculations in python (in
+        arbitrary precision math), using more of the ORM for the update.
         """
         if assay.sample_type != 'metagenome':
             raise ValueError('must be a metagenomic assay')
