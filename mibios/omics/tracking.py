@@ -174,7 +174,7 @@ class BaseJob:
 
         force [bool]:
             Skip job status check.  This option may lead to inconsistencies:
-            jobs may be DONE before before jobs they depend on are marked DONE.
+            jobs may be DONE before jobs they depend on are marked DONE.
 
         This will also delete the tracking instance from the DB.  To undo a
         job, all jobs depending on this one, must be undone first.
@@ -500,6 +500,15 @@ class Registry:
             sorter.add(name, *(names[dep] for dep in job.after))
 
         self.jobs = {name: jobs[name] for name in sorter.static_order()}
+
+        self.byflag = {}
+        for job in self.jobs.values():
+            if job.flag in self.byflag:
+                raise ValueError(
+                    f'flag {job.flag} used twice by jobs '
+                    f'{self.byflag[job.flag]} and {job}'
+                )
+            self.byflag[job.flag] = job
 
 
 registry = Registry()

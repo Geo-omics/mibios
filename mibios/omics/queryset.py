@@ -280,8 +280,8 @@ class LoadMixin:
 
         only list:
             Only return jobs of the given type.  A list of Job classes or class
-            names may be passed.  If None, the default, then all our samples'
-            ready jobs are returned.
+            names, or tracking flags may be passed.  If None, the default, then
+            all our samples' ready jobs are returned.
         sort_by_subject:
             Sort jobs by sample.  The default is to sort jobs by the flag, in
             order as defined in SampleTracking.Flag.
@@ -302,12 +302,31 @@ class LoadMixin:
                     try:
                         _only.add(job_registry.jobs[i])
                     except KeyError as e:
-                        raise ValueError('not a job class name: {i}') from e
+                        try:
+                            flag = DataTracking.Flag[i]
+                        except KeyError:
+                            raise ValueError(
+                                f'not a job class name or tracking flag: {i}'
+                            ) from e
+                        try:
+                            _only.add(job_registry.byflag[flag])
+                        except KeyError:
+                            raise ValueError(
+                                f'no job registered with with flag {flag}'
+                            ) from e
+                elif isinstance(i, DataTracking.Flag):
+                    try:
+                        _only.add(job_registry.byflag[flag])
+                    except KeyError as e:
+                        raise ValueError(
+                            f'no job registered with with flag {flag}'
+                        ) from e
                 else:
                     if i in job_registry.jobs.values():
                         _only.add(i)
                     else:
-                        raise ValueError('not a job class: {i}')
+                        raise ValueError(f'not a job class or tracking flag: {i}')
+                _only.add(i)
             only = _only
 
         qs = self
