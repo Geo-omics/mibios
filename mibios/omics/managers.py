@@ -836,7 +836,7 @@ class UniRef90AbundanceLoader(SampleLoadMixin, BulkLoader):
             .filter(sample=sample) \
             .exclude(ref__uniref90=None) \
             .order_by('ref__uniref90') \
-            .values('sample', 'ref__uniref90') \
+            .values('ref__uniref90') \
             .annotate(Sum('tpm'))
 
         objs = (
