@@ -246,7 +246,7 @@ class UniRef50(Model):
 
 class UniRef90(Model):
     accession = models.TextField(max_length=50, unique=True)
-    uniref50 = models.ForeignKey(UniRef50, **fk_opt)
+    uniref50 = models.ForeignKey(UniRef50, **fk_opt, related_name='members')
 
     # objects = Manager()
     loader = manager.UniRef90Loader()
@@ -272,7 +272,7 @@ class UniRef100(Model):
     #  1 UR100
     accession = AccessionField()
     #  2 UR90
-    uniref90 = models.ForeignKey(UniRef90, **fk_opt)
+    uniref90 = models.ForeignKey(UniRef90, **fk_opt, related_name='members')
     #  3 Name
     function_names = models.ManyToManyField(FunctionName)
     #  4 Length

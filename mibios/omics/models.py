@@ -27,7 +27,7 @@ from mibios.umrad.model_utils import (
     digits, opt, ch_opt, fk_req, fk_opt, uniq_opt, Model,
 )
 from mibios.umrad.models import (
-    CompoundRecord, FunctionName, FuncRefDBEntry, UniRef100, UniRef90
+    CompoundRecord, FunctionName, FuncRefDBEntry, UniRef100, UniRef50, UniRef90
 )
 from mibios.umrad.manager import Manager
 from mibios.umrad.utils import ProgressPrinter
@@ -1533,6 +1533,30 @@ class FuncAbundance(Model):
     class Meta(Model.Meta):
         unique_together = (('sample', 'function'),)
         verbose_name = 'function abundance'
+
+
+class UniRef50Abundance(Model):
+    """
+    Aggregated abundance w.r.t a UniRef50 cluster
+    """
+    sample = models.ForeignKey(
+        SeqSample,
+        related_name='uniref50_abundance',
+        **fk_req,
+    )
+    ref = models.ForeignKey(
+        UniRef50,
+        related_name='abundance',
+        **fk_req,
+    )
+    sum_tpm = models.FloatField(null=True, verbose_name='TPM')
+    sum_rpkm = models.FloatField(null=True, verbose_name='RPKM')
+
+    loader = managers.UniRef50AbundanceLoader()
+
+    class Meta(Model.Meta):
+        unique_together = (('sample', 'ref'),)
+        verbose_name = 'UniRef50 abundance'
 
 
 class UniRef90Abundance(Model):

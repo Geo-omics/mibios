@@ -826,6 +826,35 @@ class FuncAbundanceLoader(SampleLoadMixin, BulkLoader):
         return counts
 
 
+class UniRef50AbundanceLoader(SampleLoadMixin, BulkLoader):
+    """ Precalculate per-UniRef50-cluster abundance """
+
+    @atomic_dry
+    def load_sample(self, sample, **kwargs):
+        UniRef90Abundance = self.model._meta.get_field('ref').related_model
+        qs = UniRef90Abundance.objects \
+            .filter(sample=sample) \
+            .exclude(ref__uniref50=None) \
+            .order_by('ref__uniref50') \
+            .values('ref__uniref50') \
+            .annotate(Sum('sum_tpm'))
+
+        objs = (
+            self.model(
+                sample=sample,
+                ref_id=row['ref__uniref90'],
+                sum_tpm=row['sum_tpm__sum'],
+            )
+            for row in qs
+        )
+        self.bulk_create(objs)
+
+    @atomic_dry
+    def unload_sample(self, sample, **kwargs):
+        _, counts = self.filter(sample=sample).delete()
+        return counts
+
+
 class UniRef90AbundanceLoader(SampleLoadMixin, BulkLoader):
     """ Precalculate per-UniRef90-cluster abundance """
 
