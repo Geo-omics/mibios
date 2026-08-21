@@ -21,6 +21,11 @@ class Table(Table0):
     tables have all (modulo exclusions + internal) fields.  Do not use this
     together with Meta.fields. """
 
+    class Meta:
+        attrs = {
+            'class': 'table table-sm',
+        }
+
     def __init__(self, data=None, view=None, exclude=None, **kwargs):
         self.view = view
 
@@ -29,6 +34,7 @@ class Table(Table0):
             f'no {self._meta.model._meta.verbose_name} records for given '
             f'parameters'
         )
+        kwargs.setdefault('template_name', 'glamr/table_bootstrap5.html')
 
         exclude = list(exclude) if exclude else []
 
@@ -220,7 +226,7 @@ def linkify_value(value):
 
 
 class AboutHistoryTable(Table):
-    class Meta:
+    class Meta(Table.Meta):
         # NOTE on order: Most recent version should go on top of page.  But
         # can't order by PK as id column is excluded.  So as unpublished is
         # NULL it'll go first with Postgres (good for production) but last with
@@ -235,7 +241,7 @@ class CompoundAbundanceTable(Table):
     sample = Column(linkify=linkify_value)
     compound = Column(linkify=linkify_value)
 
-    class Meta:
+    class Meta(Table.Meta):
         model = omics_models.CompoundAbundance
         exclude = ['id']
 
@@ -244,7 +250,7 @@ class ContigTable(Table):
     sample = Column(linkify=linkify_value)
     name = Column(linkify=linkify_record, empty_values=())
 
-    class Meta:
+    class Meta(Table.Meta):
         model = omics_models.Contig
         sequence = ['sample', 'name', '...']
 
@@ -263,7 +269,7 @@ class DBInfoTable(Table):
 
     GB = 1024 * 1024 * 1024
 
-    class Meta:
+    class Meta(Table.Meta):
         # Using model pg_class here, but the model dbstat is similar enough, so
         # this table class should work for postgresql as well as sqlite.  When
         # display with sqlite, django_tables2 will show a warning about the
@@ -308,7 +314,7 @@ class FileTable(OmicsFileTable):
         empty_values=(),  # trigger render_FOO()
     )
 
-    class Meta:
+    class Meta(Table.Meta):
         model = omics_models.File
         fields = ['file', 'filetype', 'size', 'modtime']
         sequence = ['file', 'filetype', 'size', 'modtime']
@@ -335,7 +341,7 @@ class FunctionAbundanceTable(Table):
     sample = Column()
     sum_tpm = Column()
 
-    class Meta:
+    class Meta(Table.Meta):
         model = omics_models.FuncAbundance
         exclude = ['id']
 
@@ -344,7 +350,7 @@ class FunctionNameAbundanceTable(Table):
     sample = Column()
     sum_tpm = Column()
 
-    class Meta:
+    class Meta(Table.Meta):
         model = omics_models.FunctionNameAbundance
         exclude = ['id']
 
@@ -353,7 +359,7 @@ class ReadAbundanceTable(Table):
     sample = Column(linkify=linkify_value)
     ref = Column(linkify=linkify_value, verbose_name='Function/reference')
 
-    class Meta:
+    class Meta(Table.Meta):
         model = omics_models.ReadAbundance
         exclude = ['id']
 
@@ -404,7 +410,7 @@ class ReadAbundanceTable(Table):
 
 
 class ReferenceTable(Table):
-    class Meta:
+    class Meta(Table.Meta):
         model = glamr_models.Reference
         exclude = ('abstract',)
         order_by = '-year'
@@ -414,7 +420,7 @@ class TaxNodeTable(Table):
     taxid = Column(linkify=linkify_record)
     parent = Column(linkify=linkify_value)
 
-    class Meta:
+    class Meta(Table.Meta):
         model = TaxNode
         fields = ('taxid', 'rank', 'name', 'parent')
 
@@ -433,7 +439,7 @@ class TaxonAbundanceTable(Table):
     rank = Column(accessor='taxon__rank')
     tax_name = Column(accessor='taxon__name', verbose_name='Tax Name')
 
-    class Meta:
+    class Meta(Table.Meta):
         model = omics_models.TaxonAbundance
         fields = ['sample', 'taxon', 'rank', 'tax_name', 'tpm']
         order_by = ['-tpm']
@@ -483,7 +489,7 @@ class DatasetAccessTable(Table0):
     restricted_to = ManyToManyColumn(verbose_name='allowed groups')
     access = Column('group id access list')
 
-    class Meta:
+    class Meta(Table.Meta):
         model = glamr_models.Dataset
         fields = ['dataset_id', 'scheme', 'sample_count']
         sequence = ['dataset_id', 'primary_ref', 'scheme', 'sample_count',
@@ -563,7 +569,7 @@ class DatasetTable(Table):
     html_fields = ['scheme', 'samples', 'primary_ref', 'water_bodies',
                    'material_type', 'sample_type', 'external_urls']
 
-    class Meta:
+    class Meta(Table.Meta):
         model = glamr_models.Dataset
         sequence = ['scheme', 'samples', 'primary_ref', 'water_bodies', '...']
         empty_text = 'No dataset / study information available'
@@ -671,7 +677,7 @@ class SampleTable(Table):
         'dataset',
     )
 
-    class Meta:
+    class Meta(Table.Meta):
         model = glamr_models.Sample
         sequence = ['sample_name', 'sample_type', '...', 'dataset']
         empty_text = 'no samples found'
@@ -723,7 +729,7 @@ class AssayTable(Table):
         'sample_name', 'accession', 'sample_type', 'amplicon_target', 'primers',
     )
 
-    class Meta:
+    class Meta(Table.Meta):
         model = omics_models.SeqSample
         sequence = [
             'sample_name', 'sample_type', 'sra_accession', 'amplicon_target', 'primers',

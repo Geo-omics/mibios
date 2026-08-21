@@ -1,0 +1,160 @@
+{% comment "copyright notice" %}
+This file is a modified bootstrap5.html from django-tables2 v2.7.5
+
+Copyright: 2008, Michael Elsdörfer <http://elsdoerfer.name>
+ Jan Pieter Waagmeester <jieter@zostera.nl>
+ Bradley Ayers <brad@dovetailapp.com>
+
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions
+ are met:
+
+ 1. Redistributions of source code must retain the above copyright
+    notice, this list of conditions and the following disclaimer.
+
+ 2. Redistributions in binary form must reproduce the above
+    copyright notice, this list of conditions and the following
+    disclaimer in the documentation and/or other materials
+    provided with the distribution.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+ ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ POSSIBILITY OF SUCH DAMAGE.
+{% endcomment %}
+
+{% load django_tables2 %}
+{% load i18n l10n %}
+{% block table-wrapper %}
+<div class="table-container">
+    {% block table %}
+        <table {% render_attrs table.attrs class="table" %}>
+            {% block table.thead %}
+            {% if table.show_header %}
+                <thead {{ table.attrs.thead.as_html }}>
+                <tr>
+                {% for column in table.columns %}
+                <th {{ column.attrs.th.as_html }} scope="col">{%spaceless%}
+                        {% if column.orderable %}
+                            {%if column.is_ordered%}
+                                <a class="link-secondary link-underline-primary link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field='' %}">
+                                {{ column.header }}
+                                </a>
+                                <span style="white-space:nowrap;">
+                                {%if column.order_by_alias.is_descending%}
+                                {%include "arrow-down.svg"%}
+                                <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.opposite %}">
+                                    {%include "arrow-up.svg"%}
+                                </a>
+                                {%else%}
+                                <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.opposite %}">
+                                    {%include "arrow-down.svg"%}
+                                </a>
+                                {%include "arrow-up.svg"%}
+                                </span>
+                                {%endif%}
+                            {%else%}
+                            <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.opposite %}">
+                                {{ column.header }}
+                            </a>
+                            <span style="white-space:nowrap;">
+                            <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.opposite %}">
+                                {%include "arrow-down.svg"%}
+                            </a>
+                            <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias %}">
+                                {%include "arrow-up.svg"%}
+                            </a>
+                            </span>
+                            {%endif%}
+                        {% else %}
+                            {{ column.header }}
+                        {% endif %}
+                        {%endspaceless%}
+                    </th>
+                {% endfor %}
+                </tr>
+                </thead>
+            {% endif %}
+            {% endblock table.thead %}
+            {% block table.tbody %}
+                <tbody {{ table.attrs.tbody.as_html }}>
+                {% for row in table.paginated_rows %}
+                    {% block table.tbody.row %}
+                    <tr {{ row.attrs.as_html }}>
+                        {% for column, cell in row.items %}
+                            <td {{ column.attrs.td.as_html }}>{% if column.localize == None %}{{ cell }}{% else %}{% if column.localize %}{{ cell|localize }}{% else %}{{ cell|unlocalize }}{% endif %}{% endif %}</td>
+                        {% endfor %}
+                    </tr>
+                    {% endblock table.tbody.row %}
+                {% empty %}
+                    {% if table.empty_text %}
+                    {% block table.tbody.empty_text %}
+                        <tr><td colspan="{{ table.columns|length }}">{{ table.empty_text }}</td></tr>
+                    {% endblock table.tbody.empty_text %}
+                    {% endif %}
+                {% endfor %}
+                </tbody>
+            {% endblock table.tbody %}
+            {% block table.tfoot %}
+            {% if table.has_footer %}
+            <tfoot {{ table.attrs.tfoot.as_html }}>
+                <tr>
+                {% for column in table.columns %}
+                    <td {{ column.attrs.tf.as_html }}>{{ column.footer }}</td>
+                {% endfor %}
+                </tr>
+            </tfoot>
+            {% endif %}
+            {% endblock table.tfoot %}
+        </table>
+    {% endblock table %}
+
+    {% block pagination %}
+        {% if table.page and table.paginator.num_pages > 1 %}
+        <nav aria-label="Table navigation">
+            <ul class="pagination justify-content-center">
+            {% if table.page.has_previous %}
+                {% block pagination.previous %}
+                <li class="previous page-item">
+                    <a href="{% querystring table.prefixed_page_field=table.page.previous_page_number %}" class="page-link">
+                        <span aria-hidden="true">&laquo;</span>
+                        {% trans 'previous' %}
+                    </a>
+                </li>
+                {% endblock pagination.previous %}
+            {% endif %}
+            {% if table.page.has_previous or table.page.has_next %}
+            {% block pagination.range %}
+            {% for p in table.page|table_page_range:table.paginator %}
+                <li class="page-item{% if table.page.number == p %} active{% endif %}">
+                    <a class="page-link" {% if p != '...' %}href="{% querystring table.prefixed_page_field=p %}"{% endif %}>
+                        {{ p }}
+                    </a>
+                </li>
+            {% endfor %}
+            {% endblock pagination.range %}
+            {% endif %}
+            {% if table.page.has_next %}
+                {% block pagination.next %}
+                <li class="next page-item">
+                    <a href="{% querystring table.prefixed_page_field=table.page.next_page_number %}" class="page-link">
+                        {% trans 'next' %}
+                        <span aria-hidden="true">&raquo;</span>
+                    </a>
+                </li>
+                {% endblock pagination.next %}
+            {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
+    {% endblock pagination %}
+</div>
+{% endblock table-wrapper %}
