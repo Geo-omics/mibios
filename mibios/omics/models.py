@@ -1563,6 +1563,7 @@ class UniRef90Abundance(Model):
     """
     Aggregated abundance w.r.t a UniRef90 cluster
     """
+    id = models.BigAutoField(primary_key=True)
     sample = models.ForeignKey(
         SeqSample,
         related_name='uniref90_abundance',
