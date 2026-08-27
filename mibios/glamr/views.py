@@ -2316,6 +2316,11 @@ class DatasetView(MapMixin, RecordView):
     ]
     exclude = ['restricted_to']
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        qs = qs.annotate(sample_count=Count('sample'))
+        return qs
+
     def get_sample_queryset(self):
         return self.object.sample_set.all()
 

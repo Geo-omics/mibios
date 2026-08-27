@@ -523,7 +523,8 @@ class DatasetTable(Table):
             'cardTitle': False,
             'defaultSort': True,
             'navID': "samples-sort",
-        }
+        },
+        order_by='sample_count',
     )
     primary_ref = Column(
         linkify=linkify_reference,
@@ -555,7 +556,8 @@ class DatasetTable(Table):
             'showFieldTitle': True,
             'cardTitle': False,
             'navID': "sample_type-sort",
-        }
+        },
+        orderable=False,
     )
     external_urls = Column(
         verbose_name='External accessions',
@@ -563,7 +565,8 @@ class DatasetTable(Table):
             'showFieldTitle': True,
             'cardTitle': False,
             'navID': "external_urls-sort",
-        }
+        },
+        order_by=['bioproject', 'jgi_project', 'gold_id', 'mgrast_study'],
     )
 
     html_fields = ['scheme', 'samples', 'primary_ref', 'water_bodies',
