@@ -46,70 +46,80 @@ Copyright: 2008, Michael Elsdörfer <http://elsdoerfer.name>
                         {% if column.orderable %}
                             {%if column.is_ordered%}
                                 {%if column.is_numeric %}
-                                    <a class="link-secondary link-underline-primary link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field='' %}">
+                                    <a class="link-underline-dark link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.next %}">
                                     {{ column.header }}
                                     </a>
                                     <span style="white-space:nowrap;">
                                     {%if column.order_by_alias.is_descending%}
-                                    <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.opposite %}">
+                                    <a class="link-body-emphasis link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field='' %}">
                                         {%include "arrow-up.svg"%}
                                     </a>
-                                    {%include "arrow-down.svg"%}
+                                    <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.next %}">
+                                        {%include "arrow-down.svg"%}
+                                    </a>
                                     {%else%}
-                                    {%include "arrow-up.svg"%}
-                                    <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.opposite %}">
+                                    <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.next %}">
+                                        {%include "arrow-up.svg"%}
+                                    </a>
+                                    <a class="link-body-emphasis link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field='' %}">
                                         {%include "arrow-down.svg"%}
                                     </a>
                                     </span>
                                     {%endif%}
                                 {%else%}
                                     {# sorted / non-numeric #}
-                                    <a class="link-secondary link-underline-primary link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field='' %}">
+                                    <a class="link-underline-dark link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.next %}">
                                     {{ column.header }}
                                     </a>
                                     <span style="white-space:nowrap;">
                                     {%if column.order_by_alias.is_descending%}
-                                    {%include "arrow-down.svg"%}
-                                    <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.opposite %}">
+                                    <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.next %}">
+                                        {%include "arrow-down.svg"%}
+                                    </a>
+                                    <a class="link-body-emphasis link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field='' %}">
                                         {%include "arrow-up.svg"%}
                                     </a>
                                     {%else%}
-                                    <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.opposite %}">
+                                    {# ascending #}
+                                    <a class="link-body-emphasis link-opacity-100 link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field='' %}">
                                         {%include "arrow-down.svg"%}
                                     </a>
-                                    {%include "arrow-up.svg"%}
+                                    <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.next %}">
+                                        {%include "arrow-up.svg"%}
+                                    </a>
                                     </span>
                                     {%endif%}
                                 {%endif%}
                             {%else%}
                                 {%if column.is_numeric %}
-                                    <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.opposite %}">
+                                    <a class="link-underline-light link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.opposite %}">
                                         {{ column.header }}
                                     </a>
                                     <span style="white-space:nowrap;">
-                                    <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias %}">
+                                    <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.opposite %}">
                                         {%include "arrow-up.svg"%}
                                     </a>
-                                    <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.opposite %}">
+                                    <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias %}">
                                         {%include "arrow-down.svg"%}
                                     </a>
                                     </span>
                                 {%else%}
-                                    {# not sorted / non-numeric #}
-                                    <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.opposite %}">
+                                    {# inactive / non-numeric #}
+                                    <a class="link-underline-light link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias %}">
                                         {{ column.header }}
                                     </a>
                                     <span style="white-space:nowrap;">
-                                    <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.opposite %}">
+                                    <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias %}">
                                         {%include "arrow-down.svg"%}
                                     </a>
-                                    <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias %}">
+                                    <a class="link-opacity-25-hover" href="{% querystring table.prefixed_order_by_field=column.order_by_alias.opposite %}">
                                         {%include "arrow-up.svg"%}
                                     </a>
                                     </span>
                                 {%endif%}
                             {%endif%}
                         {% else %}
+                            {# can't be ordered #}
                             {{ column.header }}
                         {% endif %}
                         {%endspaceless%}
