@@ -114,4 +114,4 @@
 	color: var(--col-metatranscriptome);
 }
 
-table thead tr th svg.bi-arrow-up { margin-left: -5px; }  /* less space between the arrows *?
+table thead tr th svg { margin-right: -5px; }  /* less space between the arrows *?

@@ -69,6 +69,10 @@ class Table(Table0):
 
         super().__init__(data=data, exclude=exclude, **kwargs)
 
+        for i in self.columns:
+            if field := i.accessor.get_field(self._meta.model):
+                i.is_numeric = self._meta.model.is_numeric_field(field)
+
     def customize_queryset(self, qs):
         """
         Table-specific mangling of the queryset.
