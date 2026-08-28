@@ -1,4 +1,6 @@
-from django.db.models import Prefetch
+from functools import partialmethod
+
+from django.db.models import Count, F, Prefetch
 from django.urls import reverse
 from django.utils.html import escape, format_html, mark_safe
 
@@ -20,6 +22,44 @@ class Table(Table0):
     """ Field selection for HTML tables, for model-based tables, if exported
     tables have all (modulo exclusions + internal) fields.  Do not use this
     together with Meta.fields. """
+
+    def order_foo(self, colname, by, queryset, is_descending):
+        """
+        Template method to order with NULLS last, used when initiating subclasses.
+
+        Method paramererization arguments:
+            colname:
+                Name of an orderable column
+            by:
+                Field name or Accessor or OrderByTuple instance
+
+        Arguments queryset and is_descending are required by the order_FOO API.
+        Returns a tuple of queryset and True (cf. django_tables2 docs.)
+        """
+        args = []
+        if isinstance(by, str):
+            # str or Accessor
+            by = [by]
+        for i in by:
+            if is_descending:
+                args.append(F(i).desc(nulls_last=True))
+            else:
+                args.append(F(i).asc(nulls_last=True))
+
+        return queryset.order_by(*args), True
+
+    def __init_subclass__(cls):
+        # Auto-create order_FOO methods
+        for colname, col in cls.base_columns.items():
+            if col.orderable is False:
+                continue
+
+            meth_name = f'order_{colname}'
+            if hasattr(cls, meth_name):
+                continue  # don't overwrite any declared order_FOO methods
+
+            by = col.order_by or col.accessor or colname
+            setattr(cls, meth_name, partialmethod(cls.order_foo, colname, by))
 
     class Meta:
         attrs = {
