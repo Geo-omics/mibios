@@ -625,6 +625,12 @@ class DatasetTable(Table):
             "class": "table table-hover",
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if 'sample_count' not in self.data.data.query.annotations:
+            # special hack for AdvFilterListView
+            self.data.data = self.data.data.annotate(sample_count=Count('sample'))
+
     def customize_queryset(self, qs):
         return qs \
             .select_related('primary_ref') \
