@@ -560,7 +560,7 @@ class DatasetTable(Table):
             'navID': "scheme-sort",
         }
     )
-    samples = Column(
+    sample_count = Column(
         verbose_name='Available samples',
         attrs={
             'showFieldTitle': False,
@@ -568,7 +568,6 @@ class DatasetTable(Table):
             'defaultSort': True,
             'navID': "samples-sort",
         },
-        order_by='sample_count',
     )
     primary_ref = Column(
         linkify=linkify_reference,
@@ -613,17 +612,18 @@ class DatasetTable(Table):
         order_by=['bioproject', 'jgi_project', 'gold_id', 'mgrast_study'],
     )
 
-    html_fields = ['scheme', 'samples', 'primary_ref', 'water_bodies',
+    html_fields = ['scheme', 'sample_count', 'primary_ref', 'water_bodies',
                    'material_type', 'sample_type', 'external_urls']
 
     class Meta(Table.Meta):
         model = glamr_models.Dataset
-        sequence = ['scheme', 'samples', 'primary_ref', 'water_bodies', '...']
+        sequence = ['scheme', 'sample_count', 'primary_ref', 'water_bodies', '...']
         empty_text = 'No dataset / study information available'
         template_name = 'glamr/table_cards.html'
         attrs = {
             "class": "table table-hover",
         }
+        order_by = '-sample_count'
 
     def customize_queryset(self, qs):
         if 'sample_count' not in qs.query.annotations:
@@ -678,7 +678,7 @@ class DatasetTable(Table):
             values.append(record.size_fraction)
         return ' / '.join(values)
 
-    def render_samples(self, record):
+    def render_sample_count(self, record):
         if not hasattr(record, 'sample_count'):
             # sample_count is a queryset annotation, it may be missing
             return ''
@@ -700,7 +700,7 @@ class DatasetTable(Table):
             count=record.sample_count,
         )
 
-    def value_samples(self, record):
+    def value_sample_count(self, record):
         return getattr(record, 'sample_count', '')
 
 

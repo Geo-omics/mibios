@@ -2420,7 +2420,7 @@ class FrontPageView(SearchFormMixin, MapMixin, OpenBaseMixin, SingleTableView):
         self.filter = DatasetFilter(self.request.GET, queryset=qs)
         self.filter.form.helper = DatasetFilterFormHelper()
 
-        return self.filter.qs.order_by("-sample_count")
+        return self.filter.qs
 
     def get_queryset(self):
         # use caching as this gets called multiple times (4ms each) (maps etc.)
