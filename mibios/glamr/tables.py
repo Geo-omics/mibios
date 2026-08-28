@@ -65,6 +65,7 @@ class Table(Table0):
         attrs = {
             'class': 'table table-sm',
         }
+        template_name = 'glamr/table_bootstrap5.html'
 
     def __init__(self, data=None, view=None, exclude=None, **kwargs):
         self.view = view
@@ -74,7 +75,6 @@ class Table(Table0):
             f'no {self._meta.model._meta.verbose_name} records for given '
             f'parameters'
         )
-        kwargs.setdefault('template_name', 'glamr/table_bootstrap5.html')
 
         exclude = list(exclude) if exclude else []
 
