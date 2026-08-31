@@ -1840,6 +1840,7 @@ class DataTracking(Model):
         UR1ABUND = 'UAB', 'reads/UR100 abundance loaded'
         UR1TPM = 'TPM', 'reads/UR100/TPM loaded'
         U9ABUND = 'U9A', 'UR90 abundance loaded'
+        U5ABUND = 'U5A', 'UR50 abundance loaded'
 
     flag = models.CharField(max_length=3, choices=Flag.choices)
     subject = None  # FK to IDMixin model

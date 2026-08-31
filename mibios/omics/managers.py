@@ -33,7 +33,7 @@ from mibios.ncbi_taxonomy.models import (
 from mibios.umrad.models import FuncRefDBEntry, FunctionName, UniRef100
 from mibios.umrad.manager import BulkLoader, Manager, MetaDataLoader
 from mibios.umrad.utils import (
-    CSV_Spec, atomic_dry, InputFileError, SkipRow, ModelSpec
+    CSV_Spec, atomic_dry, InputFileError, SkipRow, ModelSpec, ProgressPrinter
 )
 
 from .utils import call_each, get_fasta_sequence, get_sample_blocklist
@@ -830,20 +830,24 @@ class UniRef50AbundanceLoader(SampleLoadMixin, BulkLoader):
     """ Precalculate per-UniRef50-cluster abundance """
 
     @atomic_dry
-    def load_sample(self, sample, **kwargs):
-        UniRef90Abundance = self.model._meta.get_field('ref').related_model
+    def load_sample(self, sample):
+        UniRef50 = self.model._meta.get_field('ref').related_model
+        UniRef90 = UniRef50._meta.get_field('members').related_model
+        UniRef90Abundance = UniRef90._meta.get_field('abundance').related_model
         qs = UniRef90Abundance.objects \
             .filter(sample=sample) \
             .exclude(ref__uniref50=None) \
             .order_by('ref__uniref50') \
             .values('ref__uniref50') \
-            .annotate(Sum('sum_tpm'))
+            .annotate(Sum('sum_tpm')) \
+            .annotate(Sum('sum_rpkm')) \
 
         objs = (
             self.model(
                 sample=sample,
-                ref_id=row['ref__uniref90'],
+                ref_id=row['ref__uniref50'],
                 sum_tpm=row['sum_tpm__sum'],
+                sum_rpkm=row['sum_rpkm__sum'],
             )
             for row in qs
         )
@@ -866,13 +870,15 @@ class UniRef90AbundanceLoader(SampleLoadMixin, BulkLoader):
             .exclude(ref__uniref90=None) \
             .order_by('ref__uniref90') \
             .values('ref__uniref90') \
-            .annotate(Sum('tpm'))
+            .annotate(Sum('tpm')) \
+            .annotate(Sum('rpkm'))
 
         objs = (
             self.model(
                 sample=sample,
                 ref_id=row['ref__uniref90'],
                 sum_tpm=row['tpm__sum'],
+                sum_rpkm=row['rpkm__sum'],
             )
             for row in qs
         )
@@ -882,6 +888,33 @@ class UniRef90AbundanceLoader(SampleLoadMixin, BulkLoader):
     def unload_sample(self, sample, **kwargs):
         _, counts = self.filter(sample=sample).delete()
         return counts
+
+    @atomic_dry
+    def update_rpkm_sample(self, sample, **kwargs):
+        """
+        populate sum_rpkm
+
+        This is here because the initial implementation of load_sample() did
+        not populate sum_rpkm.
+        """
+        ReadAbundance = apps.get_model('omics', 'ReadAbundance')
+        qs = ReadAbundance.objects \
+            .filter(sample=sample) \
+            .exclude(ref__uniref90=None) \
+            .order_by('ref__uniref90') \
+            .values('ref__uniref90') \
+            .annotate(Sum('rpkm'))
+
+        pp = ProgressPrinter('uniref90s processed')
+        rpkms = {
+            row['ref__uniref90']: row['rpkm__sum']
+            for row in pp(qs)
+        }
+
+        objs = self.filter(sample=sample).only('ref_id')
+        for obj in objs:
+            obj.sum_rpkm = rpkms[obj.ref_id]
+        self.fast_bulk_update(objs, ['sum_rpkm'])
 
 
 fkmap_cache = {}

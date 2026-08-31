@@ -1,6 +1,6 @@
 from .models import (
     ASVAbundance, Bin, Contig, DataTracking, File, FuncAbundance, FunctionNameAbundance,
-    ReadAbundance, SeqSample, TaxonAbundance, UniRef90Abundance,
+    ReadAbundance, SeqSample, TaxonAbundance, UniRef50Abundance, UniRef90Abundance,
 )
 from .tracking import BaseJob, DatasetJob, SeqSampleJob
 
@@ -135,3 +135,11 @@ class CalcUR90Abund(SeqSampleJob):
     sample_types = [SeqSample.Type.METAGENOME]
     run = UniRef90Abundance.loader.load_sample
     undo = UniRef90Abundance.loader.unload_sample
+
+
+class CalcUR50Abund(SeqSampleJob):
+    flag = DataTracking.Flag.U5ABUND
+    after = [CalcUR90Abund]
+    sample_types = [SeqSample.Type.METAGENOME]
+    run = UniRef50Abundance.loader.load_sample
+    undo = UniRef50Abundance.loader.unload_sample
