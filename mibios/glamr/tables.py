@@ -1,6 +1,7 @@
 from functools import partialmethod
 
-from django.db.models import Count, F, Prefetch
+from django.db.models import Count, F, Prefetch, TextField, Value
+from django.db.models.functions import Coalesce, NullIf
 from django.urls import reverse
 from django.utils.html import escape, format_html, mark_safe
 
@@ -743,6 +744,16 @@ class SampleTable(Table):
 
     def get_extra_excludes(self):
         return list(glamr_models.Sample.get_internal_fields())
+
+    def order_sample_name(self, queryset, is_descending):
+        # cf. Sample.__str__()
+        empty_str = Value('', output_field=TextField())
+        qs = queryset.order_by(Coalesce(
+            NullIf('sample_name', empty_str),
+            NullIf('biosample', empty_str),
+            'sample_id',
+        ))
+        return qs, True
 
     def render_sample_name(self, record):
         return str(record)
