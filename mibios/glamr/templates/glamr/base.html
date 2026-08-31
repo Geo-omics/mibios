@@ -23,7 +23,7 @@
                 Logged in: {{ user.username }}
             </a>
             <ul class="dropdown-menu">
-                <li>{% nav_linker 'logout' 'Log out' dropdown=True %}</li>
+                <li>{% nav_linker 'logout' 'Log out' dropdown=True next_url_query=True %}</li>
                 <li>{% nav_linker 'user_profile' 'Your account' dropdown=True %}</li>
                 {% if user.is_staff %}
                 <li><hr class="dropdown-divider"></li>
@@ -41,7 +41,7 @@
             </ul>
         </li>
     {% else %}
-        <li class="nav-item">{% nav_linker 'login' 'Log in' %}</li>
+        <li class="nav-item">{% nav_linker 'login' 'Log in' next_url_query=True %}</li>
     {% endif %}
     </ul>
 {% endblock %}
