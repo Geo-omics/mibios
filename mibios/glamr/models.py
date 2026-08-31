@@ -769,7 +769,7 @@ class UniqueWord(models.Model):
         return self.word
 
 
-class pg_class(models.Model):
+class pg_class(Model):
     """ Postgres' pg_class table for use with the dbinfo page """
     PG_CLASS_RELKINDS = (
         # from Postgresql docs chapter 53 section 11 on pg_class catalog
@@ -784,6 +784,7 @@ class pg_class(models.Model):
         ('p', 'partitioned table'),
         ('I', 'partitioned index'),
     )
+    id = None
     # Choosing field names to agree with model dbstat below so display via
     # django_tables2 works mostly the same for both models.  Sqlite doesn't
     # have anything similar to relkind, but that's the only real difference.
@@ -802,8 +803,9 @@ class pg_class(models.Model):
         db_table = 'pg_class'
 
 
-class dbstat(models.Model):
+class dbstat(Model):
     """ sqlite's dbstat virtual table for use w/dbinfo page """
+    id = None
     # see pg_class model, field names are chosen to mostly agree w/pg_class
     name = models.TextField(primary_key=True)
     num_pages = models.IntegerField(db_column='pageno')

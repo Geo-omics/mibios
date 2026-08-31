@@ -307,7 +307,8 @@ class DBInfoTable(Table):
     num_rows = Column(
         attrs={'td': {'align': 'right'}},
     )
-    storage_size = Column(
+    num_pages = Column(
+        verbose_name='Storage size',
         empty_values=(),  # triggers render_objects()
         attrs={'td': {'align': 'right'}},
     )
@@ -320,8 +321,7 @@ class DBInfoTable(Table):
         # display with sqlite, django_tables2 will show a warning about the
         # mismatch.
         model = glamr_models.pg_class
-        exclude = ('num_pages',)
-        sequence = ['...', 'storage_size']
+        sequence = ['...', 'num_pages']
         order_by = 'name'
 
     def render_num_rows(self, value, record):
@@ -339,17 +339,11 @@ class DBInfoTable(Table):
             ii = ii - 4  # next comma goes 3 digits to the left + prev comma
         return ''.join(digits)
 
-    def render_storage_size(self, value, record):
-        if record.num_pages < 0:
+    def render_num_pages(self, value):
+        if value < 0:
             return ''
         psize = self._meta.model.PAGE_SIZE
-        return f'{record.num_pages * psize / self.GB:.1f}'
-
-    def order_storage_size(self, qs, is_descending):
-        flag = 'num_pages'
-        if is_descending:
-            flag = '-' + flag
-        return (qs.order_by(flag), True)
+        return f'{value * psize / self.GB:.1f}'
 
 
 class FileTable(OmicsFileTable):
