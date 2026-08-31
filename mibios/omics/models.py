@@ -857,6 +857,7 @@ class ReadAbundance(Model):
 
     For data from mmseqs2's {contig_}tophit_report files
     """
+    id = models.BigAutoField(primary_key=True)
     # cf. mmseqs2 easy-taxonomy output (tophit_report)
     sample = models.ForeignKey(
         SeqSample,
@@ -1477,6 +1478,7 @@ class SequenceLike(Model):
 
 
 class Contig(SequenceLike):
+    id = models.BigAutoField(primary_key=True)
     contig_no = models.PositiveIntegerField()
     # columns from *_contig_abund.tsv file
     mean = models.FloatField(**opt)
@@ -1539,6 +1541,7 @@ class UniRef50Abundance(Model):
     """
     Aggregated abundance w.r.t a UniRef50 cluster
     """
+    id = models.BigAutoField(primary_key=True)
     sample = models.ForeignKey(
         SeqSample,
         related_name='uniref50_abundance',
