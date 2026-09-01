@@ -896,6 +896,8 @@ class UniRef90AbundanceLoader(SampleLoadMixin, BulkLoader):
 
         This is here because the initial implementation of load_sample() did
         not populate sum_rpkm.
+
+        DEPRECATED -- just use load_sample()
         """
         ReadAbundance = apps.get_model('omics', 'ReadAbundance')
         qs = ReadAbundance.objects \
