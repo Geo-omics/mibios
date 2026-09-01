@@ -24,7 +24,7 @@
         {% if forloop.first %}
         <td rowspan="{{ur100_data|length}}">
             {% if ur90 %}
-            <a href="{% url 'filter_result2' model='uniref100' %}?uniref90={{ur90}}">{{ur90}}</a>
+            <a href="{% record_url ur90 %}">{{ur90}}</a>
             {% else %}n/a{% endif %}
         </td>
         {% endif %}
