@@ -2874,21 +2874,6 @@ class AdvFilteredListView(SearchFormMixin, BreadCrumbMixin, MapMixin,
         return ctx
 
 
-class UniRef100View(RecordView):
-    model = UniRef100
-
-    def get_uniref90_detail(self, field, details):
-        """ inject URL """
-        name, info, val_items, unit = details
-        val_items = [
-            (val, f'https://www.uniprot.org/uniref/UniRef90_{val}')
-            for val, _ in val_items
-        ]
-        if val_items:
-            info = 'external URL'
-        return (name, info, val_items, unit)
-
-
 record_view_registry = DefaultDict(
     contig=ContigView.as_view(),
     dataset=DatasetView.as_view(),
@@ -2896,7 +2881,6 @@ record_view_registry = DefaultDict(
     sample=SampleView.as_view(),
     reference=ReferenceView.as_view(),
     taxnode=TaxonView.as_view(),
-    uniref100=UniRef100View.as_view(),
     default=RecordView.as_view(),
 )
 """
