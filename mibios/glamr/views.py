@@ -64,14 +64,15 @@ class BaseMixin(VersionInfoMixin):
     is_open = False
 
     def dispatch(self, request, *args, cache=True, **kwargs):
+        log.debug(
+            f'[BOUNCER] {type(self).__name__} '
+            f'{"open" if self.is_open else "restricted"} path={request.path}'
+        )
         disp = super().dispatch
         if request.user.is_authenticated:
             disp = cache_control(private=True)(disp)
         elif hasattr(request, 'session'):
-            self.process_session()
-            if self.is_open or request.session.get('admitted'):
-                pass
-            else:
+            if not self.check_session():
                 return Bouncer.as_view()(request, *args, cache=False, **kwargs)
 
         if cache:
@@ -79,9 +80,11 @@ class BaseMixin(VersionInfoMixin):
 
         return disp(request, *args, **kwargs)
 
-    def process_session(self):
+    def check_session(self):
         """
         Manage anonymous sessions
+
+        Returns True if request is admitted, False otherwise.
         """
         session = self.request.session
         if numreqs := session.get('numrequests', 0):
@@ -99,7 +102,14 @@ class BaseMixin(VersionInfoMixin):
 
         session['numrequests'] = numreqs + 1
 
-        if session.get('challenge'):
+        if session.get('admitted'):
+            pass
+        elif self.is_open:
+            session['admitted'] = True
+            session['entrypath'] = self.request.path
+            session.set_expiry(3600 * 24 * 7)
+            log.debug('[BOUNCER] admitted via front door')
+        elif session.get('challenge'):
             # expecting challenge response
             path_good = session.get('challenge_path') == self.request.path
             query_good = session.get('challenge_query') == self.request.META['QUERY_STRING']  # noqa:E501
@@ -107,6 +117,18 @@ class BaseMixin(VersionInfoMixin):
                 session['admitted'] = True
                 session.set_expiry(3600 * 24 * 7)
                 del session['challenge']
+                log.debug('[BOUNCER] challenge passed & admitted')
+            else:
+                log.debug('[BOUNCER] failed challenge')
+        else:
+            # no admission
+            pass
+
+        log.debug(f'[BOUNCER] session: {session.session_key or "(new)"}')
+        for k, v in session.items():
+            log.debug(f'  {k:>20}: {v}')
+
+        return session.get('admitted')
 
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
@@ -120,13 +142,6 @@ class BaseMixin(VersionInfoMixin):
 
 class OpenBaseMixin(BaseMixin):
     is_open = True
-
-    def process_session(self):
-        super().process_session()
-        if 'admitted' not in self.request.session:
-            self.request.session['admitted'] = True
-            self.request.session['entrypath'] = self.request.path
-            self.request.session.set_expiry(3600 * 24 * 7)
 
 
 class ExportMixin(ExportBaseMixin):
@@ -1859,11 +1874,22 @@ class AvailableDataView(OpenBaseMixin, TemplateView):
 class Bouncer(OpenBaseMixin, TemplateView):
     template_name = 'glamr/bouncer.html'
 
-    def process_session(self):
-        if not self.request.session.get('challenge'):
-            self.request.session['challenge'] = True
-            self.request.session['challenge_path'] = self.request.path
-            self.request.session['challenge_query'] = self.request.META['QUERY_STRING']
+    def dispatch(self, request, *args, **kwargs):
+        data = {
+            'challenge': True,
+            'challenge_path': request.path,
+            'challenge_query': request.META['QUERY_STRING'],
+        }
+        for k, v in data.items():
+            # Update session only if really needed, "challenge" is set True
+            # once, but the others might change as users might request
+            # different URLs without answering the challenge
+            if request.session.get(k) != v:
+                request.session[k] = v
+                log.debug(f'[BOUNCER] update session: {k} = {v}')
+
+        # skip the BaseMixin's dispatch() since we're coming from there
+        return super(BaseMixin, self).dispatch(request, *args, **kwargs)
 
     def get(self, request, *args, **kwargs):
         resp = super().get(request, *args, **kwargs)
