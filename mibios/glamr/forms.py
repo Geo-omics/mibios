@@ -10,6 +10,8 @@ from .models import Dataset
 from .search_fields import search_fields
 from .templatetags.glamr_extras import human_lookups
 
+from mibios.umrad.models import UniRef50, UniRef90, UniRef100
+
 
 class DatasetFilterFormHelper(FormHelper):
     model = Dataset
@@ -124,3 +126,70 @@ class QLeafEditForm(RenderMixin, QBuilderForm):
             humanized = ' -> '.join(names)
             lst.append((accessor, humanized))
         self.fields['key'].choices = lst
+
+
+class UniRefIDForm(forms.Form):
+    uniref_id = forms.CharField(
+        label='UniRef ID',
+        strip=True,
+        required=True,
+        help_text='UniRef50/90/100 ID / accession with or without prefix',
+    )
+
+    @classmethod
+    def from_data(cls, data):
+        """
+        Instantiate form depending on data in request.GET
+
+        Returns bound form if the data indicates that the request is via form
+        submission, otherwise returns an unbound form.
+        """
+        if all(i in data for i in cls.base_fields):
+            return cls(data)
+        else:
+            return cls()
+
+    def clean_uniref_id(self):
+        """
+        Sets the record attribute with the model instance if one if found
+
+        If no record exists, then an error is added to the field.
+        """
+        uniref_id = self.cleaned_data['uniref_id']
+        if obj := self.get_object(uniref_id):
+            self.record = obj
+        else:
+            self.add_error(
+                'uniref_id',
+                f'We do not have a UniRef record with ID {uniref_id}'
+            )
+        return uniref_id
+
+    @classmethod
+    def get_object(cls, accession):
+        """
+        Get matching UniRef record
+
+        If the submitted accession has one of the usual prefixes, e.g.
+        UniRef100_ then only the corresponding model is tested.  Otherwise, if
+        the accession has no prefix, then the most specific UniRef100 models is
+        tested first and the least specific clustering (UniRef50) is tested
+        last.  The first hit is returned.  If no match is found then None is
+        returned.
+        """
+        models = (UniRef100, UniRef90, UniRef50)
+        for model in models:
+            prefix = model._meta.model_name.casefold() + '_'
+            if accession.casefold().startswith(prefix):
+                accession = accession[len(prefix):]
+                candidate_models = (model,)
+                break
+        else:
+            candidate_models = models
+
+        for model in candidate_models:
+            try:
+                return model.objects.get(accession=accession)
+            except model.DoesNotExist:
+                continue
+        return None

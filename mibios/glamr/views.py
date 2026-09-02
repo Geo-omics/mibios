@@ -18,7 +18,7 @@ from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist
 from django.db import OperationalError, connection
 from django.db.models import Count, Exists, Field, OuterRef, Prefetch, URLField
-from django.http import Http404, HttpResponse, JsonResponse
+from django.http import Http404, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.urls import reverse
 from django.utils.decorators import classonlymethod
 from django.utils.functional import classproperty
@@ -30,10 +30,7 @@ from django.views.generic.list import ListView
 
 from mibios import get_registry
 from mibios.data import DataConfig, TableConfig
-from mibios.glamr.filters import (
-    DatasetFilter, UniRef90Filter, UniRef100Filter,
-    filter_registry
-)
+from mibios.glamr.filters import DatasetFilter, filter_registry
 from mibios.glamr.forms import DatasetFilterFormHelper
 from mibios.glamr.models import Sample, Dataset, pg_class, dbstat
 from mibios.query import Q
@@ -46,12 +43,14 @@ from mibios.omics.models import (
     ReadAbundance, SeqSample, TaxonAbundance,
 )
 from mibios.ncbi_taxonomy.models import TaxNode
-from mibios.umrad.models import FunctionName, FuncRefDBEntry, UniRef100
+from mibios.umrad.models import (
+    FunctionName, FuncRefDBEntry, UniRef100, UniRef90, UniRef50,
+)
 from mibios.umrad.utils import DefaultDict
 from mibios.omics.models import File, Gene
 from mibios.omics.views import RequiredSettingsMixin
 from . import models, tables, GREAT_LAKES
-from .forms import QBuilderForm, QLeafEditForm, SearchForm
+from .forms import QBuilderForm, QLeafEditForm, SearchForm, UniRefIDForm
 from .queryset import exclude_private_data
 from .search_fields import ADVANCED_SEARCH_MODELS, search_fields
 from .search_utils import AccessionSearcher, get_suggestions, SearchResult
@@ -2711,12 +2710,18 @@ class SearchView(OpenBaseMixin, SearchFormMixin, TemplateView):
     """ display the advanced search page """
     template_name = 'glamr/search_init.html'
 
+    def get(self, request, *args, **kwargs):
+        self.uniref_id_form = UniRefIDForm.from_data(request.GET)
+        if self.uniref_id_form.is_valid():
+            return HttpResponseRedirect(get_record_url(self.uniref_id_form.record))
+
+        return super().get(request, *args, **kwargs)
+
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
 
         # Support for uniref ID lookups
-        ctx['ur90filter'] = UniRef90Filter()
-        ctx['ur100filter'] = UniRef100Filter()
+        ctx['uniref_id_form'] = self.uniref_id_form
 
         # support for regular per modelfilters
         ctx['standard_filters'] = [
