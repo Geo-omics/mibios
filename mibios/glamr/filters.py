@@ -1,7 +1,7 @@
 import inspect
 import sys
 
-from django.db.models import Q, QuerySet
+from django.db.models import QuerySet
 
 from django.forms.widgets import CheckboxInput, CheckboxSelectMultiple
 
@@ -12,7 +12,7 @@ from django_filters.widgets import RangeWidget
 
 from mibios.glamr.models import Dataset, Reference, Sample
 from mibios.omics.models import ReadAbundance, SeqSample
-from mibios.umrad.models import UniRef100
+from mibios.umrad.models import UniRef50, UniRef90, UniRef100
 
 from django.contrib.postgres.search import SearchQuery
 
@@ -295,13 +295,16 @@ class ReadAbundanceFilter(FilterSet):
     def filter_by_ref(self, qs, name, value):
         """
         Filter by accession and if that fails by function name full-text search
+
+        Tries for 50/90 clusters first.
         """
-        urqs = UniRef100.objects.filter(Q(accession=value) | Q(uniref90__accession=value))
-        if urqs.exists():
-            # This exist() is much faster than testing via filter on join;
-            # Further, doing the accession filter together with the full-text
-            # search below is much slower for some reason.
-            return qs.filter(Q(ref__accession=value) | Q(ref__uniref90=value))
+        # Splitting into quick individual lookups is much faster than some complex join
+        if UniRef50.objects.filter(accession=value).exists():
+            return qs.filter(uniref90__uniref50__accession=value)
+        elif UniRef90.objects.filter(accession=value).exists():
+            return qs.filter(uniref90__accession=value)
+        elif UniRef100.objects.filter(accession=value).exists():
+            return qs.filter(accession=value)
         else:
             tsquery = SearchQuery(value, search_type='websearch')
             qs = qs.filter(
@@ -364,22 +367,6 @@ class SampleFilter(FilterSet):
 
     def add_year(self, qs, name, value):
         return qs.filter(collection_timestamp__year=value)
-
-
-class UniRef90Filter(FilterSet):
-    uniref90__accession = CharFilter(label='UniRef90 ID')
-
-    class Meta:
-        model = UniRef100
-        fields = ['uniref90__accession']
-
-
-class UniRef100Filter(FilterSet):
-    accession = CharFilter(label='UniRef100 ID')
-
-    class Meta:
-        model = UniRef100
-        fields = ['accession']
 
 
 class SeqSampleFilter(FilterSet):
