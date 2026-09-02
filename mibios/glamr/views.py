@@ -43,9 +43,7 @@ from mibios.omics.models import (
     ReadAbundance, SeqSample, TaxonAbundance,
 )
 from mibios.ncbi_taxonomy.models import TaxNode
-from mibios.umrad.models import (
-    FunctionName, FuncRefDBEntry, UniRef100, UniRef90, UniRef50,
-)
+from mibios.umrad.models import FunctionName, FuncRefDBEntry, UniRef100
 from mibios.umrad.utils import DefaultDict
 from mibios.omics.models import File, Gene
 from mibios.omics.views import RequiredSettingsMixin
