@@ -70,7 +70,7 @@ class BaseMixin(VersionInfoMixin):
         if request.user.is_authenticated:
             disp = cache_control(private=True)(disp)
         elif hasattr(request, 'session'):
-            if not self.check_session():
+            if not self.check_session() and settings.ENABLE_BOUNCER:
                 return Bouncer.as_view()(request, *args, cache=False, **kwargs)
 
         if cache:

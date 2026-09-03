@@ -71,6 +71,9 @@ FILE_DOWNLOAD_URL = '/download/'
 # Set to True to enable URLs for testing
 ENABLE_TEST_VIEWS = False
 
+# Employ the bouncer
+ENABLE_BOUNCER = True
+
 # Set to True to activate an unauthenticated admin interface, only to be used
 # in restricted environments please
 ENABLE_OPEN_ADMIN = False
