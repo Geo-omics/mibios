@@ -860,7 +860,7 @@ class ModelTableMixin(GenericModelMixin, ExportMixin):
         cols = []
         try:
             acc_field = self.model.get_accession_field_single()
-        except (RuntimeError, LookupError):
+        except LookupError:
             acc_field = None
             col = TemplateColumn(
                 '{%load glamr_extras%}[<a href="{% record_url record %}">'
@@ -2016,7 +2016,7 @@ class RecordView(BaseMixin, BreadCrumbMixin, DetailView):
         else:
             raise RuntimeError(f'missing items in {self.kwargs=}')
 
-    def get_natural_object_lookups(self, key):
+    def get_natural_object_lookups(self, value):
         """
         Return lookup/filter based on natural key
 
@@ -2029,9 +2029,14 @@ class RecordView(BaseMixin, BreadCrumbMixin, DetailView):
         kwargs in QuerySet.filter().
         """
         if issubclass(self.model, IDMixin):
-            return {self.model.id_attr: f'{self.model.id_prefix}{key}'}
+            return {self.model.id_attr: f'{self.model.id_prefix}{value}'}
         else:
-            return dict(pk=key)
+            try:
+                accn_field = self.model.get_accession_field_single()
+            except LookupError:
+                return dict(pk=value)
+            else:
+                return {accn_field.name: value}
 
     def get_object(self, lookups=None, queryset=None):
         if queryset is None:

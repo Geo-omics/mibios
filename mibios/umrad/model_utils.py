@@ -372,7 +372,7 @@ class Model(MibiosModel):
         """
         fields = cls.get_accession_fields()
         if len(fields) > 1:
-            raise RuntimeError('model has multiple "unique_together" fields')
+            raise LookupError('model has multiple "unique_together" fields')
         return fields[0]
 
     @classmethod

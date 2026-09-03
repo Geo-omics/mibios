@@ -6,6 +6,7 @@ from django.db import connection
 from django.urls import reverse
 
 from mibios import get_registry
+from mibios.umrad.models import VocabularyModel
 
 
 query_word_pat = re.compile(r"""("[^"]*"|'[^']*'|\S+)\s*""")
@@ -47,7 +48,6 @@ def get_record_url(*args, **kwargs):
     models from other apps.
     """
     DEFAULT_KEYTYPE = 'natkey'
-    ktype = DEFAULT_KEYTYPE
     # If object/model has its own get_record_url then use that, otherwise fall
     # back to the generic 'record' url.
     if len(args) == 1 and not kwargs:
@@ -55,22 +55,41 @@ def get_record_url(*args, **kwargs):
         obj = args[0]
         if hasattr(obj, 'get_record_url'):
             return obj.get_record_url(obj)
+        model = type(obj)
         model_name = obj._meta.model_name
-        key = obj.pk
-    elif len(args) == 1 and len(kwargs) == 1:
-        # called with model name and keytype/key keyword arg
-        model_name = args[0]
-        (ktype, key), *_ = kwargs.items()
-        ktype = ktype or DEFAULT_KEYTYPE
-    elif len(args) == 2 and not kwargs:
-        # called with model name and key / default keytype
-        model_name, key = args
+        if isinstance(obj, VocabularyModel):
+            # the entry field is not good for URLs, use PKs then
+            ktype = 'pk'
+            key = obj.pk
+        else:
+            try:
+                accn_field = model.get_accession_field_single()
+            except (AttributeError, LookupError):
+                ktype = 'pk'
+                key = obj.pk
+            else:
+                if accn_field.name in obj.get_deferred_fields():
+                    ktype = 'pk'
+                    key = obj.pk
+                else:
+                    ktype = DEFAULT_KEYTYPE
+                    key = getattr(obj, accn_field.name)
     else:
-        raise TypeError(
-            f'bad number/combination of args/kwargs: {args=} {kwargs=}'
-        )
+        if len(args) == 1 and len(kwargs) == 1:
+            # called with model name and keytype/key keyword arg
+            model_name = args[0]
+            (ktype, key), *_ = kwargs.items()
+            ktype = ktype or DEFAULT_KEYTYPE
+        elif len(args) == 2 and not kwargs:
+            # called with model name and key / default keytype
+            model_name, key = args
+            ktype = DEFAULT_KEYTYPE
+        else:
+            raise TypeError(
+                f'bad number/combination of args/kwargs: {args=} {kwargs=}'
+            )
+        model = get_registry()[model_name]
 
-    model = get_registry()[model_name]
     if hasattr(model, 'get_record_url'):
         return model.get_record_url(key, ktype=ktype)
     else:
