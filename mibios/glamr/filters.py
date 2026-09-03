@@ -140,7 +140,7 @@ class AutoChoiceMixin:
         return super().field
 
     def filter(self, qs, value):
-        # super()'s filter() does null value lookup only to None, not out more
+        # super()'s filter() does null value lookup only to None, not our more
         # common empty string.  We also use the 'exact' lookup, unsure if any
         # other lookup ever makes any sense
         if value == self.null_value and self.blank_value is not None:
@@ -203,10 +203,15 @@ class FilterSet(OrigFilterSet):
         super().__init__(*args, **kwargs)
         self.applied_filters = []
 
-    def for_display(self):
+    def for_display(self, prefix=None):
         """
         Get display items for a bound+cleaned filter / form / set
         """
+        if prefix:
+            prefix = f'({prefix}) '
+        else:
+            prefix = ''
+
         ret = []
         for name in self.applied_filters:
             fi = self.filters[name]
@@ -225,7 +230,7 @@ class FilterSet(OrigFilterSet):
                 # assume str() will work just fine
                 pass
 
-            ret.append((label, value))
+            ret.append((prefix + label, value))
         return ret
 
     def filter_queryset(self, queryset):
