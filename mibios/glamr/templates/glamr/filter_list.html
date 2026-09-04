@@ -42,6 +42,7 @@
 {%endif%}
 
 {% if table_length != 0 %}
+{% include "glamr/related_table_links.html" %}
 {% include "glamr/download_links.html" %}
 {% render_table table %}
 {% endif %}

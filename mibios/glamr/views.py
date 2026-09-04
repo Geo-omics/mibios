@@ -577,7 +577,7 @@ class EditFilterMixin(BaseFilterMixin):
 
 class FilterMixin:
     """
-    Mixin for django-filter
+    Mixin for views with filters
     """
     filter_class = None
 
@@ -585,50 +585,54 @@ class FilterMixin:
         """
         Set the view's filter attribute and return filtered queryset
         """
+        self.filter_relation = []
+        rel_one_to_many = False
         if self.filter_class is None:
-            try:
-                fclass = filter_registry.from_get(self.request.GET)
-            except LookupError:
-                # GET qstr does not match filter signature
-                try:
-                    fclass = filter_registry.by_model[self.model]
-                except KeyError:
-                    fclass = None
+            filter_model = self.model
+            if filter_rel := self.request.GET.get('filter-rel'):
+                filter_rel = filter_rel.split('__')
+                for fieldname in filter_rel:
+                    try:
+                        field = filter_model._meta.get_field(fieldname)
+                    except FieldDoesNotExist as e:
+                        raise Http404(
+                            f'invalid field on {filter_model._meta.model_name}: '
+                            f'{fieldname=}'
+                        ) from e
+                    if not (filter_model := field.related_model):
+                        raise Http404(
+                            f'not a relation {filter_model._meta.model_name}: '
+                            f'{fieldname}'
+                        )
+                    self.filter_relation.append(field)
+                    if field.one_to_many:
+                        rel_one_to_many = True
             else:
-                if self.model is not fclass._meta.model:
-                    if rel_term := self.request.GET.get('filter-rel'):
-                        # Cross-relation filtering:
-                        # 1. find the related model
-                        self.filter_relation = []
-                        rel_model = self.model
-                        for rel in rel_term.split('__'):
-                            try:
-                                rel_field = rel_model._meta.get_field(rel)
-                            except FieldDoesNotExist:
-                                raise Http404(
-                                    f'not a valid field on {rel_model.__name__}: {rel}'
-                                )
-                            self.filter_relation.append(rel_field)
-                            if not (rel_model := rel_field.related_model):
-                                raise Http404(
-                                    f'not a relation from {rel_model.__name__}: {rel}'
-                                )
-                        # 2. Apply filter on related model
-                        self.filter = fclass(self.request.GET, rel_model.objects.all())
-                        # 3. Filter the view's model via subquery
-                        return qs.filter(primary_ref__in=self.filter.qs.values('pk'))
-                    else:
-                        raise Http404('model is incompatible with filter code ')
-        else:
-            fclass = self.filter_class
+                filter_rel = None
 
-        self.filter_relation = None
-        if fclass:
-            self.filter = fclass(self.request.GET, qs)
-            return self.filter.qs
-        else:
+            try:
+                self.filter_class = filter_registry.by_model[filter_model]
+            except KeyError:
+                pass
+
+        # A. no filter
+        if self.filter_class is None:
             self.filter = None
             return qs
+
+        # B. filter on out model
+        if self.filter_class._meta.model is self.model:
+            self.filter = self.filter_class(self.request.GET, qs)
+            return self.filter.qs
+
+        # C. filter on other model
+        self.filter = self.filter_class(self.request.GET)
+        rel_term = self.request.GET.get('filter-rel')
+        f = {rel_term + '__in': self.filter.qs.values('pk')}
+        qs = qs.filter(**f)
+        if rel_one_to_many:
+            qs = qs.distinct()
+        return qs
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -643,9 +647,27 @@ class FilterMixin:
                 getattr(i, 'verbose_name', i.name)
                 for i in self.filter_relation
             )
+        else:
+            relation_txt = None
         if self.filter:
             ctx['filter_items'] = self.filter.for_display(prefix=relation_txt)
-            ctx['filter_label'] = f'(on {relation_txt})'
+            if self.filter_relation:
+                ctx['filter_label'] = f'(on {relation_txt})'
+            fwd_graph, rev_graph = self.filter._meta.model.get_simple_related_graph()
+            fwd_graph = [(a, m) for a, m in fwd_graph if self.is_allowed_model(m)]
+            rev_graph = [(a, m) for a, m in rev_graph if self.is_allowed_model(m)]
+            ctx['rel_data'] = []
+            for acc, model in fwd_graph + [('', self.filter._meta.model)] + rev_graph:
+                if model is self.model:
+                    qstr = None  # meaning don't make a link
+                else:
+                    qdict = self.request.GET.copy()
+                    if acc == '':
+                        del qdict['filter-rel']
+                    else:
+                        qdict['filter-rel'] = '__'.join(acc)
+                    qstr = '?' + qstr if (qstr := qdict.urlencode()) else ''
+                ctx['rel_data'].append((model, qstr))
         else:
             ctx['filter_items'] = []
         if 'version_info' in ctx:

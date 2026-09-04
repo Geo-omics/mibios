@@ -904,6 +904,31 @@ class Model(models.Model):
         ]
 
     @classmethod
+    def get_simple_related_graph(cls):
+        """
+        Get fwd+rev (simple/direct) relation graph
+        """
+        def get_nodes(model, forward, accessor, seen=None):
+            if seen is None:
+                seen = set()
+            for field in model._meta.get_fields():
+                if field in seen:
+                    continue
+                if forward and field.many_to_one or not forward and field.one_to_many:
+                    if forward:
+                        accessor_item = field.remote_field.name
+                    else:
+                        accessor_item = field.remote_field.name
+                    # don't reuse the passed accessor list
+                    yield ([accessor_item] + accessor, field.remote_field.model)
+                    seen.add(field)
+                    yield from get_nodes(
+                        field.related_model, forward, [accessor_item] + accessor, seen
+                    )
+
+        return list(get_nodes(cls, True, [])), list(get_nodes(cls, False, []))
+
+    @classmethod
     def get_related_accessors(cls):
         """
         Discover simple local and forward-looking remotely related fields

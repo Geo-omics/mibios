@@ -1,0 +1,11 @@
+{% load glamr_extras %}
+{# Fragment to display links to related data #}
+<div class="m-2">Related data:
+    {% for model, qstr in rel_data %}
+        {% if qstr is None %}
+            &lt;&dash;&dash; {{view.model|meta:"verbose_name_plural"|capfirstsmart}} &dash;&dash;&gt;
+        {% else %}
+            [<a href="{% url 'filter_result2' model=model|meta:"model_name" %}{{qstr}}">{{model|meta:"verbose_name_plural"|capfirstsmart}}</a>]
+        {% endif %}
+    {% endfor %}
+</div>
