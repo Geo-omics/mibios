@@ -6,6 +6,7 @@ from django.urls import reverse
 from django.utils.html import escape, format_html, mark_safe
 
 from django_tables2 import Column, ManyToManyColumn, Table as Table0
+from django_tables2.columns import library as columns_library
 from django_tables2.data import TableData
 
 from mibios.glamr import models as glamr_models
@@ -16,6 +17,17 @@ from mibios.query import ChainedQuerySet, QuerySet
 
 from . import HORIZONTAL_ELLIPSIS
 from .utils import get_record_url
+
+
+@columns_library.register
+class ColumnX(Column):
+    @classmethod
+    def from_field(cls, field, **kwargs):
+        if field.name == 'ref':
+            return cls(
+                accessor='ref__accession',
+                verbose_name=getattr(field, "verbose_name", field.name),
+            )
 
 
 class Table(Table0):
