@@ -704,16 +704,19 @@ class GenericModelMixin:
     @classmethod
     def is_allowed_model(cls, model):
         """ Tell if the view supports/allows the model given """
-        return f'{model._meta.app_label}.{model._meta.model_name}' in cls.allowed_models  # noqa:E501
+        if cls._allowed_models is None:
+            cls.get_allowed_models()  # populate _allowed_models
+        return model in cls._allowed_models
 
     _allowed_models = None
+    """ class-level cache, set of possible models """
 
     @classmethod
     def get_allowed_models(cls):
-        """ Return list of allowed models' classes """
+        """ Return set of allowed models' classes """
         if cls._allowed_models is None:
             cls._allowed_models = \
-                [apps.get_model(i) for i in cls.allowed_models]
+                set(apps.get_model(i) for i in cls.allowed_models)
         return cls._allowed_models
 
     def setup(self, request, *args, **kwargs):
@@ -757,7 +760,7 @@ class BreadCrumbMixin:
         breadcumbs.
         """
         gr = {Dataset: None}  # breadcrumbs are rooted in Dataset
-        models = set(GenericModelMixin.get_allowed_models())
+        models = GenericModelMixin.get_allowed_models().copy()
         models.remove(Dataset)
         while models:
             for m in models:
