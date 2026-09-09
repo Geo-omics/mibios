@@ -585,6 +585,10 @@ class FilterMixin:
         """
         Set the view's filter attribute and return filtered queryset
         """
+        if hasattr(self, 'filter'):
+            # method is not idempotent
+            raise RuntimeError('only call apply_filter() once')
+
         rel_one_to_many = False
         if self.filter_class is None:
             filter_model = self.model
@@ -996,7 +1000,8 @@ class MapMixin():
             if hasattr(self, 'conf') and self.conf is not None:
                 return self.conf.shift('sample', reverse=True).get_queryset()
             else:
-                return Sample.objects.filter(dataset__in=self.get_queryset())
+                # Expecting ListView.get() to have run already
+                return Sample.objects.filter(dataset__in=self.object_list)
         else:
             return Sample.objects.none()
 
