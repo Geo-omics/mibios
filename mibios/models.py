@@ -926,7 +926,12 @@ class Model(models.Model):
                         field.related_model, forward, [accessor_item] + accessor, seen
                     )
 
-        return list(get_nodes(cls, True, [])), list(get_nodes(cls, False, []))
+        # Sorting, such that, if the instant model is centered between forwards
+        # and reversely related models, the further away listed models are more
+        # relation hops away.  Simple sort by number or hops.
+        fwds = sorted(get_nodes(cls, True, []), key=lambda x: -len(x[0]))
+        revs = sorted(get_nodes(cls, False, []), key=lambda x: len(x[0]))
+        return fwds, revs
 
     @classmethod
     def get_related_accessors(cls):

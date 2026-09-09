@@ -585,7 +585,6 @@ class FilterMixin:
         """
         Set the view's filter attribute and return filtered queryset
         """
-        self.filter_relation = []
         rel_one_to_many = False
         if self.filter_class is None:
             filter_model = self.model
@@ -604,7 +603,6 @@ class FilterMixin:
                             f'not a relation {filter_model._meta.model_name}: '
                             f'{fieldname}'
                         )
-                    self.filter_relation.append(field)
                     if field.one_to_many:
                         rel_one_to_many = True
             else:
@@ -642,17 +640,14 @@ class FilterMixin:
     def get_context_data(self, **ctx):
         ctx = super().get_context_data(**ctx)
         ctx['filter'] = self.filter
-        if self.filter_relation:
-            relation_txt = ' -> '.join(
-                getattr(i, 'verbose_name', i.name)
-                for i in self.filter_relation
-            )
-        else:
-            relation_txt = None
         if self.filter:
-            ctx['filter_items'] = self.filter.for_display(prefix=relation_txt)
-            if self.filter_relation:
-                ctx['filter_label'] = f'(on {relation_txt})'
+            if self.filter._meta.model is not self.model:
+                # related filter
+                filter_label = self.filter._meta.model._meta.verbose_name_plural
+            else:
+                filter_label = None
+            ctx['filter_label'] = filter_label
+            ctx['filter_items'] = self.filter.for_display(prefix=filter_label)
             fwd_graph, rev_graph = self.filter._meta.model.get_simple_related_graph()
             fwd_graph = [(a, m) for a, m in fwd_graph if self.is_allowed_model(m)]
             rev_graph = [(a, m) for a, m in rev_graph if self.is_allowed_model(m)]

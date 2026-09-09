@@ -28,7 +28,7 @@
 <div class="accordion-item">
     <h2 class="accordion-header">
         <button type="button" class="accordion-button" data-bs-toggle="collapse" data-bs-target="#full-text-search" aria-expanded="true" aria-controls="full-text-search">
-            + Change filter {{ filter_label }}
+            + Change filter{%if filter_label%} (on {{filter_label|capfirstsmart}}){%endif%}
         </button>
     </h2>
     <div id="full-text-search" class="accordion-collapse collapse">
