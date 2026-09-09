@@ -622,7 +622,7 @@ class FilterMixin:
             self.filter = None
             return qs
 
-        # B. filter on out model
+        # B. filter on same model
         if self.filter_class._meta.model is self.model:
             self.filter = self.filter_class(self.request.GET, qs)
             return self.filter.qs

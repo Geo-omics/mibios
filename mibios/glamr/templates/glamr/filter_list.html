@@ -32,7 +32,7 @@
         </button>
     </h2>
     <div id="full-text-search" class="accordion-collapse collapse">
-            <form action="{%url 'filter_result2' model=model_name%}">
+            <form action="{%url 'filter_result2' model=model_name%}" class="filter">
             {{filter.form|crispy}}
             <button type="submit" class="btn btn-primary">Search</button>
             </form>
@@ -49,5 +49,6 @@
 
 {% endblock %}{# content #}
 
-
-
+{% block body_bottom %}{{ block.super }}
+<script src="{% static 'glamr/js/glamr.js' %}" defer></script>
+{% endblock %}

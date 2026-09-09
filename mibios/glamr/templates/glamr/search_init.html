@@ -51,7 +51,7 @@
     <div class="tab-content" id="adv-search-forms-div">
         {% for name, verbose, filter in standard_filters %}
         <div class="tab-pane{%if forloop.first%} show active{%endif%}" id="{{name}}-tab-pane" role="tabpanel" aria-labelled-by="{{name}}-tab" tabindex="0">
-            <form action="{%url 'filter_result2' model=name%}">
+            <form action="{%url 'filter_result2' model=name%}" class="filter">
             {{filter.form|crispy}}
             <button type="submit" class="btn btn-primary">Search</button>
             </form>
@@ -86,3 +86,6 @@
 </div>{# END ACCORDION #}
 {% endblock %}
 
+{% block body_bottom %}{{ block.super }}
+<script src="{% static 'glamr/js/glamr.js' %}" defer></script>
+{% endblock %}
