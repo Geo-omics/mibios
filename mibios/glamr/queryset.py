@@ -298,7 +298,10 @@ class SampleQuerySet(AccessMixin, QuerySet):
         already unique, so they are ignored.
         """
         uniq_keys = ('id', 'sample_id')  # fields that are unique regardless
-        ignore = ('access', )  # has non-hashable value, get out of the way
+        ignore = (
+            'access',  # has non-hashable value, get out of the way
+            'sample_name',  # may differ due to changes in data import
+        )
 
         # 1. get objects
         qs = self.exclude(biosample='').prefetch_related('seqsample_set')
@@ -361,8 +364,11 @@ class SampleQuerySet(AccessMixin, QuerySet):
             obj_from.delete()
             if verbose:
                 sqs_fmt = ', '.join(i.sample_id for i in sqs)
-                print(f'{obj_to.dataset.dataset_id} {obj_from.sample_id} --> '
-                      f'{obj_to.sample_id} [{sqs_fmt}]')
+                msg = (f'{obj_to.dataset.dataset_id} {obj_from.sample_id} --> '
+                       f'{obj_to.sample_id} [{sqs_fmt}]')
+                if obj_from.sample_name and obj_from.sample_name != obj_to.sample_name:
+                    msg += f' (had sample_name "{obj_from.sample_name}")'
+                print(msg)
 
     def dedup_biosample_print(self, outfile=None):
         """
