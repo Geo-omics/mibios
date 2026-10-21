@@ -354,12 +354,15 @@ class SampleQuerySet(AccessMixin, QuerySet):
         for obj_from, obj_to in self.dedup_biosample().items():
             if obj_to is None:
                 continue
+            if obj_from.dataset != obj_to.dataset:
+                raise RuntimeError(f'dataset mismatch: {obj_from} vs {obj_to}')
             sqs = obj_from.seqsample_set.all()
             obj_to.seqsample_set.add(*sqs)
             obj_from.delete()
             if verbose:
                 sqs_fmt = ', '.join(i.sample_id for i in sqs)
-                print(f'{obj_from.sample_id} --> {obj_to.sample_id} [{sqs_fmt}]')
+                print(f'{obj_to.dataset.dataset_id} {obj_from.sample_id} --> '
+                      f'{obj_to.sample_id} [{sqs_fmt}]')
 
     def dedup_biosample_print(self, outfile=None):
         """
