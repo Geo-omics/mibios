@@ -286,7 +286,7 @@ class SampleQuerySet(AccessMixin, QuerySet):
             if len(uniques) == 1:
                 stats[1] += 1
                 continue
-            print(f'{num:>3}: {uniques}')
+            print(f'{num:>5}: {uniques}')
             stats[len(uniques)] += 1
         print(f'Stats: group sizes: {stats}')
 
@@ -343,7 +343,7 @@ class SampleQuerySet(AccessMixin, QuerySet):
         return data
 
     @atomic_dry
-    def dedup_biosample_migrate(self):
+    def dedup_biosample_migrate(self, verbose=True):
         """
         Implements the biosample deduplication
 
@@ -354,8 +354,12 @@ class SampleQuerySet(AccessMixin, QuerySet):
         for obj_from, obj_to in self.dedup_biosample().items():
             if obj_to is None:
                 continue
-            obj_to.seqsample_set.add(*obj_from.seqsample_set.all())
+            sqs = obj_from.seqsample_set.all()
+            obj_to.seqsample_set.add(*sqs)
             obj_from.delete()
+            if verbose:
+                sqs_fmt = ', '.join(i.sample_id for i in sqs)
+                print(f'{obj_from.sample_id} --> {obj_to.sample_id} [{sqs_fmt}]')
 
     def dedup_biosample_print(self, outfile=None):
         """
@@ -387,7 +391,8 @@ class SampleQuerySet(AccessMixin, QuerySet):
                         prim = "//".join(
                             p for p in (sqs.fwd_primer, sqs.rev_primer) if p
                         )
-                        print(f'      {i.sample_id} {sqs.sample_type} {prim}',
+                        print(f'      {i.dataset.dataset_id} {i.sample_id} '
+                              f'({sqs.sample_type}) {sqs.sample_id} {prim}',
                               file=outf)
             else:
                 # Case B: bad group, print values that differ within group
@@ -400,7 +405,7 @@ class SampleQuerySet(AccessMixin, QuerySet):
 
                 diffs = zip(*diffs0, strict=True)  # transpose diff
                 for obj, diff_vals in zip(grp, diffs):
-                    print(f'[EE]   {obj.sample_id}:',
+                    print(f'[EE]   {obj.dataset.dataset_id:<7} {obj.sample_id:<10}:',
                           *(f'{k}={v}' for k, v in diff_vals), file=outf)
 
             print(file=outf)
