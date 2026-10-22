@@ -1317,6 +1317,14 @@ class SeqSampleLoader(MetaDataLoader):
             raise SkipRow('found in blocklist')
         return value
 
+    def check_sample_name(self, value, obj, **ctx):
+        """ Only populate sample_name with BioSampleName if needed """
+        if obj.sample_name:
+            # already set by SeqSampleName
+            return CSV_Spec.IGNORE_COLUMN
+        else:
+            return value
+
     def check_parent(self, value, **ctx):
         if not value:
             # presumably data entry WIP, so skip
@@ -1327,7 +1335,8 @@ class SeqSampleLoader(MetaDataLoader):
         ('SeqSampleID', 'sample_id', check_id),
         ('SRA accession', 'sra_accession'),
         ('sample_type', 'sample_type'),
-        ('SampleName', 'sample_name'),
+        ('SeqSampleName', 'sample_name'),
+        ('BioSampleName', 'sample_name', check_sample_name),
         ('BioSampleID', 'parent', check_parent),
         ('GOLD_analysis_projectID', 'gold_analysis_id'),
         ('GOLD_sequencing_projectID', 'gold_seq_id'),
