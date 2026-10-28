@@ -112,7 +112,8 @@ class Table(Table0):
 
         for i in self.columns:
             if field := i.accessor.get_field(self._meta.model):
-                i.is_numeric = self._meta.model.is_numeric_field(field)
+                if hasattr(field.model, 'is_numeric_field'):
+                    i.is_numeric = field.model.is_numeric_field(field)
 
     def customize_queryset(self, qs):
         """
